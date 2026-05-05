@@ -67,6 +67,12 @@ struct AudioRecorderView: View {
                         .foregroundStyle(.red)
                         .font(.callout)
                 }
+
+                if let warning = viewModel.systemAudioWarningMessage {
+                    Label(warning, systemImage: "speaker.slash")
+                        .foregroundStyle(.orange)
+                        .font(.callout)
+                }
             }
 
             // Transcribing indicator after stop

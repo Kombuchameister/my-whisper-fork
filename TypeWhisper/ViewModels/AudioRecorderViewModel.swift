@@ -74,6 +74,7 @@ final class AudioRecorderViewModel: ObservableObject {
     @Published var selectedTask: TranscriptionTask = .transcribe
     @Published var recordings: [RecordingItem] = []
     @Published var errorMessage: String?
+    @Published var systemAudioWarningMessage: String?
     @Published var partialText: String = ""
     @Published var isTranscribing: Bool = false
 
@@ -187,6 +188,11 @@ final class AudioRecorderViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] value in self?.systemLevel = value }
             .store(in: &cancellables)
+
+        recorderService.$systemAudioWarningMessage
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] value in self?.systemAudioWarningMessage = value }
+            .store(in: &cancellables)
     }
 
     nonisolated static func canToggleRecording(
@@ -220,6 +226,7 @@ final class AudioRecorderViewModel: ObservableObject {
     func startRecording() {
         guard state == .idle else { return }
         errorMessage = nil
+        systemAudioWarningMessage = nil
         partialText = ""
         Task {
             do {
