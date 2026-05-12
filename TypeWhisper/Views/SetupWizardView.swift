@@ -1154,14 +1154,26 @@ struct SetupWizardView: View {
                     .buttonStyle(.bordered)
                 }
 
-                Button(String(localized: "Next")) {
-                    withAnimation { currentStep += 1 }
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(!canProceed)
+                nextButton
             }
         }
         .padding()
+    }
+
+    @ViewBuilder
+    private var nextButton: some View {
+        if canProceed {
+            Button(String(localized: "Next")) {
+                withAnimation { currentStep += 1 }
+            }
+            .buttonStyle(.borderedProminent)
+            .frame(minWidth: 72)
+        } else {
+            Button(String(localized: "Next")) {}
+                .buttonStyle(.bordered)
+                .disabled(true)
+                .frame(minWidth: 72)
+        }
     }
 
     // MARK: - Helpers
@@ -1177,7 +1189,8 @@ struct SetupWizardView: View {
     }
 
     private var hasAnyEngineReady: Bool {
-        pluginManager.transcriptionEngines.contains { $0.isConfigured }
+        _ = pluginManager.readinessRevision
+        return pluginManager.transcriptionEngines.contains { $0.isConfigured }
     }
 
     private var hasAnyHotkeySet: Bool {

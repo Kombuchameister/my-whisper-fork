@@ -124,6 +124,21 @@ final class ParakeetPluginTests: XCTestCase {
         XCTAssertEqual(enabledPlugin.dictionaryTermsSupport, .supported)
     }
 
+    func testSettingsDismissalRequiresOnlyBaseModelReadiness() throws {
+        let host = try PluginTestHostServices(defaults: ["vocabularyBoostingEnabled": true])
+        let plugin = makePlugin()
+        plugin.activate(host: host)
+
+        XCTAssertFalse(plugin.canDismissSettingsAfterSetup)
+
+        plugin.ctcModelState = .ready
+        XCTAssertFalse(plugin.canDismissSettingsAfterSetup)
+
+        plugin.modelState = .ready
+        plugin.ctcModelState = .downloading
+        XCTAssertTrue(plugin.canDismissSettingsAfterSetup)
+    }
+
     func testEnablingVocabularyBoostingPersistsAndNotifiesCapabilityChange() throws {
         let host = try PluginTestHostServices()
         let plugin = makePlugin()

@@ -1,3 +1,4 @@
+import Combine
 import XCTest
 import TypeWhisperPluginSDK
 @testable import TypeWhisper
@@ -74,6 +75,26 @@ final class PluginManifestValidationTests: XCTestCase {
             LanguageSelection.hints(["fr", "uk"]).normalizedForSupportedLanguages(Qwen3Plugin.qwenSupportedLanguageCodes),
             .exact("fr")
         )
+    }
+
+    @MainActor
+    func testNotifyPluginStateChangedIncrementsReadinessRevisionAndNotifiesObservers() throws {
+        let appSupportDirectory = try TestSupport.makeTemporaryDirectory()
+        defer { TestSupport.remove(appSupportDirectory) }
+
+        let manager = PluginManager(appSupportDirectory: appSupportDirectory)
+        let initialRevision = manager.readinessRevision
+        let notification = expectation(description: "plugin manager publishes readiness change")
+
+        let cancellable = manager.objectWillChange.sink {
+            notification.fulfill()
+        }
+
+        manager.notifyPluginStateChanged()
+
+        XCTAssertEqual(manager.readinessRevision, initialRevision + 1)
+        wait(for: [notification], timeout: 1)
+        withExtendedLifetime(cancellable) {}
     }
 }
 

@@ -191,6 +191,7 @@ final class PluginManager: ObservableObject {
 
     @Published var loadedPlugins: [LoadedPlugin] = []
     @Published private(set) var incompatibleExternalBundles: [String: IncompatibleExternalBundle] = [:]
+    @Published private(set) var readinessRevision = 0
 
     let pluginsDirectory: URL
     private var ruleNamesProvider: @MainActor () -> [String] = { [] }
@@ -643,7 +644,7 @@ final class PluginManager: ObservableObject {
 
     /// Notify observers that plugin state changed (e.g. a model was loaded/unloaded)
     func notifyPluginStateChanged() {
-        objectWillChange.send()
+        readinessRevision += 1
     }
 
     // MARK: - Dynamic Plugin Management
