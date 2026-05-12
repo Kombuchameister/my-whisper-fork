@@ -79,6 +79,7 @@ jobs:
             cohere) TARGET="CoherePlugin" ;;
             speechmatics) TARGET="SpeechmaticsPlugin" ;;
             system-tts) TARGET="SystemTTSPlugin" ;;
+            supertonic) TARGET="SupertonicPlugin" ;;
             filler-words) TARGET="FillerWordsPlugin" ;;
             xai) TARGET="XAIPlugin" ;;
             *) echo "Unknown plugin: $PLUGIN_NAME" && exit 1 ;;

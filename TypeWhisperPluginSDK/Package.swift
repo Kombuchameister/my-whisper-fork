@@ -14,6 +14,7 @@ let package = Package(
         .package(url: "https://github.com/Blaizzy/mlx-audio-swift.git", revision: "2685c640d4079641a01ef3489cacb684c34109fd"),
         .package(url: "https://github.com/huggingface/swift-huggingface.git", exact: "0.9.0"),
         .package(url: "https://github.com/ml-explore/mlx-swift.git", exact: "0.31.3"),
+        .package(url: "https://github.com/microsoft/onnxruntime-swift-package-manager.git", from: "1.24.2"),
     ],
     targets: [
         .target(name: "TypeWhisperPluginSDK"),
@@ -102,6 +103,18 @@ let package = Package(
             name: "SystemTTSPlugin",
             dependencies: ["TypeWhisperPluginSDK"],
             path: "Plugins/SystemTTSPlugin",
+            exclude: ["Tests"],
+            resources: [
+                .process("manifest.json"),
+            ]
+        ),
+        .target(
+            name: "SupertonicPlugin",
+            dependencies: [
+                "TypeWhisperPluginSDK",
+                .product(name: "onnxruntime", package: "onnxruntime-swift-package-manager"),
+            ],
+            path: "Plugins/SupertonicPlugin",
             exclude: ["Tests"],
             resources: [
                 .process("manifest.json"),
@@ -220,6 +233,15 @@ let package = Package(
                 "SystemTTSPlugin",
             ],
             path: "Plugins/SystemTTSPlugin/Tests"
+        ),
+        .testTarget(
+            name: "SupertonicPluginTests",
+            dependencies: [
+                "TypeWhisperPluginSDK",
+                "TypeWhisperPluginSDKTesting",
+                "SupertonicPlugin",
+            ],
+            path: "Plugins/SupertonicPlugin/Tests"
         ),
         .testTarget(
             name: "FileMemoryPluginTests",

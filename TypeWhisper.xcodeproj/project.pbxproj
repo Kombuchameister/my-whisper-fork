@@ -28,6 +28,13 @@
 		A10000000000000000000001 /* SystemTTSPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000001 /* SystemTTSPlugin.swift */; };
 		A10000000000000000000002 /* manifest.json in Resources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000002 /* manifest.json */; };
 		A10000000000000000000003 /* TypeWhisperPluginSDK in Frameworks */ = {isa = PBXBuildFile; productRef = PP00000000000000000044 /* TypeWhisperPluginSDK */; };
+		D20000000000000000000001 /* SupertonicPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20100000000000000000001 /* SupertonicPlugin.swift */; };
+		D20000000000000000000002 /* SupertonicModelAssetManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20100000000000000000002 /* SupertonicModelAssetManager.swift */; };
+		D20000000000000000000003 /* SupertonicPlaybackSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20100000000000000000003 /* SupertonicPlaybackSession.swift */; };
+		D20000000000000000000004 /* SupertonicRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20100000000000000000004 /* SupertonicRuntime.swift */; };
+		D20000000000000000000005 /* manifest.json in Resources */ = {isa = PBXBuildFile; fileRef = D20100000000000000000005 /* manifest.json */; };
+		D20000000000000000000006 /* TypeWhisperPluginSDK in Frameworks */ = {isa = PBXBuildFile; productRef = D20700000000000000000001 /* TypeWhisperPluginSDK */; };
+		D20000000000000000000007 /* onnxruntime in Frameworks */ = {isa = PBXBuildFile; productRef = D20700000000000000000002 /* onnxruntime */; };
 		A10000000000000000000005 /* SpeechFeedbackServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000004 /* SpeechFeedbackServiceTests.swift */; };
 		A10000000000000000000006 /* WorkflowServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000005 /* WorkflowServiceTests.swift */; };
 		AA00000000000000000350 /* ObjCExceptionCatcher.m in Sources */ = {isa = PBXBuildFile; fileRef = BB00000000000000000351 /* ObjCExceptionCatcher.m */; };
@@ -677,6 +684,12 @@
 		B10000000000000000000001 /* SystemTTSPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemTTSPlugin.swift; sourceTree = "<group>"; };
 		B10000000000000000000002 /* manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = manifest.json; sourceTree = "<group>"; };
 		B10000000000000000000003 /* SystemTTSPlugin.bundle */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SystemTTSPlugin.bundle; sourceTree = BUILT_PRODUCTS_DIR; };
+		D20100000000000000000001 /* SupertonicPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupertonicPlugin.swift; sourceTree = "<group>"; };
+		D20100000000000000000002 /* SupertonicModelAssetManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupertonicModelAssetManager.swift; sourceTree = "<group>"; };
+		D20100000000000000000003 /* SupertonicPlaybackSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupertonicPlaybackSession.swift; sourceTree = "<group>"; };
+		D20100000000000000000004 /* SupertonicRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupertonicRuntime.swift; sourceTree = "<group>"; };
+		D20100000000000000000005 /* manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = manifest.json; sourceTree = "<group>"; };
+		D20100000000000000000006 /* SupertonicPlugin.bundle */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SupertonicPlugin.bundle; sourceTree = BUILT_PRODUCTS_DIR; };
 		BB00000000000000000232 /* OpenAIVectorMemoryPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAIVectorMemoryPlugin.swift; sourceTree = "<group>"; };
 		BB00000000000000000233 /* manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = manifest.json; sourceTree = "<group>"; };
 		BB00000000000000000234 /* OpenAIVectorMemoryPlugin.bundle */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = OpenAIVectorMemoryPlugin.bundle; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -1019,6 +1032,15 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		D20400000000000000000003 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D20000000000000000000006 /* TypeWhisperPluginSDK in Frameworks */,
+				D20000000000000000000007 /* onnxruntime in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		FF00000000000000000120 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -1174,6 +1196,7 @@
 				CC00000000000000000034 /* CloudflareASRPlugin */,
 				CC00000000000000000035 /* FileMemoryPlugin */,
 				C10000000000000000000001 /* SystemTTSPlugin */,
+				D20200000000000000000001 /* SupertonicPlugin */,
 				CC00000000000000000036 /* OpenAIVectorMemoryPlugin */,
 				CC00000000000000000037 /* FireworksPlugin */,
 				CC00000000000000000038 /* CerebrasPlugin */,
@@ -1703,6 +1726,19 @@
 			path = TypeWhisperPluginSDK/Plugins/SystemTTSPlugin;
 			sourceTree = "<group>";
 		};
+		D20200000000000000000001 /* SupertonicPlugin */ = {
+			isa = PBXGroup;
+			children = (
+				D20100000000000000000001 /* SupertonicPlugin.swift */,
+				D20100000000000000000002 /* SupertonicModelAssetManager.swift */,
+				D20100000000000000000003 /* SupertonicPlaybackSession.swift */,
+				D20100000000000000000004 /* SupertonicRuntime.swift */,
+				D20100000000000000000005 /* manifest.json */,
+			);
+			name = SupertonicPlugin;
+			path = TypeWhisperPluginSDK/Plugins/SupertonicPlugin;
+			sourceTree = "<group>";
+		};
 		CC00000000000000000036 /* OpenAIVectorMemoryPlugin */ = {
 			isa = PBXGroup;
 			children = (
@@ -1872,6 +1908,7 @@
 				BB00000000000000000227 /* CloudflareASRPlugin.bundle */,
 				BB00000000000000000231 /* FileMemoryPlugin.bundle */,
 				B10000000000000000000003 /* SystemTTSPlugin.bundle */,
+				D20100000000000000000006 /* SupertonicPlugin.bundle */,
 				BB00000000000000000234 /* OpenAIVectorMemoryPlugin.bundle */,
 				BB00000000000000000254 /* FireworksPlugin.bundle */,
 				BB00000000000000000257 /* CerebrasPlugin.bundle */,
@@ -2475,6 +2512,28 @@
 			productReference = B10000000000000000000003 /* SystemTTSPlugin.bundle */;
 			productType = "com.apple.product-type.bundle";
 		};
+		D20300000000000000000001 /* SupertonicPlugin */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D20500000000000000000003 /* Build configuration list for PBXNativeTarget "SupertonicPlugin" */;
+			buildPhases = (
+				D20400000000000000000004 /* Copy ONNX Runtime Module Map */,
+				D20400000000000000000002 /* Sources */,
+				D20400000000000000000003 /* Frameworks */,
+				D20400000000000000000001 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = SupertonicPlugin;
+			packageProductDependencies = (
+				D20700000000000000000001 /* TypeWhisperPluginSDK */,
+				D20700000000000000000002 /* onnxruntime */,
+			);
+			productName = SupertonicPlugin;
+			productReference = D20100000000000000000006 /* SupertonicPlugin.bundle */;
+			productType = "com.apple.product-type.bundle";
+		};
 		DD00000000000000000024 /* OpenAIVectorMemoryPlugin */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = FF00000000000000000122 /* Build configuration list for PBXNativeTarget "OpenAIVectorMemoryPlugin" */;
@@ -2781,6 +2840,7 @@
 				RR00000000000000000007 /* XCRemoteSwiftPackageReference "mediaremote-adapter" */,
 				RR00000000000000000008 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */,
 				RR00000000000000000009 /* XCRemoteSwiftPackageReference "swift-transformers" */,
+				D20600000000000000000001 /* XCRemoteSwiftPackageReference "onnxruntime-swift-package-manager" */,
 			);
 			productRefGroup = CC00000000000000000090 /* Products */;
 			projectDirPath = "";
@@ -2810,6 +2870,7 @@
 				DD00000000000000000022 /* CloudflareASRPlugin */,
 				DD00000000000000000023 /* FileMemoryPlugin */,
 				D10000000000000000000001 /* SystemTTSPlugin */,
+				D20300000000000000000001 /* SupertonicPlugin */,
 				DD00000000000000000024 /* OpenAIVectorMemoryPlugin */,
 				DD00000000000000000025 /* FireworksPlugin */,
 				DD00000000000000000026 /* CerebrasPlugin */,
@@ -3054,6 +3115,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		D20400000000000000000001 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D20000000000000000000005 /* manifest.json in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		FF00000000000000000121 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -3172,6 +3241,26 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		D20400000000000000000004 /* Copy ONNX Runtime Module Map */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Copy ONNX Runtime Module Map";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(BUILD_DIR)/GeneratedModuleMaps/OnnxRuntimeBindings.modulemap",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -e\nDEST=\"${BUILD_DIR}/GeneratedModuleMaps\"\nmkdir -p \"$DEST\"\nSEARCH_ROOTS=\"${DERIVED_DATA_DIR:-} ${HOME}/Library/Developer/Xcode/DerivedData\"\nMODULEMAP=\"\"\nfor ROOT in $SEARCH_ROOTS; do\n  if [ -n \"$ROOT\" ] && [ -d \"$ROOT\" ]; then\n    MODULEMAP=$(find \"$ROOT\" -path '*/SourcePackages/checkouts/onnxruntime-swift-package-manager/build/GeneratedModuleMaps/OnnxRuntimeBindings.modulemap' -print -quit)\n    if [ -n \"$MODULEMAP\" ]; then\n      break\n    fi\n  fi\ndone\nif [ -z \"$MODULEMAP\" ]; then\n  echo \"Missing OnnxRuntimeBindings.modulemap\" >&2\n  exit 1\nfi\ncp \"$MODULEMAP\" \"$DEST/OnnxRuntimeBindings.modulemap\"\n";
+		};
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -3242,6 +3331,17 @@
 			buildActionMask = 2147483647;
 			files = (
 				A10000000000000000000001 /* SystemTTSPlugin.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D20400000000000000000002 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D20000000000000000000001 /* SupertonicPlugin.swift in Sources */,
+				D20000000000000000000002 /* SupertonicModelAssetManager.swift in Sources */,
+				D20000000000000000000003 /* SupertonicPlaybackSession.swift in Sources */,
+				D20000000000000000000004 /* SupertonicRuntime.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -3964,13 +4064,13 @@
 			};
 			name = Release;
 		};
-		XX00000000000000000013 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
-				DEAD_CODE_STRIPPING = YES;
+			XX00000000000000000013 /* Debug */ = {
+				isa = XCBuildConfiguration;
+				buildSettings = {
+					CODE_SIGN_STYLE = Automatic;
+					COMBINE_HIDPI_IMAGES = YES;
+					CURRENT_PROJECT_VERSION = 1;
+					DEAD_CODE_STRIPPING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Bundles";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -5084,6 +5184,76 @@
 			};
 			name = Release;
 		};
+			D20500000000000000000001 /* Debug */ = {
+				isa = XCBuildConfiguration;
+				buildSettings = {
+					ARCHS = arm64;
+					CODE_SIGN_STYLE = Automatic;
+					COMBINE_HIDPI_IMAGES = YES;
+					CURRENT_PROJECT_VERSION = 1;
+					DEAD_CODE_STRIPPING = YES;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/TypeWhisperPluginSDK/build/$(CONFIGURATION)/PackageFrameworks",
+				);
+					GENERATE_INFOPLIST_FILE = YES;
+					INFOPLIST_KEY_CFBundleDisplayName = "Supertonic (Experimental)";
+					INFOPLIST_KEY_NSHumanReadableCopyright = "";
+					INFOPLIST_KEY_NSPrincipalClass = SupertonicPlugin;
+					INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Bundles";
+					LD_RUNPATH_SEARCH_PATHS = (
+						"$(inherited)",
+						"@loader_path/../Frameworks",
+						"@executable_path/../Frameworks",
+					);
+					MACOSX_DEPLOYMENT_TARGET = 14.0;
+					MARKETING_VERSION = 1.0;
+					PRODUCT_BUNDLE_IDENTIFIER = com.typewhisper.tts.supertonic;
+					PRODUCT_NAME = SupertonicPlugin;
+					SDKROOT = macosx;
+					SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/TypeWhisperPluginSDK/build/$(CONFIGURATION)";
+				SWIFT_VERSION = 6.0;
+				WRAPPER_EXTENSION = bundle;
+			};
+			name = Debug;
+			};
+			D20500000000000000000002 /* Release */ = {
+				isa = XCBuildConfiguration;
+				buildSettings = {
+					ARCHS = arm64;
+					CODE_SIGN_STYLE = Automatic;
+					COMBINE_HIDPI_IMAGES = YES;
+					CURRENT_PROJECT_VERSION = 1;
+					DEAD_CODE_STRIPPING = YES;
+					FRAMEWORK_SEARCH_PATHS = (
+						"$(inherited)",
+						"$(SRCROOT)/TypeWhisperPluginSDK/build/$(CONFIGURATION)/PackageFrameworks",
+				);
+					GENERATE_INFOPLIST_FILE = YES;
+					INFOPLIST_KEY_CFBundleDisplayName = "Supertonic (Experimental)";
+					INFOPLIST_KEY_NSHumanReadableCopyright = "";
+					INFOPLIST_KEY_NSPrincipalClass = SupertonicPlugin;
+					INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Bundles";
+					LD_RUNPATH_SEARCH_PATHS = (
+						"$(inherited)",
+						"@loader_path/../Frameworks",
+						"@executable_path/../Frameworks",
+					);
+					MACOSX_DEPLOYMENT_TARGET = 14.0;
+					MARKETING_VERSION = 1.0;
+					PRODUCT_BUNDLE_IDENTIFIER = com.typewhisper.tts.supertonic;
+					PRODUCT_NAME = SupertonicPlugin;
+					SDKROOT = macosx;
+					SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/TypeWhisperPluginSDK/build/$(CONFIGURATION)";
+				SWIFT_VERSION = 6.0;
+				WRAPPER_EXTENSION = bundle;
+			};
+			name = Release;
+		};
 		XX00000000000000000097 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -5915,6 +6085,15 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		D20500000000000000000003 /* Build configuration list for PBXNativeTarget "SupertonicPlugin" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D20500000000000000000001 /* Debug */,
+				D20500000000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		FF00000000000000000122 /* Build configuration list for PBXNativeTarget "OpenAIVectorMemoryPlugin" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -6087,6 +6266,14 @@
 			requirement = {
 				kind = upToNextMajorVersion;
 				minimumVersion = 1.1.6;
+			};
+		};
+		D20600000000000000000001 /* XCRemoteSwiftPackageReference "onnxruntime-swift-package-manager" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/microsoft/onnxruntime-swift-package-manager.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.24.2;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
@@ -6303,6 +6490,15 @@
 		PP00000000000000000046 /* TypeWhisperPluginSDK */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = TypeWhisperPluginSDK;
+		};
+		D20700000000000000000001 /* TypeWhisperPluginSDK */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = TypeWhisperPluginSDK;
+		};
+		D20700000000000000000002 /* onnxruntime */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D20600000000000000000001 /* XCRemoteSwiftPackageReference "onnxruntime-swift-package-manager" */;
+			productName = onnxruntime;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
