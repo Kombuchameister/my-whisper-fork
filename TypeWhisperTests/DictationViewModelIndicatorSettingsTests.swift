@@ -1,4 +1,5 @@
 import XCTest
+import AppKit
 @testable import TypeWhisper
 
 final class DictationViewModelIndicatorSettingsTests: XCTestCase {
@@ -350,6 +351,69 @@ final class MenuBarGroupingTests: XCTestCase {
             MenuBarMenuSection.updates.items,
             [.checkForUpdates]
         )
+    }
+}
+
+final class MenuBarIconStateTests: XCTestCase {
+    func testRecordingIndicatorIsActiveDuringDictationRecording() {
+        XCTAssertTrue(
+            MenuBarIconState.isRecordingActive(
+                dictationState: .recording,
+                recorderState: .idle
+            )
+        )
+    }
+
+    func testRecordingIndicatorIsActiveDuringRecorderRecording() {
+        XCTAssertTrue(
+            MenuBarIconState.isRecordingActive(
+                dictationState: .idle,
+                recorderState: .recording
+            )
+        )
+    }
+
+    func testRecordingIndicatorIsInactiveWhileRecorderFinalizes() {
+        XCTAssertFalse(
+            MenuBarIconState.isRecordingActive(
+                dictationState: .idle,
+                recorderState: .finalizing
+            )
+        )
+    }
+
+    func testRecordingIndicatorIsInactiveWithoutActiveRecording() {
+        XCTAssertFalse(
+            MenuBarIconState.isRecordingActive(
+                dictationState: .processing,
+                recorderState: .idle
+            )
+        )
+    }
+}
+
+final class MenuBarLogoMarkImageTests: XCTestCase {
+    func testBarLayoutFitsWithinMenuBarSlotWithVisibleGaps() {
+        let rects = MenuBarLogoMarkImage.barRects(in: CGRect(x: 0, y: 0, width: 18, height: 18))
+
+        XCTAssertEqual(rects.count, 5)
+        XCTAssertGreaterThanOrEqual(rects[0].minX, 0)
+        XCTAssertLessThanOrEqual(rects[4].maxX, 18)
+        XCTAssertGreaterThan(rects[2].height, rects[0].height)
+
+        for index in 1..<rects.count {
+            XCTAssertGreaterThanOrEqual(rects[index].minX - rects[index - 1].maxX, 1)
+        }
+    }
+
+    func testIdleImageIsTemplateAndRecordingImageIsOriginalRedArtwork() {
+        let idleImage = MenuBarLogoMarkImage.image(isRecordingActive: false)
+        let recordingImage = MenuBarLogoMarkImage.image(isRecordingActive: true)
+
+        XCTAssertEqual(idleImage.size, MenuBarLogoMarkImage.size)
+        XCTAssertEqual(recordingImage.size, MenuBarLogoMarkImage.size)
+        XCTAssertTrue(idleImage.isTemplate)
+        XCTAssertFalse(recordingImage.isTemplate)
     }
 }
 
