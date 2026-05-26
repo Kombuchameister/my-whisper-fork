@@ -37,6 +37,77 @@ final class OpenAICompatiblePluginTests: XCTestCase {
         XCTAssertEqual(reloaded.selectedLLMModelId, "gpt-4.1-mini")
     }
 
+    func testLegacyConfigurationMigratesIntoDefaultProfile() throws {
+        let cachedModels = try JSONEncoder().encode([
+            FetchedModel(id: "legacy-model")
+        ])
+        let host = try PluginTestHostServices(
+            defaults: [
+                "baseURL": "https://legacy.test/v1/",
+                "selectedModel": "whisper-legacy",
+                "selectedLLMModel": "chat-legacy",
+                "llmTemperatureMode": PluginLLMTemperatureMode.custom.rawValue,
+                "llmTemperatureValue": 0.7,
+                "fetchedModels": cachedModels,
+            ],
+            secrets: ["api-key": "legacy-token"]
+        )
+        let plugin = OpenAICompatiblePlugin()
+
+        plugin.activate(host: host)
+
+        let profile = try XCTUnwrap(plugin.profileSnapshots.first)
+        XCTAssertEqual(plugin.profileSnapshots.count, 1)
+        XCTAssertEqual(profile.id, "openai-compatible")
+        XCTAssertEqual(profile.displayName, "OpenAI Compatible")
+        XCTAssertEqual(profile.baseURL, "https://legacy.test")
+        XCTAssertEqual(profile.selectedModelId, "whisper-legacy")
+        XCTAssertEqual(profile.selectedLLMModelId, "chat-legacy")
+        XCTAssertEqual(profile.llmTemperatureModeRaw, PluginLLMTemperatureMode.custom.rawValue)
+        XCTAssertEqual(profile.llmTemperatureValue, 0.7)
+        XCTAssertEqual(profile.fetchedModels.map(\.id), ["legacy-model"])
+        XCTAssertEqual(plugin.apiKey(for: profile.id), "legacy-token")
+        XCTAssertNotNil(host.userDefault(forKey: "profiles") as? Data)
+    }
+
+    func testAdditionalProfilesExposeIndependentTranscriptionAndLLMRoles() throws {
+        let host = try PluginTestHostServices(defaults: ["baseURL": "https://default.test"])
+        let plugin = OpenAICompatiblePlugin()
+        plugin.activate(host: host)
+
+        let alter = plugin.addProfile(named: "Alter")
+        plugin.setBaseURL("https://alter.test/v1/", for: alter.id)
+        plugin.selectModel("alter-whisper", for: alter.id)
+        plugin.selectLLMModel("alter-chat", for: alter.id)
+
+        let engine = try XCTUnwrap(plugin.additionalTranscriptionEngines.first)
+        let provider = try XCTUnwrap(plugin.additionalLLMProviders.first)
+
+        XCTAssertEqual(engine.providerId, alter.id)
+        XCTAssertEqual(engine.providerDisplayName, "Alter")
+        XCTAssertEqual(engine.selectedModelId, "alter-whisper")
+        XCTAssertEqual(provider.llmProviderId, alter.id)
+        XCTAssertEqual(provider.llmProviderDisplayName, "Alter")
+        XCTAssertEqual((provider as? LLMModelSelectable)?.preferredModelId, "alter-chat")
+        XCTAssertEqual(plugin.providerId, "openai-compatible")
+        XCTAssertEqual(plugin.providerDisplayName, "OpenAI Compatible")
+    }
+
+    func testDeletingProfileRemovesAdditionalRoles() throws {
+        let host = try PluginTestHostServices()
+        let plugin = OpenAICompatiblePlugin()
+        plugin.activate(host: host)
+        let profile = plugin.addProfile(named: "Inception")
+
+        XCTAssertEqual(plugin.additionalLLMProviders.count, 1)
+        XCTAssertEqual(plugin.additionalTranscriptionEngines.count, 1)
+
+        plugin.deleteProfile(profile.id)
+
+        XCTAssertTrue(plugin.additionalLLMProviders.isEmpty)
+        XCTAssertTrue(plugin.additionalTranscriptionEngines.isEmpty)
+    }
+
     func testFetchModelsSendsBearerTokenAndSortsIDs() async throws {
         let host = try PluginTestHostServices(
             defaults: ["baseURL": "https://example.test"],
@@ -112,6 +183,114 @@ final class OpenAICompatiblePluginTests: XCTestCase {
         XCTAssertEqual(result.text, "hello")
         XCTAssertEqual(store.sessions[0].requestedPaths, ["/v1/audio/transcriptions"])
         XCTAssertEqual(store.sessions[0].requestedRequests.first?.timeoutInterval, 600)
+    }
+
+    func testProfileSpecificTranscriptionUsesSeparateCredentialsAndURLs() async throws {
+        let host = try PluginTestHostServices(
+            defaults: [
+                "baseURL": "https://default.test",
+                "selectedModel": "default-whisper",
+            ],
+            secrets: ["api-key": "default-token"]
+        )
+        let plugin = OpenAICompatiblePlugin()
+        plugin.activate(host: host)
+        let alter = plugin.addProfile(named: "Alter")
+        plugin.setBaseURL("https://alter.test", for: alter.id)
+        plugin.setApiKey("alter-token", for: alter.id)
+        plugin.selectModel("alter-whisper", for: alter.id)
+
+        let store = PluginHTTPClientSessionStore()
+        PluginHTTPClientTestHarness.configure { _ in
+            store.makeSession(outcomes: [
+                .success(
+                    Data(#"{"text":"default text"}"#.utf8),
+                    Self.httpResponse(url: "https://default.test/v1/audio/transcriptions", statusCode: 200)
+                ),
+                .success(
+                    Data(#"{"text":"alter text"}"#.utf8),
+                    Self.httpResponse(url: "https://alter.test/v1/audio/transcriptions", statusCode: 200)
+                ),
+            ])
+        }
+
+        let audio = AudioData(samples: [0, 0, 0], wavData: Data("wav".utf8), duration: 1.0)
+        let defaultResult = try await plugin.transcribe(audio: audio, language: nil, translate: false, prompt: nil)
+        let alterEngine = try XCTUnwrap(plugin.additionalTranscriptionEngines.first)
+        let alterResult = try await alterEngine.transcribe(audio: audio, language: nil, translate: false, prompt: nil)
+
+        XCTAssertEqual(defaultResult.text, "default text")
+        XCTAssertEqual(alterResult.text, "alter text")
+        XCTAssertEqual(store.sessions[0].requestedRequests.map { $0.url?.host }, ["default.test", "alter.test"])
+        XCTAssertEqual(
+            store.sessions[0].requestedRequests.map { $0.value(forHTTPHeaderField: "Authorization") },
+            ["Bearer default-token", "Bearer alter-token"]
+        )
+    }
+
+    func testProfileSpecificLLMUsesSeparateCredentialModelAndTemperature() async throws {
+        let host = try PluginTestHostServices()
+        let plugin = OpenAICompatiblePlugin()
+        plugin.activate(host: host)
+        plugin.setBaseURL("https://default-llm.test")
+        plugin.setApiKey("default-llm-token")
+        plugin.selectLLMModel("default-chat")
+        plugin.setLLMTemperatureMode(.custom)
+        plugin.setLLMTemperatureValue(0.2)
+
+        let inception = plugin.addProfile(named: "Inception")
+        plugin.setBaseURL("https://inception.test", for: inception.id)
+        plugin.setApiKey("inception-token", for: inception.id)
+        plugin.selectLLMModel("inception-chat", for: inception.id)
+        plugin.setLLMTemperatureMode(.custom, for: inception.id)
+        plugin.setLLMTemperatureValue(0.9, for: inception.id)
+
+        let store = PluginHTTPClientSessionStore()
+        PluginHTTPClientTestHarness.configure { _ in
+            store.makeSession(outcomes: [
+                .success(
+                    Data(#"{"choices":[{"message":{"content":"default processed"}}]}"#.utf8),
+                    Self.httpResponse(url: "https://default-llm.test/v1/chat/completions", statusCode: 200)
+                ),
+                .success(
+                    Data(#"{"choices":[{"message":{"content":"inception processed"}}]}"#.utf8),
+                    Self.httpResponse(url: "https://inception.test/v1/chat/completions", statusCode: 200)
+                )
+            ])
+        }
+
+        let defaultResult = try await plugin.process(
+            systemPrompt: "Fix",
+            userText: "hello",
+            model: nil,
+            temperatureDirective: .inheritProviderSetting
+        )
+        let provider = try XCTUnwrap(plugin.additionalLLMProviders.first as? any LLMTemperatureControllableProvider)
+        let inceptionResult = try await provider.process(
+            systemPrompt: "Fix",
+            userText: "hello",
+            model: nil,
+            temperatureDirective: .inheritProviderSetting
+        )
+
+        XCTAssertEqual(defaultResult, "default processed")
+        XCTAssertEqual(inceptionResult, "inception processed")
+        let requests = store.sessions[0].requestedRequests
+        XCTAssertEqual(requests.map { $0.url?.host }, ["default-llm.test", "inception.test"])
+        XCTAssertEqual(
+            requests.map { $0.value(forHTTPHeaderField: "Authorization") },
+            ["Bearer default-llm-token", "Bearer inception-token"]
+        )
+
+        let defaultBody = try XCTUnwrap(requests[0].httpBody)
+        let defaultJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: defaultBody) as? [String: Any])
+        XCTAssertEqual(defaultJSON["model"] as? String, "default-chat")
+        XCTAssertEqual(defaultJSON["temperature"] as? Double, 0.2)
+
+        let inceptionBody = try XCTUnwrap(requests[1].httpBody)
+        let inceptionJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: inceptionBody) as? [String: Any])
+        XCTAssertEqual(inceptionJSON["model"] as? String, "inception-chat")
+        XCTAssertEqual(inceptionJSON["temperature"] as? Double, 0.9)
     }
 
     func testProcessFailsWithoutSelectedModel() async throws {

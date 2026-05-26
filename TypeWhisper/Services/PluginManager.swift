@@ -263,7 +263,16 @@ final class PluginManager: ObservableObject {
     var llmProviders: [LLMProviderPlugin] {
         loadedPlugins
             .filter { $0.isEnabled }
-            .compactMap { $0.instance as? LLMProviderPlugin }
+            .flatMap { plugin -> [LLMProviderPlugin] in
+                var providers: [LLMProviderPlugin] = []
+                if let provider = plugin.instance as? LLMProviderPlugin {
+                    providers.append(provider)
+                }
+                if let expanded = plugin.instance as? AdditionalLLMProvidersProviding {
+                    providers.append(contentsOf: expanded.additionalLLMProviders)
+                }
+                return providers
+            }
     }
 
     var ttsProviders: [TTSProviderPlugin] {
@@ -275,7 +284,16 @@ final class PluginManager: ObservableObject {
     var transcriptionEngines: [TranscriptionEnginePlugin] {
         loadedPlugins
             .filter { $0.isEnabled }
-            .compactMap { $0.instance as? TranscriptionEnginePlugin }
+            .flatMap { plugin -> [TranscriptionEnginePlugin] in
+                var engines: [TranscriptionEnginePlugin] = []
+                if let engine = plugin.instance as? TranscriptionEnginePlugin {
+                    engines.append(engine)
+                }
+                if let expanded = plugin.instance as? AdditionalTranscriptionEnginesProviding {
+                    engines.append(contentsOf: expanded.additionalTranscriptionEngines)
+                }
+                return engines
+            }
     }
 
     var actionPlugins: [ActionPlugin] {
@@ -296,8 +314,16 @@ final class PluginManager: ObservableObject {
 
     func loadedTranscriptionPlugin(for providerId: String) -> LoadedPlugin? {
         loadedPlugins.first {
-            guard let engine = $0.instance as? TranscriptionEnginePlugin else { return false }
-            return $0.isEnabled && engine.providerId == providerId
+            guard $0.isEnabled else { return false }
+            if let engine = $0.instance as? TranscriptionEnginePlugin,
+               engine.providerId == providerId {
+                return true
+            }
+            if let expanded = $0.instance as? AdditionalTranscriptionEnginesProviding,
+               expanded.additionalTranscriptionEngines.contains(where: { $0.providerId == providerId }) {
+                return true
+            }
+            return false
         }
     }
 
@@ -317,7 +343,22 @@ final class PluginManager: ObservableObject {
     }
 
     func llmProvider(for providerName: String) -> LLMProviderPlugin? {
-        llmProviders.first { $0.providerName.caseInsensitiveCompare(providerName) == .orderedSame }
+        let lookup = providerName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !lookup.isEmpty else { return nil }
+
+        if let idMatch = llmProviders.first(where: {
+            $0.llmProviderId.caseInsensitiveCompare(lookup) == .orderedSame
+        }) {
+            return idMatch
+        }
+
+        return llmProviders.first { provider in
+            provider.llmProviderDisplayName.caseInsensitiveCompare(lookup) == .orderedSame
+                || provider.providerName.caseInsensitiveCompare(lookup) == .orderedSame
+                || provider.llmProviderLegacyAliases.contains {
+                    $0.caseInsensitiveCompare(lookup) == .orderedSame
+                }
+        }
     }
 
     func isManifestCompatible(_ manifest: PluginManifest) -> Bool {
@@ -658,15 +699,8 @@ final class PluginManager: ObservableObject {
             }
         } else {
             // If the deactivated plugin was selected as default engine, fall back to first available
-            if let engine = loadedPlugins[index].instance as? TranscriptionEnginePlugin {
-                let selectedProvider = UserDefaults.standard.string(forKey: UserDefaultsKeys.selectedEngine)
-                if selectedProvider == engine.providerId {
-                    let fallback = transcriptionEngines.first(where: { $0.providerId != engine.providerId && $0.isConfigured })
-                    if let fallback {
-                        ServiceContainer.shared.modelManagerService.selectProvider(fallback.providerId)
-                    }
-                }
-            }
+            let disabledProviderIds = transcriptionProviderIds(exposedBy: loadedPlugins[index].instance)
+            selectFallbackTranscriptionProviderIfNeeded(disabling: disabledProviderIds)
 
             let plugin = loadedPlugins[index]
             if plugin.isRuntimeLoaded {
@@ -685,6 +719,34 @@ final class PluginManager: ObservableObject {
                 loadedPlugins[index].isEnabled = false
             }
         }
+    }
+
+    func transcriptionProviderIds(exposedBy pluginInstance: TypeWhisperPlugin) -> Set<String> {
+        var providerIds = Set<String>()
+        if let engine = pluginInstance as? TranscriptionEnginePlugin {
+            providerIds.insert(engine.providerId)
+        }
+        if let expanded = pluginInstance as? AdditionalTranscriptionEnginesProviding {
+            for engine in expanded.additionalTranscriptionEngines {
+                providerIds.insert(engine.providerId)
+            }
+        }
+        return providerIds
+    }
+
+    func selectFallbackTranscriptionProviderIfNeeded(disabling disabledProviderIds: Set<String>) {
+        guard let fallbackProviderId = fallbackTranscriptionProviderId(disabling: disabledProviderIds) else { return }
+        ServiceContainer.shared.modelManagerService.selectProvider(fallbackProviderId)
+    }
+
+    func fallbackTranscriptionProviderId(disabling disabledProviderIds: Set<String>) -> String? {
+        guard !disabledProviderIds.isEmpty,
+              let selectedProvider = UserDefaults.standard.string(forKey: UserDefaultsKeys.selectedEngine),
+              disabledProviderIds.contains(selectedProvider) else { return nil }
+
+        return transcriptionEngines.first {
+            !disabledProviderIds.contains($0.providerId) && $0.isConfigured
+        }?.providerId
     }
 
     func openPluginsFolder() {
