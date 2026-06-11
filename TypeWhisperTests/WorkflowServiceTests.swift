@@ -1060,6 +1060,48 @@ final class WorkflowServiceTests: XCTestCase {
         assertNoAllCapsWorkflowSafetyProse(prompt)
     }
 
+    func testWorkflowOutputResolvesAppSpecificFormatOverride() {
+        let output = WorkflowOutput(
+            format: "plaintext",
+            formatOverrides: [
+                WorkflowOutputFormatOverride(
+                    bundleIdentifiers: ["com.apple.iWork.Pages", "com.microsoft.Word"],
+                    format: "rtf"
+                )
+            ]
+        )
+
+        XCTAssertEqual(output.resolvedFormat(for: "com.apple.iWork.Pages"), "rtf")
+        XCTAssertEqual(output.resolvedFormat(for: "com.microsoft.word"), "rtf")
+        XCTAssertEqual(output.resolvedFormat(for: "com.apple.Notes"), "plaintext")
+        XCTAssertEqual(output.resolvedFormat(for: nil), "plaintext")
+    }
+
+    func testSystemPromptUsesAppSpecificOutputFormatOverride() throws {
+        let workflow = Workflow(
+            name: "Adaptive Notes",
+            template: .meetingNotes,
+            trigger: .manual(),
+            output: WorkflowOutput(
+                format: "plaintext",
+                formatOverrides: [
+                    WorkflowOutputFormatOverride(
+                        bundleIdentifiers: ["com.apple.iWork.Pages"],
+                        format: "rtf"
+                    )
+                ]
+            )
+        )
+
+        let richTextPrompt = try XCTUnwrap(workflow.systemPrompt(activeBundleIdentifier: "com.apple.iWork.Pages"))
+        XCTAssertTrue(richTextPrompt.contains("Return Markdown-compatible text for rich-text conversion."))
+        XCTAssertFalse(richTextPrompt.contains("Return the result as plaintext."))
+
+        let plainTextPrompt = try XCTUnwrap(workflow.systemPrompt(activeBundleIdentifier: "com.apple.Notes"))
+        XCTAssertTrue(plainTextPrompt.contains("Return the result as plaintext."))
+        XCTAssertFalse(plainTextPrompt.contains("Return Markdown-compatible text for rich-text conversion."))
+    }
+
     func testWorkflowOutputFormatPresetsExposeRTF() {
         XCTAssertTrue(WorkflowOutputFormatPreset.all.contains { preset in
             preset.title == "RTF" && preset.value == "rtf"

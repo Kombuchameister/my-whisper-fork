@@ -46,6 +46,44 @@ struct WorkflowOutputFormatPreset: Identifiable, Equatable {
     ]
 }
 
+struct WorkflowOutputFormatOverrideDraft: Identifiable, Equatable {
+    let id: UUID
+    var bundleIdentifiersText: String
+    var format: String
+
+    init(
+        id: UUID = UUID(),
+        bundleIdentifiersText: String = "",
+        format: String = "rtf"
+    ) {
+        self.id = id
+        self.bundleIdentifiersText = bundleIdentifiersText
+        self.format = format
+    }
+
+    init(_ override: WorkflowOutputFormatOverride) {
+        self.id = UUID()
+        self.bundleIdentifiersText = override.bundleIdentifiers.joined(separator: ", ")
+        self.format = override.format
+    }
+
+    var resolvedOverride: WorkflowOutputFormatOverride? {
+        let bundleIdentifiers = bundleIdentifiersText
+            .split { character in
+                character == "," || character == "\n" || character == " "
+            }
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        let trimmedFormat = format.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !bundleIdentifiers.isEmpty, !trimmedFormat.isEmpty else { return nil }
+        return WorkflowOutputFormatOverride(
+            bundleIdentifiers: Array(Set(bundleIdentifiers)).sorted(),
+            format: trimmedFormat
+        )
+    }
+}
+
 struct WorkflowsSettingsView: View {
     @ObservedObject private var workflowService = ServiceContainer.shared.workflowService
     @ObservedObject private var navigation = WorkflowsNavigationCoordinator.shared
@@ -880,26 +918,7 @@ private struct WorkflowEditorPage: View {
 
                                 Divider()
 
-                                VStack(alignment: .leading, spacing: 6) {
-                                    Text(localizedAppText("Output Format", de: "Ausgabeformat"))
-                                        .font(.subheadline.weight(.semibold))
-                                    HStack(spacing: 8) {
-                                        TextField(localizedAppText("e.g. Markdown, RTF, JSON, plain text", de: "z. B. Markdown, RTF, JSON, Plain Text"), text: $draft.outputFormat)
-                                            .textFieldStyle(.roundedBorder)
-
-                                        Menu {
-                                            ForEach(WorkflowOutputFormatPreset.all) { preset in
-                                                Button(preset.title) {
-                                                    draft.outputFormat = preset.value
-                                                }
-                                            }
-                                        } label: {
-                                            Label(localizedAppText("Presets", de: "Presets"), systemImage: "list.bullet.rectangle")
-                                        }
-                                        .menuStyle(.borderlessButton)
-                                        .help(localizedAppText("Choose an output format preset", de: "Ausgabeformat-Preset wählen"))
-                                    }
-                                }
+                                outputFormatSection
 
                                 Divider()
                             }
@@ -920,6 +939,76 @@ private struct WorkflowEditorPage: View {
     private var shouldShowActionTargetSection: Bool {
         draft.template != .dictation
             && (!sortedActionPlugins.isEmpty || draft.targetActionPluginId != nil)
+    }
+
+    private var outputFormatSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(localizedAppText("Output Format", de: "Ausgabeformat"))
+                    .font(.subheadline.weight(.semibold))
+                HStack(spacing: 8) {
+                    TextField(localizedAppText("e.g. Markdown, RTF, JSON, plain text", de: "z. B. Markdown, RTF, JSON, Plain Text"), text: $draft.outputFormat)
+                        .textFieldStyle(.roundedBorder)
+
+                    outputFormatPresetMenu(selection: $draft.outputFormat)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text(localizedAppText("App Overrides", de: "App-Überschreibungen"))
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+
+                    Spacer()
+
+                    Button {
+                        draft.outputFormatOverrides.append(WorkflowOutputFormatOverrideDraft())
+                    } label: {
+                        Label(localizedAppText("Add", de: "Hinzufügen"), systemImage: "plus")
+                    }
+                    .buttonStyle(.borderless)
+                }
+
+                ForEach($draft.outputFormatOverrides) { $override in
+                    HStack(spacing: 8) {
+                        TextField(
+                            localizedAppText("Bundle IDs, e.g. com.apple.iWork.Pages", de: "Bundle-IDs, z. B. com.apple.iWork.Pages"),
+                            text: $override.bundleIdentifiersText
+                        )
+                        .textFieldStyle(.roundedBorder)
+
+                        TextField(localizedAppText("Format", de: "Format"), text: $override.format)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 110)
+
+                        outputFormatPresetMenu(selection: $override.format)
+
+                        Button(role: .destructive) {
+                            draft.outputFormatOverrides.removeAll { $0.id == override.id }
+                        } label: {
+                            Image(systemName: "trash")
+                        }
+                        .buttonStyle(.borderless)
+                        .help(localizedAppText("Remove override", de: "Überschreibung entfernen"))
+                    }
+                }
+            }
+        }
+    }
+
+    private func outputFormatPresetMenu(selection: Binding<String>) -> some View {
+        Menu {
+            ForEach(WorkflowOutputFormatPreset.all) { preset in
+                Button(preset.title) {
+                    selection.wrappedValue = preset.value
+                }
+            }
+        } label: {
+            Label(localizedAppText("Presets", de: "Presets"), systemImage: "list.bullet.rectangle")
+        }
+        .menuStyle(.borderlessButton)
+        .help(localizedAppText("Choose an output format preset", de: "Ausgabeformat-Preset wählen"))
     }
 
     private var sortedActionPlugins: [ActionPlugin] {
@@ -2166,6 +2255,7 @@ struct WorkflowDraft {
     var translationProcessor: WorkflowTranslationProcessor
     var customInstruction: String
     var outputFormat: String
+    var outputFormatOverrides: [WorkflowOutputFormatOverrideDraft]
     var autoEnter: Bool
     var numberNormalizationMode: WorkflowNumberNormalizationMode
     var transcriptionEngineId: String?
@@ -2199,6 +2289,7 @@ struct WorkflowDraft {
             : ""
         self.customInstruction = ""
         self.outputFormat = ""
+        self.outputFormatOverrides = []
         self.autoEnter = false
         self.numberNormalizationMode = .inherit
         self.transcriptionEngineId = nil
@@ -2231,6 +2322,7 @@ struct WorkflowDraft {
         }
         self.customInstruction = behavior.settings["instruction"] ?? behavior.settings["goal"] ?? behavior.settings["prompt"] ?? ""
         self.outputFormat = output.format ?? ""
+        self.outputFormatOverrides = output.formatOverrides.map(WorkflowOutputFormatOverrideDraft.init)
         self.autoEnter = output.autoEnter
         self.numberNormalizationMode = output.numberNormalizationMode
         self.transcriptionEngineId = workflow.template == .dictation ? behavior.transcriptionEngineId : nil
@@ -2356,6 +2448,7 @@ struct WorkflowDraft {
         if newTemplate == .dictation {
             fineTuning = ""
             outputFormat = ""
+            outputFormatOverrides = []
             providerId = nil
             cloudModel = nil
             targetActionPluginId = nil
@@ -2585,6 +2678,9 @@ struct WorkflowDraft {
         let trimmedFormat = outputFormat.trimmingCharacters(in: .whitespacesAndNewlines)
         return WorkflowOutput(
             format: usesLLMProcessing && !trimmedFormat.isEmpty ? trimmedFormat : nil,
+            formatOverrides: usesLLMProcessing
+                ? outputFormatOverrides.compactMap(\.resolvedOverride)
+                : [],
             autoEnter: autoEnter,
             targetActionPluginId: template == .dictation ? nil : targetActionPluginId,
             numberNormalizationModeRaw: numberNormalizationMode == .inherit ? nil : numberNormalizationMode.rawValue

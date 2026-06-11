@@ -282,9 +282,11 @@ final class PromptPaletteHandler {
         Task { [weak self] in
             guard let self else { return }
             do {
+                let outputFormat = workflow.output.resolvedFormat(for: ctx.activeApp.bundleId)
                 let result = try await workflowTextProcessingService.process(
                     workflow: workflow,
-                    text: ctx.text
+                    text: ctx.text,
+                    activeBundleIdentifier: ctx.activeApp.bundleId
                 )
                 guard !Task.isCancelled else { return }
 
@@ -319,10 +321,19 @@ final class PromptPaletteHandler {
                 // Always put result on clipboard so the user can paste it
                 let pasteboard = NSPasteboard.general
                 pasteboard.clearContents()
-                pasteboard.setString(result, forType: .string)
+                if let payload = ClipboardContentFormatter.payload(for: result, outputFormat: outputFormat) {
+                    payload.write(to: pasteboard)
+                } else {
+                    pasteboard.setString(result, forType: .string)
+                }
 
                 let insertionOutcome: InsertionOutcome
-                if let selection = ctx.selection {
+                let requiresPasteboardInsertion = ClipboardContentFormatter.requiresPasteboardInsertion(
+                    outputFormat: outputFormat
+                )
+                if requiresPasteboardInsertion {
+                    insertionOutcome = await activateAndPaste(bundleId: ctx.activeApp.bundleId) ? .insertedViaPaste : .failed
+                } else if let selection = ctx.selection {
                     insertionOutcome = await insertViaAXWithPasteFallback(
                         selection: selection,
                         result: result,
