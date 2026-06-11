@@ -19,7 +19,11 @@ struct WidgetData: Codable {
     }
 
     private static var sharedFileURL: URL? {
-        FileManager.default
+        guard !groupIdentifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !groupIdentifier.hasPrefix(".") else {
+            return nil
+        }
+        return FileManager.default
             .containerURL(forSecurityApplicationGroupIdentifier: groupIdentifier)?
             .appendingPathComponent(fileName)
     }

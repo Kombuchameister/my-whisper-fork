@@ -510,7 +510,13 @@ final class TextInsertionService {
         let verification = await waitForPasteVerification(using: pasteVerificationState)
         logPasteVerification(verification, bundleId: bundleId)
 
-        if preserveClipboard {
+        let shouldRestoreClipboard = preserveClipboard && shouldRestoreClipboardAfterPaste(
+            requiresPasteboardInsertion: requiresPasteboardInsertion,
+            verification: verification,
+            bundleId: bundleId
+        )
+
+        if shouldRestoreClipboard {
             let restoreDelay: Duration
             if isTerminalApp {
                 restoreDelay = terminalPasteFallbackRestoreDelay
@@ -530,6 +536,10 @@ final class TextInsertionService {
             logger.info(
                 "insertText restored clipboard: bundle=\(bundleId ?? "nil", privacy: .public), changeCountAfterRestore=\(pasteboard.changeCount, privacy: .public)"
             )
+        } else if preserveClipboard {
+            logger.warning(
+                "insertText left generated clipboard content in place because rich-text paste may still be consuming pasteboard data: bundle=\(bundleId ?? "nil", privacy: .public), verification=\(String(describing: verification), privacy: .public)"
+            )
         }
 
         if hadFocusedTextField {
@@ -538,6 +548,18 @@ final class TextInsertionService {
         }
 
         return .pasted(verification: verification)
+    }
+
+    private func shouldRestoreClipboardAfterPaste(
+        requiresPasteboardInsertion: Bool,
+        verification: PasteVerification,
+        bundleId: String?
+    ) -> Bool {
+        guard requiresPasteboardInsertion else { return true }
+        if bundleId == "com.apple.iWork.Pages" {
+            return false
+        }
+        return verification == .verified
     }
 
     private func waitForPasteVerification(using state: PasteVerificationState) async -> PasteVerification {

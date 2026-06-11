@@ -127,7 +127,7 @@ enum HotkeySlotType: String, CaseIterable, Sendable {
 }
 
 /// Manages global hotkeys for dictation and standalone app actions.
-final class HotkeyService: ObservableObject {
+final class HotkeyService: ObservableObject, @unchecked Sendable {
     struct MenuShortcutDescriptor: Equatable, Sendable {
         let keyEquivalent: Character
         let modifiers: NSEvent.ModifierFlags
@@ -179,6 +179,9 @@ final class HotkeyService: ObservableObject {
     var onCancelPressed: (() -> Void)?
     var onPushToTalkInterruption: (() -> Void)?
     var discardPushToTalkRecordingOnExtraKeyPress = false
+    var modifierFlagsStateProvider: () -> NSEvent.ModifierFlags = {
+        NSEvent.ModifierFlags(rawValue: UInt(CGEventSource.flagsState(.combinedSessionState).rawValue))
+    }
 
     private var keyDownTime: Date?
     private var isActive = false
@@ -193,6 +196,8 @@ final class HotkeyService: ObservableObject {
     private static let monitorDedupWindow: TimeInterval = 0.12
     private static let capsLockKeyCode: UInt16 = 0x39
     private static let capsLockSuppressionWindow: TimeInterval = 0.25
+    private static let workflowTextProcessingModifierPollInterval: TimeInterval = 0.05
+    private static let workflowTextProcessingModifierReleaseTimeout: TimeInterval = 1.0
 
     nonisolated static func requestTimestamp() -> UInt64 {
         DispatchTime.now().uptimeNanoseconds
@@ -909,7 +914,7 @@ final class HotkeyService: ObservableObject {
             hotkey: hotkey,
             source: source
         ) {
-            handleWorkflowKeyUp(workflowId: workflowId, behavior: behavior)
+            handleWorkflowKeyUp(workflowId: workflowId, hotkey: hotkey, behavior: behavior)
         }
     }
 
@@ -1402,7 +1407,7 @@ final class HotkeyService: ObservableObject {
 
     private func handleWorkflowKeyDown(workflowId: UUID, behavior: WorkflowHotkeyBehavior) {
         guard behavior == .startDictation else {
-            onWorkflowTextProcessing?(workflowId)
+            activeWorkflowId = workflowId
             return
         }
 
@@ -1430,8 +1435,12 @@ final class HotkeyService: ObservableObject {
         }
     }
 
-    private func handleWorkflowKeyUp(workflowId: UUID, behavior: WorkflowHotkeyBehavior) {
-        guard behavior == .startDictation else { return }
+    private func handleWorkflowKeyUp(workflowId: UUID, hotkey: UnifiedHotkey, behavior: WorkflowHotkeyBehavior) {
+        guard behavior == .startDictation else {
+            activeWorkflowId = nil
+            dispatchWorkflowTextProcessingWhenInputSettles(workflowId: workflowId, hotkey: hotkey)
+            return
+        }
         guard isActive, activeWorkflowId == workflowId else { return }
 
         guard let downTime = keyDownTime else { return }
@@ -1448,6 +1457,36 @@ final class HotkeyService: ObservableObject {
             pushToTalkInterruptionSignaled = false
             onDictationStop?()
         }
+    }
+
+    private func dispatchWorkflowTextProcessingWhenInputSettles(
+        workflowId: UUID,
+        hotkey: UnifiedHotkey,
+        deadline: Date? = nil
+    ) {
+        let deadline = deadline ?? Date().addingTimeInterval(Self.workflowTextProcessingModifierReleaseTimeout)
+        guard requiredModifiersReleased(for: hotkey) || Date() >= deadline else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.workflowTextProcessingModifierPollInterval) { [weak self] in
+                self?.dispatchWorkflowTextProcessingWhenInputSettles(
+                    workflowId: workflowId,
+                    hotkey: hotkey,
+                    deadline: deadline
+                )
+            }
+            return
+        }
+
+        onWorkflowTextProcessing?(workflowId)
+    }
+
+    private func requiredModifiersReleased(for hotkey: UnifiedHotkey) -> Bool {
+        let requiredFlags = NSEvent.ModifierFlags(rawValue: hotkey.modifierFlags)
+        let relevantMask: NSEvent.ModifierFlags = [.command, .option, .control, .shift, .function]
+        let requiredRelevantFlags = requiredFlags.intersection(relevantMask)
+        guard !requiredRelevantFlags.isEmpty else { return true }
+
+        let currentFlags = modifierFlagsStateProvider().intersection(relevantMask)
+        return currentFlags.intersection(requiredRelevantFlags).isEmpty
     }
 
     // MARK: - Display Name

@@ -3204,7 +3204,38 @@ final class APIRouterAndHandlersTests: XCTestCase {
 
         XCTAssertNil(insertedText)
         XCTAssertTrue(didSimulatePaste)
-        XCTAssertEqual(pasteboard.string(forType: .string), "Existing")
+        XCTAssertEqual(pasteboard.string(forType: .string), "Hello")
+    }
+
+    @MainActor
+    func testRTFPreserveClipboardDoesNotRestoreOldClipboardForPages() async throws {
+        let service = TextInsertionService()
+        let pasteboard = NSPasteboard.withUniqueName()
+        let element = AXUIElementCreateSystemWide()
+        service.accessibilityGrantedOverride = true
+        service.pasteboardProvider = { pasteboard }
+        service.focusedTextElementOverride = { element }
+        service.captureActiveAppOverride = { ("Pages", "com.apple.iWork.Pages", nil) }
+        service.verifiedRestoreGraceDelay = .milliseconds(1)
+
+        var pasteCount = 0
+        service.pasteSimulatorOverride = {
+            pasteCount += 1
+        }
+        service.focusedTextStateOverride = { _ in
+            if pasteCount == 0 {
+                return (value: "Original", selectedText: "Original", selectedRange: NSRange(location: 0, length: 8))
+            }
+            return (value: "Hello", selectedText: nil, selectedRange: NSRange(location: 5, length: 0))
+        }
+
+        pasteboard.clearContents()
+        pasteboard.setString("Existing", forType: .string)
+
+        let result = try await service.insertText("**Hello**", preserveClipboard: true, outputFormat: "rtf")
+
+        XCTAssertEqual(result, .pasted(verification: .verified))
+        XCTAssertEqual(pasteboard.string(forType: .string), "Hello")
     }
 
     @MainActor
@@ -7973,14 +8004,45 @@ final class HotkeyServiceCompatibilityTests: XCTestCase {
         let keyUp = try makeKeyboardEvent(keyCode: 0x31, keyDown: false)
 
         XCTAssertTrue(service.processEventForTesting(keyDown, source: .monitor))
-        XCTAssertEqual(textWorkflowId, workflowId)
+        XCTAssertNil(textWorkflowId)
         XCTAssertNil(startedWorkflowId)
         XCTAssertNil(service.currentMode)
-        XCTAssertNil(service.activeWorkflowId)
+        XCTAssertEqual(service.activeWorkflowId, workflowId)
 
         XCTAssertTrue(service.processEventForTesting(keyUp, source: .monitor))
+        XCTAssertEqual(textWorkflowId, workflowId)
         XCTAssertNil(service.currentMode)
         XCTAssertNil(service.activeWorkflowId)
+    }
+
+    @MainActor
+    func testWorkflowHotkeyTextProcessingWaitsForShortcutModifiersToRelease() throws {
+        let service = HotkeyService()
+        service.suspendMonitoring()
+
+        let workflowId = UUID()
+        service.registerWorkflowHotkeys([(id: workflowId, hotkey: spaceHotkey(), behavior: .processSelectedText)])
+
+        var currentFlags = NSEvent.ModifierFlags([.control, .option, .shift, .command])
+        service.modifierFlagsStateProvider = { currentFlags }
+
+        let callbackAfterRelease = expectation(description: "workflow callback waits for modifier release")
+        var textWorkflowId: UUID?
+        service.onWorkflowTextProcessing = {
+            textWorkflowId = $0
+            callbackAfterRelease.fulfill()
+        }
+
+        let keyDown = try makeKeyboardEvent(keyCode: 0x31, keyDown: true)
+        let keyUp = try makeKeyboardEvent(keyCode: 0x31, keyDown: false)
+
+        XCTAssertTrue(service.processEventForTesting(keyDown, source: .monitor))
+        XCTAssertTrue(service.processEventForTesting(keyUp, source: .monitor))
+        XCTAssertNil(textWorkflowId)
+
+        currentFlags = []
+        wait(for: [callbackAfterRelease], timeout: 1.0)
+        XCTAssertEqual(textWorkflowId, workflowId)
     }
 
     @MainActor

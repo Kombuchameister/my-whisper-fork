@@ -123,11 +123,12 @@ struct WorkflowTextProcessingService {
             selection.cloudModel,
             behavior.temperatureDirective
         )
+        let sanitizedResult = WorkflowTextResultSanitizer.sanitize(result)
         guard shouldBoundDictatedText else {
-            return result
+            return sanitizedResult
         }
 
-        return TypeWhisperDictatedTextBoundary.sanitize(result, originalUserText: text)
+        return TypeWhisperDictatedTextBoundary.sanitize(sanitizedResult, originalUserText: text)
     }
 
     func canProcess(
@@ -171,6 +172,48 @@ struct WorkflowTextProcessingService {
         let sourceLanguageCode = WorkflowTranslationLanguageNormalizer.normalizedLanguageIdentifier(from: sourceRaw)
 
         return try await appleTranslator(text, targetLanguageCode, sourceLanguageCode)
+    }
+}
+
+enum WorkflowTextResultSanitizer {
+    static func sanitize(_ text: String) -> String {
+        stripAssistantPreamble(from: text)
+    }
+
+    private static func stripAssistantPreamble(from text: String) -> String {
+        let normalized = text
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+        let lines = normalized.components(separatedBy: "\n")
+        guard let firstNonEmptyIndex = lines.firstIndex(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else {
+            return text
+        }
+
+        let firstLine = lines[firstNonEmptyIndex].trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isAssistantPreamble(firstLine) else {
+            return text
+        }
+
+        let remaining = lines[(firstNonEmptyIndex + 1)...]
+            .joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return remaining.isEmpty ? text : remaining
+    }
+
+    private static func isAssistantPreamble(_ line: String) -> Bool {
+        let normalized = line
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: ":"))
+            .lowercased()
+
+        return [
+            "here is the cleaned up text",
+            "here is the cleaned-up text",
+            "here is the cleaned text",
+            "here's the cleaned up text",
+            "here's the cleaned-up text",
+            "here's the cleaned text"
+        ].contains(normalized)
     }
 }
 
