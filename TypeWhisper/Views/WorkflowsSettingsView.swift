@@ -84,6 +84,10 @@ struct WorkflowOutputFormatOverrideDraft: Identifiable, Equatable {
     }
 }
 
+private struct WorkflowOutputFormatOverridePickerRequest: Identifiable {
+    let id: UUID
+}
+
 struct WorkflowsSettingsView: View {
     @ObservedObject private var workflowService = ServiceContainer.shared.workflowService
     @ObservedObject private var navigation = WorkflowsNavigationCoordinator.shared
@@ -733,6 +737,7 @@ private struct WorkflowEditorPage: View {
     @State private var validationMessage: String?
     @State private var isAdvancedExpanded = false
     @State private var showingAppPicker = false
+    @State private var outputFormatOverrideAppPicker: WorkflowOutputFormatOverridePickerRequest?
     @State private var websiteInput = ""
 
     init(workflow: Workflow?) {
@@ -766,6 +771,12 @@ private struct WorkflowEditorPage: View {
             WorkflowAppPickerSheet(
                 installedApps: profilesViewModel.installedApps,
                 selectedBundleIdentifiers: $draft.appBundleIdentifiers
+            )
+        }
+        .sheet(item: $outputFormatOverrideAppPicker) { request in
+            WorkflowAppPickerSheet(
+                installedApps: profilesViewModel.installedApps,
+                selectedBundleIdentifiers: outputFormatOverrideBundleIdentifiersBinding(for: request.id)
             )
         }
     }
@@ -971,27 +982,50 @@ private struct WorkflowEditorPage: View {
                 }
 
                 ForEach($draft.outputFormatOverrides) { $override in
-                    HStack(spacing: 8) {
-                        TextField(
-                            localizedAppText("Bundle IDs, e.g. com.apple.iWork.Pages", de: "Bundle-IDs, z. B. com.apple.iWork.Pages"),
-                            text: $override.bundleIdentifiersText
-                        )
-                        .textFieldStyle(.roundedBorder)
-
-                        TextField(localizedAppText("Format", de: "Format"), text: $override.format)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 110)
-
-                        outputFormatPresetMenu(selection: $override.format)
-
-                        Button(role: .destructive) {
-                            draft.outputFormatOverrides.removeAll { $0.id == override.id }
-                        } label: {
-                            Image(systemName: "trash")
+                    VStack(alignment: .leading, spacing: 8) {
+                        if overrideBundleIdentifiers(for: override).isEmpty {
+                            Text(localizedAppText("No apps selected yet.", de: "Noch keine Apps ausgewählt."))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            VStack(alignment: .leading, spacing: 6) {
+                                ForEach(overrideBundleIdentifiers(for: override), id: \.self) { bundleId in
+                                    WorkflowSelectionRow(
+                                        title: installedAppName(for: bundleId),
+                                        subtitle: bundleId,
+                                        icon: installedAppIcon(for: bundleId)
+                                    ) {
+                                        removeOutputFormatOverrideBundleIdentifier(bundleId, from: override.id)
+                                    }
+                                }
+                            }
                         }
-                        .buttonStyle(.borderless)
-                        .help(localizedAppText("Remove override", de: "Überschreibung entfernen"))
+
+                        HStack(spacing: 8) {
+                            Button(localizedAppText("Select Apps…", de: "Apps auswählen…")) {
+                                outputFormatOverrideAppPicker = WorkflowOutputFormatOverridePickerRequest(id: override.id)
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+
+                            TextField(localizedAppText("Format", de: "Format"), text: $override.format)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 110)
+
+                            outputFormatPresetMenu(selection: $override.format)
+
+                            Spacer()
+
+                            Button(role: .destructive) {
+                                draft.outputFormatOverrides.removeAll { $0.id == override.id }
+                            } label: {
+                                Image(systemName: "trash")
+                            }
+                            .buttonStyle(.borderless)
+                            .help(localizedAppText("Remove override", de: "Überschreibung entfernen"))
+                        }
                     }
+                    .padding(.vertical, 4)
                 }
             }
         }
@@ -1009,6 +1043,46 @@ private struct WorkflowEditorPage: View {
         }
         .menuStyle(.borderlessButton)
         .help(localizedAppText("Choose an output format preset", de: "Ausgabeformat-Preset wählen"))
+    }
+
+    private func outputFormatOverrideBundleIdentifiersBinding(for overrideId: UUID) -> Binding<[String]> {
+        Binding(
+            get: {
+                guard let override = draft.outputFormatOverrides.first(where: { $0.id == overrideId }) else {
+                    return []
+                }
+                return overrideBundleIdentifiers(for: override)
+            },
+            set: { bundleIdentifiers in
+                updateOutputFormatOverrideBundleIdentifiers(bundleIdentifiers, for: overrideId)
+            }
+        )
+    }
+
+    private func overrideBundleIdentifiers(for override: WorkflowOutputFormatOverrideDraft) -> [String] {
+        override.bundleIdentifiersText
+            .split { character in
+                character == "," || character == "\n" || character == " "
+            }
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
+    private func updateOutputFormatOverrideBundleIdentifiers(_ bundleIdentifiers: [String], for overrideId: UUID) {
+        guard let index = draft.outputFormatOverrides.firstIndex(where: { $0.id == overrideId }) else {
+            return
+        }
+
+        draft.outputFormatOverrides[index].bundleIdentifiersText = bundleIdentifiers
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: ", ")
+    }
+
+    private func removeOutputFormatOverrideBundleIdentifier(_ bundleIdentifier: String, from overrideId: UUID) {
+        let updated = outputFormatOverrideBundleIdentifiersBinding(for: overrideId).wrappedValue
+            .filter { $0 != bundleIdentifier }
+        updateOutputFormatOverrideBundleIdentifiers(updated, for: overrideId)
     }
 
     private var sortedActionPlugins: [ActionPlugin] {
