@@ -3218,6 +3218,34 @@ final class APIRouterAndHandlersTests: XCTestCase {
     }
 
     @MainActor
+    func testRTFOutputNormalizesNoBreakSpaces() async throws {
+        let service = TextInsertionService()
+        let pasteboard = NSPasteboard.withUniqueName()
+        service.accessibilityGrantedOverride = true
+        service.pasteboardProvider = { pasteboard }
+        service.pasteSimulatorOverride = {}
+
+        _ = try await service.insertText(
+            "In June\u{202F}2025, U.S. Senator Ruben\u{202F}Gallego",
+            outputFormat: "rtf"
+        )
+
+        XCTAssertEqual(
+            pasteboard.string(forType: .string),
+            "In June 2025, U.S. Senator Ruben Gallego"
+        )
+
+        let rtfData = try XCTUnwrap(pasteboard.data(forType: .rtf))
+        let attributed = try NSAttributedString(
+            data: rtfData,
+            options: [.documentType: NSAttributedString.DocumentType.rtf],
+            documentAttributes: nil
+        )
+
+        XCTAssertEqual(attributed.string, "In June 2025, U.S. Senator Ruben Gallego")
+    }
+
+    @MainActor
     func testRTFPreserveClipboardUsesPasteboardInsteadOfPlainAccessibilityInsertion() async throws {
         let service = TextInsertionService()
         let pasteboard = NSPasteboard.withUniqueName()
