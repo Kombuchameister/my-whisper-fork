@@ -103,6 +103,7 @@ final class PromptPaletteHandler {
             activeApp: activeApp,
             browserInfoTask: browserInfoTask,
             deferClipboardRestoreForCopyFallback: false,
+            allowCopyFallback: !(getPreserveClipboard?() ?? false),
             onUnavailable: { [weak self] in
                 guard let self else { return }
                 guard !recentEntries.isEmpty else {
@@ -144,6 +145,7 @@ final class PromptPaletteHandler {
             activeApp: activeApp,
             browserInfoTask: browserInfoTask,
             deferClipboardRestoreForCopyFallback: getPreserveClipboard?() ?? false,
+            allowCopyFallback: !(getPreserveClipboard?() ?? false),
             onUnavailable: { [weak self] in
                 self?.showMissingTextFeedback(soundFeedbackEnabled: soundFeedbackEnabled)
             }
@@ -170,6 +172,7 @@ final class PromptPaletteHandler {
         activeApp: (name: String?, bundleId: String?, url: String?),
         browserInfoTask: Task<(url: String?, title: String?), Never>?,
         deferClipboardRestoreForCopyFallback: Bool,
+        allowCopyFallback: Bool,
         onUnavailable: @escaping () -> Void,
         completion: @escaping (PaletteContext) -> Void
     ) {
@@ -188,7 +191,8 @@ final class PromptPaletteHandler {
         } else {
             let tis = textInsertionService
             Task {
-                if deferClipboardRestoreForCopyFallback,
+                if allowCopyFallback,
+                   deferClipboardRestoreForCopyFallback,
                    let copied = await tis.getTextSelectionViaCopyPreservingClipboardForInsertion() {
                     self.logInputDiagnostics(
                         source: "copy-selection",
@@ -205,7 +209,8 @@ final class PromptPaletteHandler {
                         source: "copy-selection",
                         deferredClipboardRestore: copied.deferredClipboardRestore
                     ))
-                } else if !deferClipboardRestoreForCopyFallback,
+                } else if allowCopyFallback,
+                          !deferClipboardRestoreForCopyFallback,
                           let copied = await tis.getTextSelectionViaCopy() {
                     self.logInputDiagnostics(
                         source: "copy-selection",

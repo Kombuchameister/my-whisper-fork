@@ -389,6 +389,71 @@ final class PromptPaletteHandlerTests: XCTestCase {
         XCTAssertEqual(insertedText, "Processed: Clipboard source")
     }
 
+    func testDirectWorkflowHotkeyWithPreserveClipboardDoesNotCopySelectionFallback() async throws {
+        let appSupportDirectory = try TestSupport.makeTemporaryDirectory()
+        defer { TestSupport.remove(appSupportDirectory) }
+
+        let textInsertionService = TextInsertionService()
+        textInsertionService.accessibilityGrantedOverride = true
+        textInsertionService.captureActiveAppOverride = { ("Pages", "com.apple.iWork.Pages", nil) }
+        textInsertionService.textSelectionOverride = { nil }
+        textInsertionService.focusedTextElementOverride = { AXUIElementCreateSystemWide() }
+
+        var didAttemptCopyFallback = false
+        textInsertionService.textSelectionViaCopyOverride = {
+            didAttemptCopyFallback = true
+            return "Selected source"
+        }
+
+        var insertedText: String?
+        textInsertionService.insertTextAtOverride = { _, text in
+            insertedText = text
+            return true
+        }
+
+        let pasteboard = NSPasteboard.general
+        let savedClipboard = textInsertionService.saveClipboard(from: pasteboard)
+        defer { textInsertionService.restoreClipboard(savedClipboard, to: pasteboard) }
+        pasteboard.clearContents()
+        pasteboard.setString("Existing clipboard source", forType: .string)
+
+        let workflowService = WorkflowService(appSupportDirectory: appSupportDirectory)
+        let workflow = Workflow(
+            name: "Direct Cleanup",
+            template: .cleanedText,
+            trigger: .hotkeys([
+                UnifiedHotkey(keyCode: 17, modifierFlags: 0, isFn: false)
+            ], behavior: .processSelectedText)
+        )
+        let handler = PromptPaletteHandler(
+            textInsertionService: textInsertionService,
+            workflowService: workflowService,
+            historyService: HistoryService(appSupportDirectory: appSupportDirectory),
+            recentTranscriptionStore: RecentTranscriptionStore(),
+            promptProcessingService: PromptProcessingService(),
+            workflowTextProcessingService: WorkflowTextProcessingService(
+                promptProcessor: { _, text, _, _, _ in "Processed: \(text)" },
+                appleTranslator: nil
+            ),
+            soundService: SoundService(),
+            accessibilityAnnouncementService: AccessibilityAnnouncementService(),
+            promptPaletteController: PromptPaletteControllerSpy()
+        )
+        handler.getPreserveClipboard = { true }
+
+        handler.processWorkflowDirectly(
+            workflow: workflow,
+            currentState: .idle,
+            soundFeedbackEnabled: false
+        )
+
+        try await Task.sleep(for: .milliseconds(100))
+
+        XCTAssertFalse(didAttemptCopyFallback)
+        XCTAssertNotNil(insertedText)
+        XCTAssertTrue(insertedText?.contains("Existing clipboard source") == true)
+    }
+
     func testDirectWorkflowHotkeyShowsErrorWhenNoSelectionOrClipboardIsAvailable() async throws {
         let appSupportDirectory = try TestSupport.makeTemporaryDirectory()
         defer { TestSupport.remove(appSupportDirectory) }
