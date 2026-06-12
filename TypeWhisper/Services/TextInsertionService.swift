@@ -325,7 +325,13 @@ final class TextInsertionService {
         if let textSelectionOverride {
             return textSelectionOverride()
         }
-        guard isAccessibilityGranted else { return nil }
+        let activeApp = captureActiveApp()
+        guard isAccessibilityGranted else {
+            logger.warning(
+                "selection capture failed: accessibility not granted, app=\(activeApp.name ?? "nil", privacy: .public), bundle=\(activeApp.bundleId ?? "nil", privacy: .public)"
+            )
+            return nil
+        }
 
         let element: AXUIElement
         if let focusedTextElementOverride {
@@ -334,14 +340,28 @@ final class TextInsertionService {
         } else {
             let systemWide = AXUIElementCreateSystemWide()
             var focusedElement: AnyObject?
-            guard AXUIElementCopyAttributeValue(systemWide, kAXFocusedUIElementAttribute as CFString, &focusedElement) == .success else {
+            let focusedResult = AXUIElementCopyAttributeValue(
+                systemWide,
+                kAXFocusedUIElementAttribute as CFString,
+                &focusedElement
+            )
+            guard focusedResult == .success else {
+                logger.warning(
+                    "selection capture failed: focused element unavailable, axError=\(focusedResult.rawValue, privacy: .public), app=\(activeApp.name ?? "nil", privacy: .public), bundle=\(activeApp.bundleId ?? "nil", privacy: .public)"
+                )
                 return nil
             }
             element = focusedElement as! AXUIElement
         }
 
+        logSelectionCaptureElementContext(element, activeApp: activeApp)
         var selectedText: AnyObject?
-        if AXUIElementCopyAttributeValue(element, kAXSelectedTextAttribute as CFString, &selectedText) == .success,
+        let selectedTextResult = AXUIElementCopyAttributeValue(
+            element,
+            kAXSelectedTextAttribute as CFString,
+            &selectedText
+        )
+        if selectedTextResult == .success,
            let text = selectedText as? String,
            !text.isEmpty {
             logger.info(
@@ -349,6 +369,9 @@ final class TextInsertionService {
             )
             return TextSelection(text: text, element: element)
         }
+        logger.info(
+            "selection capture selectedText attribute did not provide text: axError=\(selectedTextResult.rawValue, privacy: .public), valueType=\(self.typeDescription(selectedText), privacy: .public), stringChars=\((selectedText as? String)?.count ?? 0, privacy: .public)"
+        )
 
         guard let text = selectedTextFromFocusedState(for: element) else { return nil }
         logger.info(
@@ -915,11 +938,15 @@ final class TextInsertionService {
         }
 
         var selectedRangeValue: AnyObject?
-        if AXUIElementCopyAttributeValue(
+        let selectedRangeResult = AXUIElementCopyAttributeValue(
             element,
             kAXSelectedTextRangeAttribute as CFString,
             &selectedRangeValue
-        ) == .success,
+        )
+        logger.info(
+            "selection capture selectedTextRange attribute: axError=\(selectedRangeResult.rawValue, privacy: .public), valueType=\(self.typeDescription(selectedRangeValue), privacy: .public)"
+        )
+        if selectedRangeResult == .success,
            let selectedRangeValue,
            let selectedRangeText = selectedText(from: selectedRangeValue, for: element) {
             return selectedRangeText
@@ -935,17 +962,25 @@ final class TextInsertionService {
 
     private func selectedTextFromSelectedTextRangesAttribute(for element: AXUIElement) -> String? {
         var selectedRangesValue: AnyObject?
-        guard AXUIElementCopyAttributeValue(
+        let selectedRangesResult = AXUIElementCopyAttributeValue(
             element,
             kAXSelectedTextRangesAttribute as CFString,
             &selectedRangesValue
-        ) == .success,
-              let selectedRanges = selectedRangesValue as? [AnyObject],
+        )
+        let selectedRanges = selectedRangesValue as? [AnyObject]
+        logger.info(
+            "selection capture selectedTextRanges attribute: axError=\(selectedRangesResult.rawValue, privacy: .public), valueType=\(self.typeDescription(selectedRangesValue), privacy: .public), rangeCount=\(selectedRanges?.count ?? 0, privacy: .public)"
+        )
+        guard selectedRangesResult == .success,
+              let selectedRanges,
               !selectedRanges.isEmpty else {
             return nil
         }
 
         let fragments = selectedRanges.compactMap { selectedText(from: $0, for: element) }
+        logger.info(
+            "selection capture selectedTextRanges resolved: fragmentCount=\(fragments.count, privacy: .public), totalChars=\(fragments.reduce(0) { $0 + $1.count }, privacy: .public)"
+        )
         guard !fragments.isEmpty else { return nil }
         return fragments.joined(separator: "\n")
     }
@@ -965,13 +1000,18 @@ final class TextInsertionService {
 
     private func stringForRange(_ rangeValue: AnyObject, from element: AXUIElement) -> String? {
         var textValue: AnyObject?
-        guard AXUIElementCopyParameterizedAttributeValue(
+        let stringForRangeResult = AXUIElementCopyParameterizedAttributeValue(
             element,
             kAXStringForRangeParameterizedAttribute as CFString,
             rangeValue,
             &textValue
-        ) == .success,
-              let text = textValue as? String,
+        )
+        let text = textValue as? String
+        logger.info(
+            "selection capture stringForRange: axError=\(stringForRangeResult.rawValue, privacy: .public), valueType=\(self.typeDescription(textValue), privacy: .public), stringChars=\(text?.count ?? 0, privacy: .public)"
+        )
+        guard stringForRangeResult == .success,
+              let text,
               !text.isEmpty else {
             return nil
         }
@@ -1016,6 +1056,23 @@ final class TextInsertionService {
             return nil
         }
         return NSRange(location: range.location, length: range.length)
+    }
+
+    private func logSelectionCaptureElementContext(
+        _ element: AXUIElement,
+        activeApp: (name: String?, bundleId: String?, url: String?)
+    ) {
+        let role = stringAttribute(kAXRoleAttribute as CFString, from: element) ?? "nil"
+        let subrole = stringAttribute(kAXSubroleAttribute as CFString, from: element) ?? "nil"
+        let description = stringAttribute(kAXDescriptionAttribute as CFString, from: element) ?? "nil"
+        logger.info(
+            "selection capture focused element: app=\(activeApp.name ?? "nil", privacy: .public), bundle=\(activeApp.bundleId ?? "nil", privacy: .public), role=\(role, privacy: .public), subrole=\(subrole, privacy: .public), description=\(description, privacy: .public)"
+        )
+    }
+
+    private func typeDescription(_ value: AnyObject?) -> String {
+        guard let value else { return "nil" }
+        return String(describing: type(of: value))
     }
 
 }
