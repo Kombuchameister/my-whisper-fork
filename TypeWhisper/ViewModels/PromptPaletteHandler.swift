@@ -103,7 +103,7 @@ final class PromptPaletteHandler {
             activeApp: activeApp,
             browserInfoTask: browserInfoTask,
             deferClipboardRestoreForCopyFallback: false,
-            allowCopyFallback: !(getPreserveClipboard?() ?? false),
+            allowCopyFallback: true,
             allowClipboardFallback: !(getPreserveClipboard?() ?? false),
             onUnavailable: { [weak self] in
                 guard let self else { return }
@@ -146,7 +146,7 @@ final class PromptPaletteHandler {
             activeApp: activeApp,
             browserInfoTask: browserInfoTask,
             deferClipboardRestoreForCopyFallback: getPreserveClipboard?() ?? false,
-            allowCopyFallback: !(getPreserveClipboard?() ?? false),
+            allowCopyFallback: true,
             allowClipboardFallback: !(getPreserveClipboard?() ?? false),
             onUnavailable: { [weak self] in
                 self?.showMissingTextFeedback(soundFeedbackEnabled: soundFeedbackEnabled)

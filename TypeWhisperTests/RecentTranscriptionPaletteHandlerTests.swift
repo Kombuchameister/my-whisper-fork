@@ -389,7 +389,7 @@ final class PromptPaletteHandlerTests: XCTestCase {
         XCTAssertEqual(insertedText, "Processed: Clipboard source")
     }
 
-    func testDirectWorkflowHotkeyWithPreserveClipboardDoesNotUseClipboardFallback() async throws {
+    func testDirectWorkflowHotkeyWithPreserveClipboardUsesCopySelectionNotClipboardFallback() async throws {
         let appSupportDirectory = try TestSupport.makeTemporaryDirectory()
         defer { TestSupport.remove(appSupportDirectory) }
 
@@ -406,11 +406,6 @@ final class PromptPaletteHandlerTests: XCTestCase {
         }
 
         var processedText: String?
-        var insertedText: String?
-        textInsertionService.insertTextAtOverride = { _, text in
-            insertedText = text
-            return true
-        }
 
         let pasteboard = NSPasteboard.general
         let savedClipboard = textInsertionService.saveClipboard(from: pasteboard)
@@ -444,14 +439,6 @@ final class PromptPaletteHandlerTests: XCTestCase {
             promptPaletteController: PromptPaletteControllerSpy()
         )
         handler.getPreserveClipboard = { true }
-        var feedbackMessage: String?
-        var errorMessage: String?
-        handler.onShowNotchFeedback = { message, _, _, _, _ in
-            feedbackMessage = message
-        }
-        handler.onShowError = { message in
-            errorMessage = message
-        }
 
         handler.processWorkflowDirectly(
             workflow: workflow,
@@ -461,11 +448,10 @@ final class PromptPaletteHandlerTests: XCTestCase {
 
         try await Task.sleep(for: .milliseconds(100))
 
-        XCTAssertFalse(didAttemptCopyFallback)
-        XCTAssertNil(processedText)
-        XCTAssertNil(insertedText)
-        XCTAssertEqual(feedbackMessage, "Please select or copy some text first.")
-        XCTAssertEqual(errorMessage, "Please select or copy some text first.")
+        XCTAssertTrue(didAttemptCopyFallback)
+        XCTAssertNotNil(processedText)
+        XCTAssertTrue(processedText?.contains("Selected source") == true)
+        XCTAssertFalse(processedText?.contains("Existing clipboard source") == true)
     }
 
     func testDirectWorkflowWithPreserveClipboardAndRichTextOutputAvoidsPasteboardInsertion() async throws {
