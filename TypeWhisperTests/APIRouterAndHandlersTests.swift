@@ -2810,6 +2810,51 @@ final class APIRouterAndHandlersTests: XCTestCase {
     }
 
     @MainActor
+    func testDeferredCopySelectionRestoresOriginalClipboardAfterVerifiedPaste() async throws {
+        let service = TextInsertionService()
+        let pasteboard = NSPasteboard.withUniqueName()
+        let element = AXUIElementCreateSystemWide()
+        service.accessibilityGrantedOverride = true
+        service.pasteboardProvider = { pasteboard }
+        service.focusedTextElementOverride = { element }
+        service.captureActiveAppOverride = { ("Pages", "com.apple.iWork.Pages", nil) }
+        service.verifiedRestoreGraceDelay = .milliseconds(1)
+
+        pasteboard.clearContents()
+        pasteboard.setString("Existing", forType: .string)
+        service.copySimulatorOverride = {
+            pasteboard.clearContents()
+            pasteboard.setString("Selected source", forType: .string)
+        }
+
+        let copiedSelectionResult = await service.getTextSelectionViaCopyPreservingClipboardForInsertion()
+        let copiedSelection = try XCTUnwrap(copiedSelectionResult)
+        XCTAssertEqual(copiedSelection.text, "Selected source")
+        XCTAssertEqual(pasteboard.string(forType: .string), "Selected source")
+
+        var pasteCount = 0
+        service.pasteSimulatorOverride = {
+            pasteCount += 1
+        }
+        service.focusedTextStateOverride = { _ in
+            if pasteCount == 0 {
+                return (value: "Selected source", selectedText: "Selected source", selectedRange: NSRange(location: 0, length: 15))
+            }
+            return (value: "Processed result", selectedText: nil, selectedRange: NSRange(location: 16, length: 0))
+        }
+
+        let result = try await service.insertText(
+            "**Processed result**",
+            preserveClipboard: true,
+            outputFormat: "rtf",
+            deferredClipboardRestore: copiedSelection.deferredClipboardRestore
+        )
+
+        XCTAssertEqual(result, .pasted(verification: .verified))
+        XCTAssertEqual(pasteboard.string(forType: .string), "Existing")
+    }
+
+    @MainActor
     func testTerminalBundleForcesSyntheticPasteInsteadOfDirectAccessibilityInsertion() async throws {
         let service = TextInsertionService()
         let pasteboard = NSPasteboard.withUniqueName()
@@ -3208,7 +3253,7 @@ final class APIRouterAndHandlersTests: XCTestCase {
     }
 
     @MainActor
-    func testRTFPreserveClipboardDoesNotRestoreOldClipboardForPages() async throws {
+    func testRTFPreserveClipboardRestoresOldClipboardForVerifiedPagesPaste() async throws {
         let service = TextInsertionService()
         let pasteboard = NSPasteboard.withUniqueName()
         let element = AXUIElementCreateSystemWide()
@@ -3235,7 +3280,7 @@ final class APIRouterAndHandlersTests: XCTestCase {
         let result = try await service.insertText("**Hello**", preserveClipboard: true, outputFormat: "rtf")
 
         XCTAssertEqual(result, .pasted(verification: .verified))
-        XCTAssertEqual(pasteboard.string(forType: .string), "Hello")
+        XCTAssertEqual(pasteboard.string(forType: .string), "Existing")
     }
 
     @MainActor

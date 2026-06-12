@@ -31,6 +31,7 @@ final class TextInsertionService {
     var textSelectionOverride: (() -> TextSelection?)?
     var insertTextAtOverride: ((AXUIElement, String) -> Bool)?
     var pasteSimulatorOverride: (() -> Void)?
+    var copySimulatorOverride: (() -> Void)?
     var returnSimulatorOverride: (() -> Void)?
     var captureActiveAppOverride: (() -> (name: String?, bundleId: String?, url: String?))?
     var selectedTextOverride: (() -> String?)?
@@ -274,6 +275,25 @@ final class TextInsertionService {
     typealias ClipboardItemSnapshot = [NSPasteboard.PasteboardType: Data]
     typealias ClipboardSnapshot = [ClipboardItemSnapshot]
 
+    final class DeferredClipboardRestore: @unchecked Sendable {
+        fileprivate var savedItems: ClipboardSnapshot?
+
+        fileprivate init(savedItems: ClipboardSnapshot) {
+            self.savedItems = savedItems
+        }
+
+        fileprivate func consumeSavedItems() -> ClipboardSnapshot? {
+            let items = savedItems
+            savedItems = nil
+            return items
+        }
+    }
+
+    struct CopiedTextSelection: @unchecked Sendable {
+        let text: String
+        let deferredClipboardRestore: DeferredClipboardRestore
+    }
+
     struct PasteVerificationState {
         fileprivate let focusedTextState: FocusedTextState?
     }
@@ -319,6 +339,9 @@ final class TextInsertionService {
         }
 
         guard let text = selectedText as? String, !text.isEmpty else { return nil }
+        logger.info(
+            "accessibility selection captured: chars=\(text.count, privacy: .public), estimatedTokens=\(Self.estimatedTokenCount(for: text), privacy: .public)"
+        )
         return TextSelection(text: text, element: element)
     }
 
@@ -401,6 +424,11 @@ final class TextInsertionService {
         }
     }
 
+    func restoreClipboardIfNeeded(_ deferredRestore: DeferredClipboardRestore?) {
+        guard let savedItems = deferredRestore?.consumeSavedItems() else { return }
+        restoreClipboard(savedItems, to: pasteboardProvider())
+    }
+
     func capturePasteVerificationState() -> PasteVerificationState {
         PasteVerificationState(focusedTextState: captureFocusedTextState())
     }
@@ -452,7 +480,8 @@ final class TextInsertionService {
         _ text: String,
         preserveClipboard: Bool = false,
         autoEnter: Bool = false,
-        outputFormat: String? = nil
+        outputFormat: String? = nil,
+        deferredClipboardRestore: DeferredClipboardRestore? = nil
     ) async throws -> InsertionResult {
         guard isAccessibilityGranted else {
             throw TextInsertionError.accessibilityNotGranted
@@ -479,6 +508,7 @@ final class TextInsertionService {
                 try? await Task.sleep(for: .milliseconds(50))
                 simulateReturn()
             }
+            restoreClipboardIfNeeded(deferredClipboardRestore)
             logger.info(
                 "insertText completed via verified AX insertion: bundle=\(bundleId ?? "nil", privacy: .public)"
             )
@@ -486,7 +516,9 @@ final class TextInsertionService {
         }
 
         let pasteboard = pasteboardProvider()
-        let savedItems = preserveClipboard ? saveClipboard(from: pasteboard) : []
+        let savedItems = preserveClipboard
+            ? (deferredClipboardRestore?.consumeSavedItems() ?? saveClipboard(from: pasteboard))
+            : []
         let pasteVerificationState = capturePasteVerificationState()
         let initialChangeCount = pasteboard.changeCount
 
@@ -556,9 +588,6 @@ final class TextInsertionService {
         bundleId: String?
     ) -> Bool {
         guard requiresPasteboardInsertion else { return true }
-        if bundleId == "com.apple.iWork.Pages" {
-            return false
-        }
         return verification == .verified
     }
 
@@ -695,6 +724,10 @@ final class TextInsertionService {
     }
 
     private func simulateCopy() {
+        if let copySimulatorOverride {
+            copySimulatorOverride()
+            return
+        }
         let cKeyCode = virtualKeyCode(for: "c") ?? 0x08 // Fallback to QWERTY
         let keyDown = CGEvent(keyboardEventSource: nil, virtualKey: cKeyCode, keyDown: true)
         keyDown?.flags = .maskCommand
@@ -745,11 +778,31 @@ final class TextInsertionService {
 
     /// Attempts to get selected text by simulating Cmd+C. Saves and restores the clipboard.
     func getTextSelectionViaCopy() async -> String? {
+        guard let copiedSelection = await getTextSelectionViaCopy(deferClipboardRestore: false) else {
+            return nil
+        }
+        return copiedSelection.text
+    }
+
+    /// Attempts to get selected text by simulating Cmd+C and keeps the original clipboard snapshot
+    /// available for the later insertion step. This avoids restoring the old clipboard between
+    /// capture and paste for hotkey-triggered workflows.
+    func getTextSelectionViaCopyPreservingClipboardForInsertion() async -> CopiedTextSelection? {
+        await getTextSelectionViaCopy(deferClipboardRestore: true)
+    }
+
+    private func getTextSelectionViaCopy(deferClipboardRestore: Bool) async -> CopiedTextSelection? {
         if let textSelectionViaCopyOverride {
-            return textSelectionViaCopyOverride()
+            let pasteboard = pasteboardProvider()
+            let savedItems = saveClipboard(from: pasteboard)
+            guard let text = textSelectionViaCopyOverride(), !text.isEmpty else { return nil }
+            return CopiedTextSelection(
+                text: text,
+                deferredClipboardRestore: DeferredClipboardRestore(savedItems: savedItems)
+            )
         }
 
-        let pasteboard = NSPasteboard.general
+        let pasteboard = pasteboardProvider()
 
         // Save current clipboard contents (all types)
         let savedItems = saveClipboard(from: pasteboard)
@@ -764,11 +817,21 @@ final class TextInsertionService {
         // Read copied text
         let copiedText = pasteboard.string(forType: .string)
 
-        // Restore original clipboard
-        restoreClipboard(savedItems, to: pasteboard)
+        guard let text = copiedText, !text.isEmpty else {
+            restoreClipboard(savedItems, to: pasteboard)
+            return nil
+        }
 
-        guard let text = copiedText, !text.isEmpty else { return nil }
-        return text
+        logger.info(
+            "selection copy captured: chars=\(text.count, privacy: .public), estimatedTokens=\(Self.estimatedTokenCount(for: text), privacy: .public), deferredClipboardRestore=\(deferClipboardRestore, privacy: .public)"
+        )
+
+        let deferredRestore = DeferredClipboardRestore(savedItems: savedItems)
+        if !deferClipboardRestore {
+            restoreClipboardIfNeeded(deferredRestore)
+        }
+
+        return CopiedTextSelection(text: text, deferredClipboardRestore: deferredRestore)
     }
 
     /// Public wrapper for simulatePaste(), for use by PromptPaletteHandler.
@@ -802,6 +865,10 @@ final class TextInsertionService {
         initialState.value != currentState.value ||
         initialState.selectedText != currentState.selectedText ||
         initialState.selectedRange != currentState.selectedRange
+    }
+
+    static func estimatedTokenCount(for text: String) -> Int {
+        max(1, Int(ceil(Double(text.count) / 4.0)))
     }
 
     private func captureFocusedTextState() -> FocusedTextState? {

@@ -21,6 +21,8 @@ final class PromptPaletteHandler {
         let activeApp: (name: String?, bundleId: String?, url: String?)
         let browserInfoTask: Task<(url: String?, title: String?), Never>?
         let selectionViaCopy: Bool
+        let source: String
+        let deferredClipboardRestore: TextInsertionService.DeferredClipboardRestore?
     }
     private var paletteContext: PaletteContext?
 
@@ -100,6 +102,7 @@ final class PromptPaletteHandler {
         resolveTextContext(
             activeApp: activeApp,
             browserInfoTask: browserInfoTask,
+            deferClipboardRestoreForCopyFallback: false,
             onUnavailable: { [weak self] in
                 guard let self else { return }
                 guard !recentEntries.isEmpty else {
@@ -140,6 +143,7 @@ final class PromptPaletteHandler {
         resolveTextContext(
             activeApp: activeApp,
             browserInfoTask: browserInfoTask,
+            deferClipboardRestoreForCopyFallback: getPreserveClipboard?() ?? false,
             onUnavailable: { [weak self] in
                 self?.showMissingTextFeedback(soundFeedbackEnabled: soundFeedbackEnabled)
             }
@@ -165,42 +169,75 @@ final class PromptPaletteHandler {
     private func resolveTextContext(
         activeApp: (name: String?, bundleId: String?, url: String?),
         browserInfoTask: Task<(url: String?, title: String?), Never>?,
+        deferClipboardRestoreForCopyFallback: Bool,
         onUnavailable: @escaping () -> Void,
         completion: @escaping (PaletteContext) -> Void
     ) {
         if let sel = textInsertionService.getTextSelection() {
-            logger.info("[PromptPalette] Got selected text via AX: \(sel.text.prefix(80))")
+            logInputDiagnostics(source: "accessibility-selection", text: sel.text, activeBundleIdentifier: activeApp.bundleId)
             completion(PaletteContext(
                 text: sel.text,
                 selection: sel,
                 focusedElement: nil,
                 activeApp: activeApp,
                 browserInfoTask: browserInfoTask,
-                selectionViaCopy: false
+                selectionViaCopy: false,
+                source: "accessibility-selection",
+                deferredClipboardRestore: nil
             ))
         } else {
             let tis = textInsertionService
             Task {
-                if let copied = await tis.getTextSelectionViaCopy() {
-                    logger.info("[PromptPalette] Got selected text via Cmd+C: \(copied.prefix(80))")
+                if deferClipboardRestoreForCopyFallback,
+                   let copied = await tis.getTextSelectionViaCopyPreservingClipboardForInsertion() {
+                    self.logInputDiagnostics(
+                        source: "copy-selection",
+                        text: copied.text,
+                        activeBundleIdentifier: activeApp.bundleId
+                    )
+                    completion(PaletteContext(
+                        text: copied.text,
+                        selection: nil,
+                        focusedElement: nil,
+                        activeApp: activeApp,
+                        browserInfoTask: browserInfoTask,
+                        selectionViaCopy: true,
+                        source: "copy-selection",
+                        deferredClipboardRestore: copied.deferredClipboardRestore
+                    ))
+                } else if !deferClipboardRestoreForCopyFallback,
+                          let copied = await tis.getTextSelectionViaCopy() {
+                    self.logInputDiagnostics(
+                        source: "copy-selection",
+                        text: copied,
+                        activeBundleIdentifier: activeApp.bundleId
+                    )
                     completion(PaletteContext(
                         text: copied,
                         selection: nil,
                         focusedElement: nil,
                         activeApp: activeApp,
                         browserInfoTask: browserInfoTask,
-                        selectionViaCopy: true
+                        selectionViaCopy: true,
+                        source: "copy-selection",
+                        deferredClipboardRestore: nil
                     ))
                 } else if let clipboard = NSPasteboard.general.string(forType: .string), !clipboard.isEmpty {
                     let focusedElement = tis.getFocusedTextElement()
-                    logger.info("[PromptPalette] No selection, using clipboard: \(clipboard.prefix(80))")
+                    self.logInputDiagnostics(
+                        source: "clipboard-fallback",
+                        text: clipboard,
+                        activeBundleIdentifier: activeApp.bundleId
+                    )
                     completion(PaletteContext(
                         text: clipboard,
                         selection: nil,
                         focusedElement: focusedElement,
                         activeApp: activeApp,
                         browserInfoTask: browserInfoTask,
-                        selectionViaCopy: false
+                        selectionViaCopy: false,
+                        source: "clipboard-fallback",
+                        deferredClipboardRestore: nil
                     ))
                 } else {
                     logger.info("[PromptPalette] No text available")
@@ -281,8 +318,14 @@ final class PromptPaletteHandler {
 
         Task { [weak self] in
             guard let self else { return }
+            defer {
+                self.textInsertionService.restoreClipboardIfNeeded(ctx.deferredClipboardRestore)
+            }
             do {
                 let outputFormat = workflow.output.resolvedFormat(for: ctx.activeApp.bundleId)
+                logger.info(
+                    "[PromptPalette] Processing workflow input: workflow=\(workflow.name, privacy: .public), source=\(ctx.source, privacy: .public), chars=\(ctx.text.count, privacy: .public), estimatedTokens=\(TextInsertionService.estimatedTokenCount(for: ctx.text), privacy: .public), outputFormat=\(outputFormat ?? "plain", privacy: .public), bundle=\(ctx.activeApp.bundleId ?? "nil", privacy: .public)"
+                )
                 let result = try await workflowTextProcessingService.process(
                     workflow: workflow,
                     text: ctx.text,
@@ -326,7 +369,8 @@ final class PromptPaletteHandler {
                         bundleId: ctx.activeApp.bundleId,
                         preserveClipboard: preserveClipboard,
                         autoEnter: workflow.output.autoEnter,
-                        outputFormat: outputFormat
+                        outputFormat: outputFormat,
+                        deferredClipboardRestore: ctx.deferredClipboardRestore
                     )
                 } else if let selection = ctx.selection {
                     insertionOutcome = await insertViaAXWithPasteFallback(
@@ -336,7 +380,8 @@ final class PromptPaletteHandler {
                         bundleId: ctx.activeApp.bundleId,
                         preserveClipboard: preserveClipboard,
                         autoEnter: workflow.output.autoEnter,
-                        outputFormat: outputFormat
+                        outputFormat: outputFormat,
+                        deferredClipboardRestore: ctx.deferredClipboardRestore
                     )
                 } else if ctx.selectionViaCopy {
                     insertionOutcome = try await activateAndInsertText(
@@ -344,7 +389,8 @@ final class PromptPaletteHandler {
                         bundleId: ctx.activeApp.bundleId,
                         preserveClipboard: preserveClipboard,
                         autoEnter: workflow.output.autoEnter,
-                        outputFormat: outputFormat
+                        outputFormat: outputFormat,
+                        deferredClipboardRestore: ctx.deferredClipboardRestore
                     )
                 } else if let element = ctx.focusedElement {
                     insertionOutcome = textInsertionService.insertTextAt(element: element, text: result)
@@ -394,7 +440,8 @@ final class PromptPaletteHandler {
         bundleId: String?,
         preserveClipboard: Bool,
         autoEnter: Bool,
-        outputFormat: String?
+        outputFormat: String?,
+        deferredClipboardRestore: TextInsertionService.DeferredClipboardRestore? = nil
     ) async -> InsertionOutcome {
         let replaced = textInsertionService.replaceSelectedText(in: selection, with: result)
         logger.info("[PromptPalette] replaceSelectedText reported: \(replaced)")
@@ -416,7 +463,8 @@ final class PromptPaletteHandler {
                 bundleId: bundleId,
                 preserveClipboard: preserveClipboard,
                 autoEnter: autoEnter,
-                outputFormat: outputFormat
+                outputFormat: outputFormat,
+                deferredClipboardRestore: deferredClipboardRestore
             )
         } catch {
             logger.error("[PromptPalette] Paste fallback failed: \(error.localizedDescription)")
@@ -430,7 +478,8 @@ final class PromptPaletteHandler {
         bundleId: String?,
         preserveClipboard: Bool,
         autoEnter: Bool,
-        outputFormat: String?
+        outputFormat: String?,
+        deferredClipboardRestore: TextInsertionService.DeferredClipboardRestore? = nil
     ) async throws -> InsertionOutcome {
         guard let bundleId,
               let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId).first else {
@@ -452,7 +501,8 @@ final class PromptPaletteHandler {
             text,
             preserveClipboard: preserveClipboard,
             autoEnter: autoEnter,
-            outputFormat: outputFormat
+            outputFormat: outputFormat,
+            deferredClipboardRestore: deferredClipboardRestore
         )
         logger.info("[PromptPalette] Shared insertion completed in \(bundleId): \(String(describing: result), privacy: .public)")
 
@@ -462,5 +512,15 @@ final class PromptPaletteHandler {
         case .pasted:
             return .insertedViaPaste
         }
+    }
+
+    private func logInputDiagnostics(
+        source: String,
+        text: String,
+        activeBundleIdentifier: String?
+    ) {
+        logger.info(
+            "[PromptPalette] Text input diagnostics: source=\(source, privacy: .public), chars=\(text.count, privacy: .public), estimatedTokens=\(TextInsertionService.estimatedTokenCount(for: text), privacy: .public), bundle=\(activeBundleIdentifier ?? "nil", privacy: .public)"
+        )
     }
 }
