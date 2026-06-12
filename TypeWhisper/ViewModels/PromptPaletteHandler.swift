@@ -104,6 +104,7 @@ final class PromptPaletteHandler {
             browserInfoTask: browserInfoTask,
             deferClipboardRestoreForCopyFallback: false,
             allowCopyFallback: !(getPreserveClipboard?() ?? false),
+            allowClipboardFallback: !(getPreserveClipboard?() ?? false),
             onUnavailable: { [weak self] in
                 guard let self else { return }
                 guard !recentEntries.isEmpty else {
@@ -146,6 +147,7 @@ final class PromptPaletteHandler {
             browserInfoTask: browserInfoTask,
             deferClipboardRestoreForCopyFallback: getPreserveClipboard?() ?? false,
             allowCopyFallback: !(getPreserveClipboard?() ?? false),
+            allowClipboardFallback: !(getPreserveClipboard?() ?? false),
             onUnavailable: { [weak self] in
                 self?.showMissingTextFeedback(soundFeedbackEnabled: soundFeedbackEnabled)
             }
@@ -173,6 +175,7 @@ final class PromptPaletteHandler {
         browserInfoTask: Task<(url: String?, title: String?), Never>?,
         deferClipboardRestoreForCopyFallback: Bool,
         allowCopyFallback: Bool,
+        allowClipboardFallback: Bool,
         onUnavailable: @escaping () -> Void,
         completion: @escaping (PaletteContext) -> Void
     ) {
@@ -227,7 +230,9 @@ final class PromptPaletteHandler {
                         source: "copy-selection",
                         deferredClipboardRestore: nil
                     ))
-                } else if let clipboard = NSPasteboard.general.string(forType: .string), !clipboard.isEmpty {
+                } else if allowClipboardFallback,
+                          let clipboard = NSPasteboard.general.string(forType: .string),
+                          !clipboard.isEmpty {
                     let focusedElement = tis.getFocusedTextElement()
                     self.logInputDiagnostics(
                         source: "clipboard-fallback",
@@ -369,14 +374,34 @@ final class PromptPaletteHandler {
                     outputFormat: outputFormat
                 )
                 if requiresPasteboardInsertion {
-                    insertionOutcome = try await activateAndInsertText(
-                        result,
-                        bundleId: ctx.activeApp.bundleId,
-                        preserveClipboard: preserveClipboard,
-                        autoEnter: workflow.output.autoEnter,
-                        outputFormat: outputFormat,
-                        deferredClipboardRestore: ctx.deferredClipboardRestore
-                    )
+                    if preserveClipboard {
+                        let accessibilityText = ClipboardContentFormatter.payload(
+                            for: result,
+                            outputFormat: outputFormat
+                        )?.plainText ?? result
+                        if let selection = ctx.selection {
+                            insertionOutcome = insertViaAXWithoutPasteFallback(
+                                selection: selection,
+                                result: accessibilityText,
+                                originalText: ctx.text
+                            )
+                        } else if let element = ctx.focusedElement {
+                            insertionOutcome = textInsertionService.insertTextAt(element: element, text: accessibilityText)
+                                ? .insertedViaAccessibility
+                                : .failed
+                        } else {
+                            insertionOutcome = .failed
+                        }
+                    } else {
+                        insertionOutcome = try await activateAndInsertText(
+                            result,
+                            bundleId: ctx.activeApp.bundleId,
+                            preserveClipboard: preserveClipboard,
+                            autoEnter: workflow.output.autoEnter,
+                            outputFormat: outputFormat,
+                            deferredClipboardRestore: ctx.deferredClipboardRestore
+                        )
+                    }
                 } else if let selection = ctx.selection {
                     insertionOutcome = await insertViaAXWithPasteFallback(
                         selection: selection,
@@ -435,6 +460,28 @@ final class PromptPaletteHandler {
                 onShowNotchFeedback?(error.localizedDescription, "xmark.circle.fill", 2.5, true, "workflow")
             }
         }
+    }
+
+    private func insertViaAXWithoutPasteFallback(
+        selection: TextInsertionService.TextSelection,
+        result: String,
+        originalText: String
+    ) -> InsertionOutcome {
+        let replaced = textInsertionService.replaceSelectedText(in: selection, with: result)
+        logger.info("[PromptPalette] replaceSelectedText without paste fallback reported: \(replaced)")
+
+        guard replaced else {
+            return .failed
+        }
+
+        var currentText: AnyObject?
+        AXUIElementCopyAttributeValue(selection.element, kAXSelectedTextAttribute as CFString, &currentText)
+        if let text = currentText as? String, text == originalText {
+            logger.warning("[PromptPalette] AX replace silently ignored and paste fallback is disabled")
+            return .failed
+        }
+
+        return .insertedViaAccessibility
     }
 
     /// Try AX replace, verify it worked, fall back to activate+paste if silently ignored (Electron apps).
