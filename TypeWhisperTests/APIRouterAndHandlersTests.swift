@@ -3107,7 +3107,7 @@ final class APIRouterAndHandlersTests: XCTestCase {
         service.accessibilityGrantedOverride = true
         service.pasteboardProvider = { pasteboard }
         service.focusedTextElementOverride = { element }
-        service.defaultPasteFallbackRestoreDelay = .milliseconds(1)
+        service.richTextPasteFallbackRestoreDelay = .milliseconds(1)
         service.pasteVerificationAttempts = 0
         service.focusedTextStateOverride = { _ in
             (value: "", selectedText: nil, selectedRange: NSRange(location: 0, length: 0))
@@ -3249,7 +3249,7 @@ final class APIRouterAndHandlersTests: XCTestCase {
 
         XCTAssertNil(insertedText)
         XCTAssertTrue(didSimulatePaste)
-        XCTAssertEqual(pasteboard.string(forType: .string), "Hello")
+        XCTAssertEqual(pasteboard.string(forType: .string), "Existing")
     }
 
     @MainActor

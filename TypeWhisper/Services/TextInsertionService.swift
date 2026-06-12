@@ -39,6 +39,7 @@ final class TextInsertionService {
     var pasteVerificationAttempts = 10
     var pasteVerificationPollingDelay: Duration = .milliseconds(50)
     var defaultPasteFallbackRestoreDelay: Duration = .milliseconds(350)
+    var richTextPasteFallbackRestoreDelay: Duration = .milliseconds(1500)
     var terminalPasteFallbackRestoreDelay: Duration = .milliseconds(900)
     var verifiedRestoreGraceDelay: Duration = .milliseconds(150)
 
@@ -554,6 +555,8 @@ final class TextInsertionService {
                 restoreDelay = terminalPasteFallbackRestoreDelay
             } else if verification == .verified {
                 restoreDelay = verifiedRestoreGraceDelay
+            } else if requiresPasteboardInsertion {
+                restoreDelay = richTextPasteFallbackRestoreDelay
             } else {
                 restoreDelay = defaultPasteFallbackRestoreDelay
             }
@@ -588,7 +591,7 @@ final class TextInsertionService {
         bundleId: String?
     ) -> Bool {
         guard requiresPasteboardInsertion else { return true }
-        return verification == .verified
+        return true
     }
 
     private func waitForPasteVerification(using state: PasteVerificationState) async -> PasteVerification {
