@@ -145,7 +145,7 @@ final class PromptPaletteHandler {
         resolveTextContext(
             activeApp: activeApp,
             browserInfoTask: browserInfoTask,
-            deferClipboardRestoreForCopyFallback: false,
+            deferClipboardRestoreForCopyFallback: getPreserveClipboard?() ?? false,
             allowCopyFallback: true,
             allowClipboardFallback: !(getPreserveClipboard?() ?? false),
             onUnavailable: { [weak self] in

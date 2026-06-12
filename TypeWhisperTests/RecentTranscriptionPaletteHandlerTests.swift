@@ -400,6 +400,8 @@ final class PromptPaletteHandlerTests: XCTestCase {
         textInsertionService.captureActiveAppOverride = { ("Pages", "com.apple.iWork.Pages", nil) }
         textInsertionService.textSelectionOverride = { nil }
         textInsertionService.focusedTextElementOverride = { AXUIElementCreateSystemWide() }
+        textInsertionService.defaultPasteFallbackRestoreDelay = .milliseconds(1)
+        textInsertionService.pasteVerificationAttempts = 0
 
         var didAttemptCopyFallback = false
         textInsertionService.copySimulatorOverride = {
@@ -448,13 +450,14 @@ final class PromptPaletteHandlerTests: XCTestCase {
             soundFeedbackEnabled: false
         )
 
-        try await Task.sleep(for: .milliseconds(100))
+        try await Task.sleep(for: .milliseconds(300))
 
         XCTAssertTrue(didAttemptCopyFallback)
         XCTAssertNotNil(processedText)
         XCTAssertTrue(processedText?.contains("Selected source") == true)
         XCTAssertFalse(processedText?.contains("Existing clipboard source") == true)
-        XCTAssertEqual(clipboardSeenByProcessor, "Existing clipboard source")
+        XCTAssertEqual(clipboardSeenByProcessor, "Selected source")
+        XCTAssertEqual(pasteboard.string(forType: .string), "Existing clipboard source")
     }
 
     func testDirectWorkflowWithPreserveClipboardAndRichTextCopySelectionRestoresClipboardBeforeProcessing() async throws {
@@ -501,7 +504,7 @@ final class PromptPaletteHandlerTests: XCTestCase {
             promptProcessingService: PromptProcessingService(),
             workflowTextProcessingService: WorkflowTextProcessingService(
                 promptProcessor: { _, _, _, _, _ in
-                    XCTAssertEqual(pasteboard.string(forType: .string), "Existing clipboard source")
+                    XCTAssertEqual(pasteboard.string(forType: .string), "Selected source")
                     return "**Processed** source"
                 },
                 appleTranslator: nil
