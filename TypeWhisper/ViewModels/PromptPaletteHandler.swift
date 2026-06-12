@@ -385,6 +385,15 @@ final class PromptPaletteHandler {
                                 result: accessibilityText,
                                 originalText: ctx.text
                             )
+                        } else if ctx.selectionViaCopy {
+                            insertionOutcome = try await activateAndInsertText(
+                                result,
+                                bundleId: ctx.activeApp.bundleId,
+                                preserveClipboard: preserveClipboard,
+                                autoEnter: workflow.output.autoEnter,
+                                outputFormat: outputFormat,
+                                deferredClipboardRestore: ctx.deferredClipboardRestore
+                            )
                         } else if let element = ctx.focusedElement {
                             insertionOutcome = textInsertionService.insertTextAt(element: element, text: accessibilityText)
                                 ? .insertedViaAccessibility

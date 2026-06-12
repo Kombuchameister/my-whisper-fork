@@ -454,6 +454,74 @@ final class PromptPaletteHandlerTests: XCTestCase {
         XCTAssertFalse(processedText?.contains("Existing clipboard source") == true)
     }
 
+    func testDirectWorkflowWithPreserveClipboardAndRichTextCopySelectionUsesPasteAndRestoresClipboard() async throws {
+        let currentBundleId = try XCTUnwrap(Bundle.main.bundleIdentifier)
+        let appSupportDirectory = try TestSupport.makeTemporaryDirectory()
+        defer { TestSupport.remove(appSupportDirectory) }
+
+        let pasteboard = NSPasteboard.withUniqueName()
+        let textInsertionService = TextInsertionService()
+        textInsertionService.accessibilityGrantedOverride = true
+        textInsertionService.pasteboardProvider = { pasteboard }
+        textInsertionService.captureActiveAppOverride = { ("TypeWhisper", currentBundleId, nil) }
+        textInsertionService.textSelectionOverride = { nil }
+        textInsertionService.focusedTextElementOverride = { AXUIElementCreateSystemWide() }
+        textInsertionService.verifiedRestoreGraceDelay = .milliseconds(1)
+        textInsertionService.textSelectionViaCopyOverride = { "Selected source" }
+
+        var pasteCount = 0
+        textInsertionService.pasteSimulatorOverride = {
+            pasteCount += 1
+        }
+        textInsertionService.focusedTextStateOverride = { _ in
+            if pasteCount == 0 {
+                return (value: "Selected source", selectedText: "Selected source", selectedRange: NSRange(location: 0, length: 15))
+            }
+            return (value: "Processed source", selectedText: nil, selectedRange: NSRange(location: 16, length: 0))
+        }
+
+        pasteboard.clearContents()
+        pasteboard.setString("Existing clipboard source", forType: .string)
+
+        let workflowService = WorkflowService(appSupportDirectory: appSupportDirectory)
+        let workflow = Workflow(
+            name: "Direct Cleanup",
+            template: .cleanedText,
+            trigger: .hotkeys([
+                UnifiedHotkey(keyCode: 17, modifierFlags: 0, isFn: false)
+            ], behavior: .processSelectedText),
+            output: WorkflowOutput(formatOverrides: [
+                WorkflowOutputFormatOverride(bundleIdentifiers: [currentBundleId], format: "rtf")
+            ])
+        )
+        let handler = PromptPaletteHandler(
+            textInsertionService: textInsertionService,
+            workflowService: workflowService,
+            historyService: HistoryService(appSupportDirectory: appSupportDirectory),
+            recentTranscriptionStore: RecentTranscriptionStore(),
+            promptProcessingService: PromptProcessingService(),
+            workflowTextProcessingService: WorkflowTextProcessingService(
+                promptProcessor: { _, _, _, _, _ in "**Processed** source" },
+                appleTranslator: nil
+            ),
+            soundService: SoundService(),
+            accessibilityAnnouncementService: AccessibilityAnnouncementService(),
+            promptPaletteController: PromptPaletteControllerSpy()
+        )
+        handler.getPreserveClipboard = { true }
+
+        handler.processWorkflowDirectly(
+            workflow: workflow,
+            currentState: .idle,
+            soundFeedbackEnabled: false
+        )
+
+        try await Task.sleep(for: .milliseconds(300))
+
+        XCTAssertEqual(pasteCount, 1)
+        XCTAssertEqual(pasteboard.string(forType: .string), "Existing clipboard source")
+    }
+
     func testDirectWorkflowWithPreserveClipboardAndRichTextOutputAvoidsPasteboardInsertion() async throws {
         let appSupportDirectory = try TestSupport.makeTemporaryDirectory()
         defer { TestSupport.remove(appSupportDirectory) }
