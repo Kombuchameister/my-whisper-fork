@@ -910,15 +910,83 @@ final class TextInsertionService {
     }
 
     private func selectedTextFromFocusedState(for element: AXUIElement) -> String? {
+        if let selectedRangesText = selectedTextFromSelectedTextRangesAttribute(for: element) {
+            return selectedRangesText
+        }
+
+        var selectedRangeValue: AnyObject?
+        if AXUIElementCopyAttributeValue(
+            element,
+            kAXSelectedTextRangeAttribute as CFString,
+            &selectedRangeValue
+        ) == .success,
+           let selectedRangeValue,
+           let selectedRangeText = selectedText(from: selectedRangeValue, for: element) {
+            return selectedRangeText
+        }
+
         guard let state = captureFocusedTextState(for: element),
-              let value = state.value,
-              let selectedRange = state.selectedRange,
-              selectedRange.length > 0,
-              let range = Range(selectedRange, in: value) else {
+              let selectedRange = state.selectedRange else {
             return nil
         }
 
-        let text = String(value[range])
+        return selectedText(from: selectedRange, value: state.value)
+    }
+
+    private func selectedTextFromSelectedTextRangesAttribute(for element: AXUIElement) -> String? {
+        var selectedRangesValue: AnyObject?
+        guard AXUIElementCopyAttributeValue(
+            element,
+            kAXSelectedTextRangesAttribute as CFString,
+            &selectedRangesValue
+        ) == .success,
+              let selectedRanges = selectedRangesValue as? [AnyObject],
+              !selectedRanges.isEmpty else {
+            return nil
+        }
+
+        let fragments = selectedRanges.compactMap { selectedText(from: $0, for: element) }
+        guard !fragments.isEmpty else { return nil }
+        return fragments.joined(separator: "\n")
+    }
+
+    private func selectedText(from rangeValue: AnyObject, for element: AXUIElement) -> String? {
+        if let parameterizedText = stringForRange(rangeValue, from: element) {
+            return parameterizedText
+        }
+
+        guard let range = nsRange(from: rangeValue),
+              let value = stringAttribute(kAXValueAttribute as CFString, from: element) else {
+            return nil
+        }
+
+        return selectedText(from: range, value: value)
+    }
+
+    private func stringForRange(_ rangeValue: AnyObject, from element: AXUIElement) -> String? {
+        var textValue: AnyObject?
+        guard AXUIElementCopyParameterizedAttributeValue(
+            element,
+            kAXStringForRangeParameterizedAttribute as CFString,
+            rangeValue,
+            &textValue
+        ) == .success,
+              let text = textValue as? String,
+              !text.isEmpty else {
+            return nil
+        }
+
+        return text
+    }
+
+    private func selectedText(from range: NSRange, value: String?) -> String? {
+        guard let value,
+              range.length > 0,
+              let stringRange = Range(range, in: value) else {
+            return nil
+        }
+
+        let text = String(value[stringRange])
         return text.isEmpty ? nil : text
     }
 
@@ -935,6 +1003,13 @@ final class TextInsertionService {
             return nil
         }
 
+        guard let range = nsRange(from: rangeValue) else {
+            return nil
+        }
+        return range
+    }
+
+    private func nsRange(from rangeValue: AnyObject) -> NSRange? {
         var range = CFRange()
         guard CFGetTypeID(rangeValue) == AXValueGetTypeID(),
               AXValueGetValue(rangeValue as! AXValue, .cfRange, &range) else {
