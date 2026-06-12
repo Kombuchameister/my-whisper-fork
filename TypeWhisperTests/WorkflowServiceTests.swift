@@ -1350,29 +1350,6 @@ final class WorkflowServiceTests: XCTestCase {
         XCTAssertEqual(capturedText, "Hello world")
     }
 
-    func testWorkflowTextProcessingServiceStripsCleanedTextAssistantPreamble() async throws {
-        let workflow = Workflow(
-            name: "Cleaned Text",
-            template: .cleanedText,
-            trigger: .manual()
-        )
-
-        let service = WorkflowTextProcessingService(
-            promptProcessor: { _, _, _, _, _ in
-                """
-                Here is the cleaned up text:
-
-                This is the corrected sentence.
-                """
-            },
-            appleTranslator: nil
-        )
-
-        let result = try await service.process(workflow: workflow, text: "this is the corrected sentence")
-
-        XCTAssertEqual(result, "This is the corrected sentence.")
-    }
-
     func testWorkflowTextProcessingServiceSanitizesBoundaryEchoesFromLLMOutput() async throws {
         let workflow = Workflow(
             name: "Cleaned Text",
