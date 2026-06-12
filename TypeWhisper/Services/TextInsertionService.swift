@@ -355,29 +355,15 @@ final class TextInsertionService {
         }
 
         logSelectionCaptureElementContext(element, activeApp: activeApp)
-        var selectedText: AnyObject?
-        let selectedTextResult = AXUIElementCopyAttributeValue(
-            element,
-            kAXSelectedTextAttribute as CFString,
-            &selectedText
-        )
-        if selectedTextResult == .success,
-           let text = selectedText as? String,
-           !text.isEmpty {
-            logger.info(
-                "accessibility selection captured: chars=\(text.count, privacy: .public), estimatedTokens=\(Self.estimatedTokenCount(for: text), privacy: .public)"
-            )
-            return TextSelection(text: text, element: element)
+        if let selection = selectionOwnedByElement(element, source: "focused") {
+            return selection
         }
-        logger.info(
-            "selection capture selectedText attribute did not provide text: axError=\(selectedTextResult.rawValue, privacy: .public), valueType=\(self.typeDescription(selectedText), privacy: .public), stringChars=\((selectedText as? String)?.count ?? 0, privacy: .public)"
-        )
+        if let descendantSelection = findSelectionInDescendants(of: element) {
+            return descendantSelection
+        }
 
-        guard let text = selectedTextFromFocusedState(for: element) else { return nil }
-        logger.info(
-            "accessibility selection captured from range: chars=\(text.count, privacy: .public), estimatedTokens=\(Self.estimatedTokenCount(for: text), privacy: .public)"
-        )
-        return TextSelection(text: text, element: element)
+        logger.info("selection capture failed: no selection owner found in focused element subtree")
+        return nil
     }
 
     /// Returns the focused text element (even without selection), for later insertion.
@@ -960,6 +946,94 @@ final class TextInsertionService {
         return selectedText(from: selectedRange, value: state.value)
     }
 
+    private func selectionOwnedByElement(_ element: AXUIElement, source: String) -> TextSelection? {
+        var selectedText: AnyObject?
+        let selectedTextResult = AXUIElementCopyAttributeValue(
+            element,
+            kAXSelectedTextAttribute as CFString,
+            &selectedText
+        )
+        if selectedTextResult == .success,
+           let text = selectedText as? String,
+           !text.isEmpty {
+            logger.info(
+                "accessibility selection captured: source=\(source, privacy: .public), chars=\(text.count, privacy: .public), estimatedTokens=\(Self.estimatedTokenCount(for: text), privacy: .public)"
+            )
+            return TextSelection(text: text, element: element)
+        }
+        logger.info(
+            "selection capture selectedText attribute did not provide text: source=\(source, privacy: .public), axError=\(selectedTextResult.rawValue, privacy: .public), valueType=\(self.typeDescription(selectedText), privacy: .public), stringChars=\((selectedText as? String)?.count ?? 0, privacy: .public)"
+        )
+
+        guard let text = selectedTextFromFocusedState(for: element) else {
+            return nil
+        }
+        logger.info(
+            "accessibility selection captured from range: source=\(source, privacy: .public), chars=\(text.count, privacy: .public), estimatedTokens=\(Self.estimatedTokenCount(for: text), privacy: .public)"
+        )
+        return TextSelection(text: text, element: element)
+    }
+
+    private func findSelectionInDescendants(of root: AXUIElement) -> TextSelection? {
+        var queue: [(element: AXUIElement, depth: Int)] = childElements(of: root).map { ($0, 1) }
+        var visited = 0
+        let maxDepth = 6
+        let maxNodes = 80
+
+        while !queue.isEmpty && visited < maxNodes {
+            let current = queue.removeFirst()
+            visited += 1
+
+            logSelectionCaptureElementContext(current.element, activeApp: (nil, nil, nil), prefix: "selection capture descendant")
+            if let selection = selectionOwnedByElement(current.element, source: "descendant-depth-\(current.depth)") {
+                logger.info(
+                    "selection capture found descendant owner: visited=\(visited, privacy: .public), depth=\(current.depth, privacy: .public)"
+                )
+                return selection
+            }
+
+            if current.depth < maxDepth {
+                queue.append(contentsOf: childElements(of: current.element).map { ($0, current.depth + 1) })
+            }
+        }
+
+        logger.info(
+            "selection capture descendant search exhausted: visited=\(visited, privacy: .public), remaining=\(queue.count, privacy: .public)"
+        )
+        return nil
+    }
+
+    private func childElements(of element: AXUIElement) -> [AXUIElement] {
+        var children: [AXUIElement] = []
+        for attribute in [
+            kAXChildrenAttribute as CFString,
+            kAXContentsAttribute as CFString,
+            "AXVisibleChildren" as CFString
+        ] {
+            var value: AnyObject?
+            guard AXUIElementCopyAttributeValue(element, attribute, &value) == .success else {
+                continue
+            }
+
+            if let child = axElement(from: value) {
+                children.append(child)
+            } else if let childArray = value as? [AXUIElement] {
+                children.append(contentsOf: childArray)
+            } else if let objectArray = value as? [AnyObject] {
+                children.append(contentsOf: objectArray.compactMap { axElement(from: $0) })
+            }
+        }
+        return children
+    }
+
+    private func axElement(from value: AnyObject?) -> AXUIElement? {
+        guard let value,
+              CFGetTypeID(value) == AXUIElementGetTypeID() else {
+            return nil
+        }
+        return (value as! AXUIElement)
+    }
+
     private func selectedTextFromSelectedTextRangesAttribute(for element: AXUIElement) -> String? {
         var selectedRangesValue: AnyObject?
         let selectedRangesResult = AXUIElementCopyAttributeValue(
@@ -1060,13 +1134,14 @@ final class TextInsertionService {
 
     private func logSelectionCaptureElementContext(
         _ element: AXUIElement,
-        activeApp: (name: String?, bundleId: String?, url: String?)
+        activeApp: (name: String?, bundleId: String?, url: String?),
+        prefix: String = "selection capture focused element"
     ) {
         let role = stringAttribute(kAXRoleAttribute as CFString, from: element) ?? "nil"
         let subrole = stringAttribute(kAXSubroleAttribute as CFString, from: element) ?? "nil"
         let description = stringAttribute(kAXDescriptionAttribute as CFString, from: element) ?? "nil"
         logger.info(
-            "selection capture focused element: app=\(activeApp.name ?? "nil", privacy: .public), bundle=\(activeApp.bundleId ?? "nil", privacy: .public), role=\(role, privacy: .public), subrole=\(subrole, privacy: .public), description=\(description, privacy: .public)"
+            "\(prefix, privacy: .public): app=\(activeApp.name ?? "nil", privacy: .public), bundle=\(activeApp.bundleId ?? "nil", privacy: .public), role=\(role, privacy: .public), subrole=\(subrole, privacy: .public), description=\(description, privacy: .public)"
         )
     }
 
