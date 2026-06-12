@@ -457,7 +457,7 @@ final class PromptPaletteHandlerTests: XCTestCase {
         XCTAssertEqual(clipboardSeenByProcessor, "Existing clipboard source")
     }
 
-    func testDirectWorkflowWithPreserveClipboardAndRichTextCopySelectionUsesPasteAndRestoresClipboard() async throws {
+    func testDirectWorkflowWithPreserveClipboardAndRichTextCopySelectionRestoresClipboardBeforeProcessing() async throws {
         let currentBundleId = try XCTUnwrap(Bundle.main.bundleIdentifier)
         let appSupportDirectory = try TestSupport.makeTemporaryDirectory()
         defer { TestSupport.remove(appSupportDirectory) }
@@ -470,22 +470,13 @@ final class PromptPaletteHandlerTests: XCTestCase {
         textInsertionService.textSelectionOverride = { nil }
         textInsertionService.focusedTextElementOverride = { AXUIElementCreateSystemWide() }
         textInsertionService.verifiedRestoreGraceDelay = .milliseconds(1)
+        textInsertionService.richTextPasteFallbackRestoreDelay = .milliseconds(1)
+        textInsertionService.pasteVerificationAttempts = 0
         var copyCount = 0
         textInsertionService.copySimulatorOverride = {
             copyCount += 1
             pasteboard.clearContents()
             pasteboard.setString("Selected source", forType: .string)
-        }
-
-        var pasteCount = 0
-        textInsertionService.pasteSimulatorOverride = {
-            pasteCount += 1
-        }
-        textInsertionService.focusedTextStateOverride = { _ in
-            if pasteCount == 0 {
-                return (value: "Selected source", selectedText: "Selected source", selectedRange: NSRange(location: 0, length: 15))
-            }
-            return (value: "Processed source", selectedText: nil, selectedRange: NSRange(location: 16, length: 0))
         }
 
         pasteboard.clearContents()
@@ -509,7 +500,10 @@ final class PromptPaletteHandlerTests: XCTestCase {
             recentTranscriptionStore: RecentTranscriptionStore(),
             promptProcessingService: PromptProcessingService(),
             workflowTextProcessingService: WorkflowTextProcessingService(
-                promptProcessor: { _, _, _, _, _ in "**Processed** source" },
+                promptProcessor: { _, _, _, _, _ in
+                    XCTAssertEqual(pasteboard.string(forType: .string), "Existing clipboard source")
+                    return "**Processed** source"
+                },
                 appleTranslator: nil
             ),
             soundService: SoundService(),
@@ -526,7 +520,6 @@ final class PromptPaletteHandlerTests: XCTestCase {
 
         try await Task.sleep(for: .milliseconds(300))
 
-        XCTAssertEqual(pasteCount, 1)
         XCTAssertEqual(copyCount, 1)
         XCTAssertEqual(pasteboard.string(forType: .string), "Existing clipboard source")
     }

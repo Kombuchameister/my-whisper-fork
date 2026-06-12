@@ -47,6 +47,8 @@ final class TextInsertionService {
     var richTextPasteFallbackRestoreDelay: Duration = .milliseconds(1500)
     var terminalPasteFallbackRestoreDelay: Duration = .milliseconds(900)
     var verifiedRestoreGraceDelay: Duration = .milliseconds(150)
+    var copySelectionRetryDelay: Duration = .milliseconds(120)
+    var copySelectionReadSettleDelay: Duration = .milliseconds(20)
 
     enum InsertionResult: Equatable {
         case insertedViaAccessibility
@@ -828,39 +830,62 @@ final class TextInsertionService {
         // Save current clipboard contents (all types)
         let savedItems = saveClipboard(from: pasteboard)
 
-        let initialChangeCount = pasteboard.changeCount
-        simulateCopy()
+        let maxAttempts = 3
+        for attempt in 1...maxAttempts {
+            let initialChangeCount = pasteboard.changeCount
+            simulateCopy()
 
-        guard await waitForPasteboardChange(on: pasteboard, after: initialChangeCount) else {
-            return nil
+            guard await waitForPasteboardChange(on: pasteboard, after: initialChangeCount) else {
+                logger.info(
+                    "selection copy attempt produced no pasteboard change: attempt=\(attempt, privacy: .public), maxAttempts=\(maxAttempts, privacy: .public), deferredClipboardRestore=\(deferClipboardRestore, privacy: .public)"
+                )
+                if attempt < maxAttempts {
+                    try? await Task.sleep(for: copySelectionRetryDelay)
+                    continue
+                }
+                restoreClipboard(savedItems, to: pasteboard)
+                return nil
+            }
+
+            try? await Task.sleep(for: copySelectionReadSettleDelay)
+
+            // Read copied text
+            let copiedText = pasteboard.string(forType: .string)
+
+            guard let text = copiedText, !text.isEmpty else {
+                logger.info(
+                    "selection copy attempt produced empty text: attempt=\(attempt, privacy: .public), maxAttempts=\(maxAttempts, privacy: .public), deferredClipboardRestore=\(deferClipboardRestore, privacy: .public)"
+                )
+                restoreClipboard(savedItems, to: pasteboard)
+                if attempt < maxAttempts {
+                    try? await Task.sleep(for: copySelectionRetryDelay)
+                    continue
+                }
+                return nil
+            }
+
+            logger.info(
+                "selection copy captured: chars=\(text.count, privacy: .public), estimatedTokens=\(Self.estimatedTokenCount(for: text), privacy: .public), deferredClipboardRestore=\(deferClipboardRestore, privacy: .public), attempt=\(attempt, privacy: .public)"
+            )
+
+            let deferredRestore = DeferredClipboardRestore(savedItems: savedItems)
+            if !deferClipboardRestore {
+                restoreClipboardIfNeeded(deferredRestore)
+            }
+
+            return CopiedTextSelection(text: text, deferredClipboardRestore: deferredRestore)
         }
-
-        // Read copied text
-        let copiedText = pasteboard.string(forType: .string)
-
-        guard let text = copiedText, !text.isEmpty else {
-            restoreClipboard(savedItems, to: pasteboard)
-            return nil
-        }
-
-        logger.info(
-            "selection copy captured: chars=\(text.count, privacy: .public), estimatedTokens=\(Self.estimatedTokenCount(for: text), privacy: .public), deferredClipboardRestore=\(deferClipboardRestore, privacy: .public)"
-        )
-
-        let deferredRestore = DeferredClipboardRestore(savedItems: savedItems)
-        if !deferClipboardRestore {
-            restoreClipboardIfNeeded(deferredRestore)
-        }
-
-        return CopiedTextSelection(text: text, deferredClipboardRestore: deferredRestore)
+        restoreClipboard(savedItems, to: pasteboard)
+        return nil
     }
 
     private func waitForPasteboardChange(on pasteboard: NSPasteboard, after changeCount: Int) async -> Bool {
-        for attempt in 0...20 {
+        let attempts = 100
+        for attempt in 0...attempts {
             if pasteboard.changeCount != changeCount {
                 return true
             }
-            guard attempt < 20 else { break }
+            guard attempt < attempts else { break }
             try? await Task.sleep(for: .milliseconds(5))
         }
         return false

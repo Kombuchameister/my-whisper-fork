@@ -197,7 +197,8 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
     private static let capsLockKeyCode: UInt16 = 0x39
     private static let capsLockSuppressionWindow: TimeInterval = 0.25
     private static let workflowTextProcessingModifierPollInterval: TimeInterval = 0.05
-    private static let workflowTextProcessingModifierReleaseTimeout: TimeInterval = 1.0
+    private static let workflowTextProcessingModifierReleaseTimeout: TimeInterval = 2.0
+    private static let workflowTextProcessingPostReleaseDelay: TimeInterval = 0.15
 
     nonisolated static func requestTimestamp() -> UInt64 {
         DispatchTime.now().uptimeNanoseconds
@@ -1462,15 +1463,29 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
     private func dispatchWorkflowTextProcessingWhenInputSettles(
         workflowId: UUID,
         hotkey: UnifiedHotkey,
-        deadline: Date? = nil
+        deadline: Date? = nil,
+        postReleaseDelayApplied: Bool = false
     ) {
         let deadline = deadline ?? Date().addingTimeInterval(Self.workflowTextProcessingModifierReleaseTimeout)
-        guard requiredModifiersReleased(for: hotkey) || Date() >= deadline else {
+        guard workflowTextProcessingModifiersReleased() || Date() >= deadline else {
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.workflowTextProcessingModifierPollInterval) { [weak self] in
                 self?.dispatchWorkflowTextProcessingWhenInputSettles(
                     workflowId: workflowId,
                     hotkey: hotkey,
-                    deadline: deadline
+                    deadline: deadline,
+                    postReleaseDelayApplied: false
+                )
+            }
+            return
+        }
+
+        if !postReleaseDelayApplied, Date() < deadline {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.workflowTextProcessingPostReleaseDelay) { [weak self] in
+                self?.dispatchWorkflowTextProcessingWhenInputSettles(
+                    workflowId: workflowId,
+                    hotkey: hotkey,
+                    deadline: deadline,
+                    postReleaseDelayApplied: true
                 )
             }
             return
@@ -1479,14 +1494,10 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
         onWorkflowTextProcessing?(workflowId)
     }
 
-    private func requiredModifiersReleased(for hotkey: UnifiedHotkey) -> Bool {
-        let requiredFlags = NSEvent.ModifierFlags(rawValue: hotkey.modifierFlags)
+    private func workflowTextProcessingModifiersReleased() -> Bool {
         let relevantMask: NSEvent.ModifierFlags = [.command, .option, .control, .shift, .function]
-        let requiredRelevantFlags = requiredFlags.intersection(relevantMask)
-        guard !requiredRelevantFlags.isEmpty else { return true }
-
         let currentFlags = modifierFlagsStateProvider().intersection(relevantMask)
-        return currentFlags.intersection(requiredRelevantFlags).isEmpty
+        return currentFlags.isEmpty
     }
 
     // MARK: - Display Name
