@@ -361,8 +361,11 @@ final class TextInsertionService {
         if let descendantSelection = findSelectionInDescendants(of: element) {
             return descendantSelection
         }
+        if let applicationSelection = findSelectionInFrontmostApplication(activeApp: activeApp) {
+            return applicationSelection
+        }
 
-        logger.info("selection capture failed: no selection owner found in focused element subtree")
+        logger.info("selection capture failed: no selection owner found in focused element, focused subtree, or frontmost app tree")
         return nil
     }
 
@@ -975,19 +978,76 @@ final class TextInsertionService {
     }
 
     private func findSelectionInDescendants(of root: AXUIElement) -> TextSelection? {
+        findSelectionInDescendants(
+            of: root,
+            maxDepth: 6,
+            maxNodes: 80,
+            logPrefix: "selection capture descendant"
+        )
+    }
+
+    private func findSelectionInFrontmostApplication(
+        activeApp: (name: String?, bundleId: String?, url: String?)
+    ) -> TextSelection? {
+        guard let frontmostApplication = NSWorkspace.shared.frontmostApplication else {
+            logger.info("selection capture app tree skipped: no frontmost application")
+            return nil
+        }
+
+        logger.info(
+            "selection capture app tree search: frontmost=\(frontmostApplication.localizedName ?? "nil", privacy: .public), bundle=\(frontmostApplication.bundleIdentifier ?? "nil", privacy: .public), pid=\(frontmostApplication.processIdentifier, privacy: .public)"
+        )
+
+        guard activeApp.bundleId == nil || frontmostApplication.bundleIdentifier == activeApp.bundleId else {
+            logger.info(
+                "selection capture app tree skipped: active bundle mismatch, captured=\(activeApp.bundleId ?? "nil", privacy: .public), frontmost=\(frontmostApplication.bundleIdentifier ?? "nil", privacy: .public)"
+            )
+            return nil
+        }
+
+        let appElement = AXUIElementCreateApplication(frontmostApplication.processIdentifier)
+        var roots: [AXUIElement] = []
+        roots.append(contentsOf: elementAttributeValues([kAXFocusedWindowAttribute as CFString], from: appElement))
+        roots.append(contentsOf: elementAttributeValues([kAXWindowsAttribute as CFString], from: appElement))
+        roots.append(contentsOf: childElements(of: appElement))
+
+        logger.info("selection capture app tree roots: count=\(roots.count, privacy: .public)")
+        for (index, root) in roots.enumerated() {
+            logSelectionCaptureElementContext(root, activeApp: activeApp, prefix: "selection capture app root \(index)")
+            if let selection = selectionOwnedByElement(root, source: "app-root-\(index)") {
+                return selection
+            }
+            if let descendantSelection = findSelectionInDescendants(
+                of: root,
+                maxDepth: 10,
+                maxNodes: 500,
+                logPrefix: "selection capture app descendant"
+            ) {
+                return descendantSelection
+            }
+        }
+
+        logger.info("selection capture app tree exhausted")
+        return nil
+    }
+
+    private func findSelectionInDescendants(
+        of root: AXUIElement,
+        maxDepth: Int,
+        maxNodes: Int,
+        logPrefix: String
+    ) -> TextSelection? {
         var queue: [(element: AXUIElement, depth: Int)] = childElements(of: root).map { ($0, 1) }
         var visited = 0
-        let maxDepth = 6
-        let maxNodes = 80
 
         while !queue.isEmpty && visited < maxNodes {
             let current = queue.removeFirst()
             visited += 1
 
-            logSelectionCaptureElementContext(current.element, activeApp: (nil, nil, nil), prefix: "selection capture descendant")
+            logSelectionCaptureElementContext(current.element, activeApp: (nil, nil, nil), prefix: logPrefix)
             if let selection = selectionOwnedByElement(current.element, source: "descendant-depth-\(current.depth)") {
                 logger.info(
-                    "selection capture found descendant owner: visited=\(visited, privacy: .public), depth=\(current.depth, privacy: .public)"
+                    "selection capture found descendant owner: prefix=\(logPrefix, privacy: .public), visited=\(visited, privacy: .public), depth=\(current.depth, privacy: .public)"
                 )
                 return selection
             }
@@ -998,9 +1058,28 @@ final class TextInsertionService {
         }
 
         logger.info(
-            "selection capture descendant search exhausted: visited=\(visited, privacy: .public), remaining=\(queue.count, privacy: .public)"
+            "selection capture descendant search exhausted: prefix=\(logPrefix, privacy: .public), visited=\(visited, privacy: .public), remaining=\(queue.count, privacy: .public)"
         )
         return nil
+    }
+
+    private func elementAttributeValues(_ attributes: [CFString], from element: AXUIElement) -> [AXUIElement] {
+        var elements: [AXUIElement] = []
+        for attribute in attributes {
+            var value: AnyObject?
+            guard AXUIElementCopyAttributeValue(element, attribute, &value) == .success else {
+                continue
+            }
+
+            if let child = axElement(from: value) {
+                elements.append(child)
+            } else if let childArray = value as? [AXUIElement] {
+                elements.append(contentsOf: childArray)
+            } else if let objectArray = value as? [AnyObject] {
+                elements.append(contentsOf: objectArray.compactMap { axElement(from: $0) })
+            }
+        }
+        return elements
     }
 
     private func childElements(of element: AXUIElement) -> [AXUIElement] {
