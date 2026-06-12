@@ -327,21 +327,32 @@ final class TextInsertionService {
         }
         guard isAccessibilityGranted else { return nil }
 
-        let systemWide = AXUIElementCreateSystemWide()
-        var focusedElement: AnyObject?
-        guard AXUIElementCopyAttributeValue(systemWide, kAXFocusedUIElementAttribute as CFString, &focusedElement) == .success else {
-            return nil
+        let element: AXUIElement
+        if let focusedTextElementOverride {
+            guard let overrideElement = focusedTextElementOverride() else { return nil }
+            element = overrideElement
+        } else {
+            let systemWide = AXUIElementCreateSystemWide()
+            var focusedElement: AnyObject?
+            guard AXUIElementCopyAttributeValue(systemWide, kAXFocusedUIElementAttribute as CFString, &focusedElement) == .success else {
+                return nil
+            }
+            element = focusedElement as! AXUIElement
         }
 
-        let element = focusedElement as! AXUIElement
         var selectedText: AnyObject?
-        guard AXUIElementCopyAttributeValue(element, kAXSelectedTextAttribute as CFString, &selectedText) == .success else {
-            return nil
+        if AXUIElementCopyAttributeValue(element, kAXSelectedTextAttribute as CFString, &selectedText) == .success,
+           let text = selectedText as? String,
+           !text.isEmpty {
+            logger.info(
+                "accessibility selection captured: chars=\(text.count, privacy: .public), estimatedTokens=\(Self.estimatedTokenCount(for: text), privacy: .public)"
+            )
+            return TextSelection(text: text, element: element)
         }
 
-        guard let text = selectedText as? String, !text.isEmpty else { return nil }
+        guard let text = selectedTextFromFocusedState(for: element) else { return nil }
         logger.info(
-            "accessibility selection captured: chars=\(text.count, privacy: .public), estimatedTokens=\(Self.estimatedTokenCount(for: text), privacy: .public)"
+            "accessibility selection captured from range: chars=\(text.count, privacy: .public), estimatedTokens=\(Self.estimatedTokenCount(for: text), privacy: .public)"
         )
         return TextSelection(text: text, element: element)
     }
@@ -896,6 +907,19 @@ final class TextInsertionService {
             selectedText: stringAttribute(kAXSelectedTextAttribute as CFString, from: element),
             selectedRange: selectedRangeAttribute(from: element)
         )
+    }
+
+    private func selectedTextFromFocusedState(for element: AXUIElement) -> String? {
+        guard let state = captureFocusedTextState(for: element),
+              let value = state.value,
+              let selectedRange = state.selectedRange,
+              selectedRange.length > 0,
+              let range = Range(selectedRange, in: value) else {
+            return nil
+        }
+
+        let text = String(value[range])
+        return text.isEmpty ? nil : text
     }
 
     private func stringAttribute(_ attribute: CFString, from element: AXUIElement) -> String? {

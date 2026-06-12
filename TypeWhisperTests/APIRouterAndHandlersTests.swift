@@ -2760,6 +2760,21 @@ final class APIRouterAndHandlersTests: XCTestCase {
     }
 
     @MainActor
+    func testGetTextSelectionDerivesSelectedTextFromFocusedValueAndRange() {
+        let service = TextInsertionService()
+        let element = AXUIElementCreateSystemWide()
+        service.accessibilityGrantedOverride = true
+        service.focusedTextElementOverride = { element }
+        service.focusedTextStateOverride = { _ in
+            (value: "Before selected after", selectedText: nil, selectedRange: NSRange(location: 7, length: 8))
+        }
+
+        let selection = service.getTextSelection()
+
+        XCTAssertEqual(selection?.text, "selected")
+    }
+
+    @MainActor
     func testSyntheticPasteReturnsUnverifiedWhenFocusedTextStateIsUnavailable() async throws {
         let service = TextInsertionService()
         let pasteboard = NSPasteboard.withUniqueName()
