@@ -31,8 +31,8 @@ final class InceptionPluginTests: XCTestCase {
     }
 
     func testEditModelsAreNotExposedForChatProcessing() {
-        XCTAssertTrue(InceptionFetchedModel(id: "mercury-2", displayName: nil).isChatCompletionsModel)
-        XCTAssertFalse(InceptionFetchedModel(id: "mercury-edit-2", displayName: nil).isChatCompletionsModel)
+        XCTAssertTrue(InceptionFetchedModel(id: "mercury-2").isChatCompletionsModel)
+        XCTAssertFalse(InceptionFetchedModel(id: "mercury-edit-2").isChatCompletionsModel)
     }
 
     func testStreamingParserAppendsDeltaChunks() throws {

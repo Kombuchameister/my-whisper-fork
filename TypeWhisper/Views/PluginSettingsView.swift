@@ -1521,7 +1521,7 @@ private struct InstalledPluginRow: View {
 
                     PluginBadgeLine(source: source, hosting: hosting, categories: categories)
 
-                    if let description = registryPlugin?.localizedDescription {
+                    if let description = registryPlugin?.localizedDescription ?? plugin.manifest.localizedDescription {
                         Text(description)
                             .font(.caption)
                             .foregroundStyle(.secondary)

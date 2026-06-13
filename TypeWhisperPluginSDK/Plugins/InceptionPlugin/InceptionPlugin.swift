@@ -341,27 +341,22 @@ final class InceptionPlugin: NSObject,
 
 struct InceptionFetchedModel: Codable, Sendable {
     let id: String
-    let displayName: String?
 
     enum CodingKeys: String, CodingKey {
         case id
-        case owned_by
     }
 
     var isChatCompletionsModel: Bool {
         !id.localizedCaseInsensitiveContains("edit")
     }
 
-    init(id: String, displayName: String?) {
+    init(id: String) {
         self.id = id
-        self.displayName = displayName
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
-        _ = try container.decodeIfPresent(String.self, forKey: .owned_by)
-        displayName = nil
     }
 
     func encode(to encoder: Encoder) throws {

@@ -390,6 +390,7 @@
 		AA00000000000000000270 /* TypeWhisperPluginSDK in Frameworks */ = {isa = PBXBuildFile; productRef = PP00000000000000000036 /* TypeWhisperPluginSDK */; };
 		1CE700000000000000000001 /* InceptionPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CE700000000000000000010 /* InceptionPlugin.swift */; };
 		1CE700000000000000000002 /* manifest.json in Resources */ = {isa = PBXBuildFile; fileRef = 1CE700000000000000000011 /* manifest.json */; };
+		1CE700000000000000000004 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 1CE700000000000000000013 /* Localizable.xcstrings */; };
 		1CE700000000000000000003 /* TypeWhisperPluginSDK in Frameworks */ = {isa = PBXBuildFile; productRef = 1CE700000000000000000060 /* TypeWhisperPluginSDK */; };
 		AA00000000000000000271 /* ClaudePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB00000000000000000259 /* ClaudePlugin.swift */; };
 		AA00000000000000000272 /* manifest.json in Resources */ = {isa = PBXBuildFile; fileRef = BB00000000000000000260 /* manifest.json */; };
@@ -875,6 +876,7 @@
 		1CE700000000000000000010 /* InceptionPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InceptionPlugin.swift; sourceTree = "<group>"; };
 		1CE700000000000000000011 /* manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = manifest.json; sourceTree = "<group>"; };
 		1CE700000000000000000012 /* InceptionPlugin.bundle */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = InceptionPlugin.bundle; sourceTree = BUILT_PRODUCTS_DIR; };
+		1CE700000000000000000013 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		BB00000000000000000259 /* ClaudePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudePlugin.swift; sourceTree = "<group>"; };
 		BB00000000000000000260 /* manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = manifest.json; sourceTree = "<group>"; };
 		BB00000000000000000261 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
@@ -2025,6 +2027,7 @@
 			children = (
 				1CE700000000000000000010 /* InceptionPlugin.swift */,
 				1CE700000000000000000011 /* manifest.json */,
+				1CE700000000000000000013 /* Localizable.xcstrings */,
 			);
 			name = InceptionPlugin;
 			path = TypeWhisperPluginSDK/Plugins/InceptionPlugin;
@@ -3575,6 +3578,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				1CE700000000000000000002 /* manifest.json in Resources */,
+				1CE700000000000000000004 /* Localizable.xcstrings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

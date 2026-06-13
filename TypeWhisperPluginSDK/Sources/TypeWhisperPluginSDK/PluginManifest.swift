@@ -22,6 +22,8 @@ public struct PluginManifest: Codable, Equatable, Sendable {
     public let minOSVersion: String?
     public let supportedArchitectures: [String]?
     public let author: String?
+    public let description: String?
+    public let descriptions: [String: String]?
     public let principalClass: String
     public let requiresAPIKey: Bool?
     public let hosting: PluginHosting?
@@ -44,6 +46,8 @@ public struct PluginManifest: Codable, Equatable, Sendable {
         minOSVersion: String? = nil,
         supportedArchitectures: [String]? = nil,
         author: String? = nil,
+        description: String? = nil,
+        descriptions: [String: String]? = nil,
         principalClass: String,
         requiresAPIKey: Bool? = nil,
         hosting: PluginHosting? = nil,
@@ -65,6 +69,8 @@ public struct PluginManifest: Codable, Equatable, Sendable {
         self.minOSVersion = minOSVersion
         self.supportedArchitectures = supportedArchitectures
         self.author = author
+        self.description = description
+        self.descriptions = descriptions
         self.principalClass = principalClass
         self.requiresAPIKey = requiresAPIKey
         self.hosting = hosting
@@ -83,6 +89,15 @@ public struct PluginManifest: Codable, Equatable, Sendable {
 public extension PluginManifest {
     var resolvedHosting: PluginHosting {
         hosting ?? PluginHosting.fallback(requiresAPIKey: requiresAPIKey)
+    }
+
+    var localizedDescription: String? {
+        if let descriptions,
+           let lang = Locale.current.language.languageCode?.identifier,
+           let localized = descriptions[lang] {
+            return localized
+        }
+        return description
     }
 
     var resolvedCategoryIdentifiers: [String] {

@@ -13,6 +13,10 @@ final class PluginManifestTests: XCTestCase {
               "sdkCompatibilityVersion": "v1",
               "minOSVersion": "14.0",
               "author": "TypeWhisper",
+              "description": "Mock plugin description.",
+              "descriptions": {
+                "de": "Beschreibung des Mock-Plugins."
+              },
               "principalClass": "MockPlugin"
             }
             """.utf8
@@ -30,9 +34,13 @@ final class PluginManifestTests: XCTestCase {
                 sdkCompatibilityVersion: "v1",
                 minOSVersion: "14.0",
                 author: "TypeWhisper",
+                description: "Mock plugin description.",
+                descriptions: ["de": "Beschreibung des Mock-Plugins."],
                 principalClass: "MockPlugin"
             )
         )
+        XCTAssertEqual(manifest.description, "Mock plugin description.")
+        XCTAssertEqual(manifest.descriptions, ["de": "Beschreibung des Mock-Plugins."])
     }
 
     func testPluginManifestDecodesSupportedArchitecturesWhenPresent() throws {

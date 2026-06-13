@@ -88,6 +88,7 @@ let package = Package(
             path: "Plugins/InceptionPlugin",
             exclude: ["Tests"],
             resources: [
+                .process("Localizable.xcstrings"),
                 .process("manifest.json"),
             ]
         ),
