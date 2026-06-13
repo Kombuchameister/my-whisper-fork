@@ -45,23 +45,7 @@ final class InceptionPluginTests: XCTestCase {
             """.utf8
         )
 
-        let content = try InceptionPlugin.parseStreamingContent(from: data, outputMode: .streaming)
-
-        XCTAssertEqual(content, "Hello world")
-    }
-
-    func testDiffusionParserReturnsLatestRefinedChunk() throws {
-        let data = Data(
-            """
-            data: {"choices":[{"delta":{"content":"Hxlxo"}}]}
-            data: {"choices":[{"delta":{"content":"Hello"}}]}
-            data: {"choices":[{"delta":{"content":"Hello world"}}]}
-            data: [DONE]
-
-            """.utf8
-        )
-
-        let content = try InceptionPlugin.parseStreamingContent(from: data, outputMode: .diffusion)
+        let content = try InceptionPlugin.parseStreamingContent(from: data)
 
         XCTAssertEqual(content, "Hello world")
     }

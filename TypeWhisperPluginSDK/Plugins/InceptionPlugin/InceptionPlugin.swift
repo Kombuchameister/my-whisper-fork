@@ -21,7 +21,6 @@ final class InceptionPlugin: NSObject,
     fileprivate var _llmTemperatureModeRaw: String = PluginLLMTemperatureMode.providerDefault.rawValue
     fileprivate var _llmTemperatureValue: Double = 0.75
     fileprivate var _reasoningEffort: String = "medium"
-    fileprivate var _outputModeRaw: String = InceptionOutputMode.streaming.rawValue
     fileprivate var _fetchedModels: [InceptionFetchedModel] = []
 
     required override init() {
@@ -42,8 +41,6 @@ final class InceptionPlugin: NSObject,
             ?? 0.75
         _reasoningEffort = host.userDefault(forKey: "reasoningEffort") as? String
             ?? "medium"
-        _outputModeRaw = host.userDefault(forKey: "outputMode") as? String
-            ?? InceptionOutputMode.streaming.rawValue
     }
 
     func deactivate() {
@@ -105,7 +102,6 @@ final class InceptionPlugin: NSObject,
             maxOutputTokens: 8192,
             reasoningEffort: _reasoningEffort,
             temperature: providerTemperatureDirective.resolvedTemperature(applying: temperatureDirective),
-            outputMode: outputMode,
             requestTimeout: 120
         )
     }
@@ -175,15 +171,6 @@ final class InceptionPlugin: NSObject,
         host?.setUserDefault(value, forKey: "reasoningEffort")
     }
 
-    func setOutputMode(_ mode: InceptionOutputMode) {
-        _outputModeRaw = mode.rawValue
-        host?.setUserDefault(mode.rawValue, forKey: "outputMode")
-    }
-
-    var outputMode: InceptionOutputMode {
-        InceptionOutputMode(rawValue: _outputModeRaw) ?? .streaming
-    }
-
     func validateApiKey(_ key: String) async -> Bool {
         guard !key.isEmpty,
               let url = URL(string: "https://api.inceptionlabs.ai/v1/models") else { return false }
@@ -244,7 +231,6 @@ final class InceptionPlugin: NSObject,
         maxOutputTokens: Int,
         reasoningEffort: String,
         temperature: Double?,
-        outputMode: InceptionOutputMode,
         requestTimeout: TimeInterval
     ) async throws -> String {
         guard let url = URL(string: "https://api.inceptionlabs.ai/v1/chat/completions") else {
@@ -264,10 +250,6 @@ final class InceptionPlugin: NSObject,
 
         if let temperature {
             requestBody["temperature"] = temperature
-        }
-
-        if outputMode == .diffusion {
-            requestBody["diffusing"] = true
         }
 
         var request = URLRequest(url: url)
@@ -295,17 +277,16 @@ final class InceptionPlugin: NSObject,
             throw PluginChatError.apiError(errorMessage(from: data, statusCode: httpResponse.statusCode))
         }
 
-        let content = try parseStreamingContent(from: data, outputMode: outputMode)
+        let content = try parseStreamingContent(from: data)
         return content.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    static func parseStreamingContent(from data: Data, outputMode: InceptionOutputMode) throws -> String {
+    static func parseStreamingContent(from data: Data) throws -> String {
         guard let stream = String(data: data, encoding: .utf8) else {
             throw PluginChatError.apiError("Failed to parse streaming response")
         }
 
         var accumulated = ""
-        var latest = ""
 
         for rawLine in stream.split(whereSeparator: \.isNewline) {
             let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -327,20 +308,14 @@ final class InceptionPlugin: NSObject,
                     continue
                 }
 
-                switch outputMode {
-                case .streaming:
-                    accumulated += content
-                case .diffusion:
-                    latest = content
-                }
+                accumulated += content
             }
         }
 
-        let content = outputMode == .diffusion ? latest : accumulated
-        guard !content.isEmpty else {
+        guard !accumulated.isEmpty else {
             throw PluginChatError.apiError("Failed to parse streaming response")
         }
-        return content
+        return accumulated
     }
 
     private static func errorMessage(from data: Data, statusCode: Int) -> String {
@@ -359,20 +334,6 @@ final class InceptionPlugin: NSObject,
             return message
         }
         return "HTTP \(statusCode)"
-    }
-}
-
-enum InceptionOutputMode: String, CaseIterable, Sendable {
-    case streaming
-    case diffusion
-
-    var displayName: String {
-        switch self {
-        case .streaming:
-            return "Streaming"
-        case .diffusion:
-            return "Diffusion"
-        }
     }
 }
 
@@ -419,7 +380,6 @@ private struct InceptionSettingsView: View {
     @State private var showApiKey = false
     @State private var selectedModel: String = ""
     @State private var reasoningEffort: String = "medium"
-    @State private var outputMode: InceptionOutputMode = .streaming
     @State private var llmTemperatureMode: PluginLLMTemperatureMode = .providerDefault
     @State private var llmTemperatureValue: Double = 0.75
     @State private var fetchedModels: [InceptionFetchedModel] = []
@@ -539,24 +499,6 @@ private struct InceptionSettingsView: View {
                     }
                 }
 
-                Divider()
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Output Mode")
-                        .font(.headline)
-
-                    Picker("Output Mode", selection: $outputMode) {
-                        ForEach(InceptionOutputMode.allCases, id: \.self) { mode in
-                            Text(mode.displayName).tag(mode)
-                        }
-                    }
-                    .onChange(of: outputMode) {
-                        plugin.setOutputMode(outputMode)
-                    }
-                }
-
-                Divider()
-
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Temperature")
                         .font(.headline)
@@ -599,7 +541,6 @@ private struct InceptionSettingsView: View {
             }
             selectedModel = plugin.selectedLLMModelId ?? plugin.supportedModels.first?.id ?? ""
             reasoningEffort = plugin._reasoningEffort
-            outputMode = plugin.outputMode
             llmTemperatureMode = plugin.llmTemperatureMode
             llmTemperatureValue = plugin.llmTemperatureValue
             fetchedModels = plugin._fetchedModels
