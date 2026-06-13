@@ -40,6 +40,7 @@ final class PromptPaletteHandler {
         (name: String?, bundleId: String?, url: String?), String?, String?) async throws -> Void)?
     var getActionFeedback: (() -> (message: String?, icon: String?, duration: TimeInterval))?
     var getPreserveClipboard: (() -> Bool)?
+    var activateAppForInsertionOverride: ((String) async -> Bool)?
 
     var isVisible: Bool { promptPaletteController.isVisible }
 
@@ -356,10 +357,17 @@ final class PromptPaletteHandler {
                             outputFormat: outputFormat
                         )?.plainText ?? result
                         if let selection = ctx.selection {
-                            insertionOutcome = insertViaAXWithoutPasteFallback(
+                            insertionOutcome = await insertViaAXWithPasteFallback(
                                 selection: selection,
                                 result: accessibilityText,
-                                originalText: ctx.text
+                                originalText: ctx.text,
+                                bundleId: ctx.activeApp.bundleId,
+                                preserveClipboard: preserveClipboard,
+                                autoEnter: workflow.output.autoEnter,
+                                outputFormat: nil,
+                                deferredClipboardRestore: ctx.deferredClipboardRestore,
+                                pasteFallbackText: result,
+                                pasteFallbackOutputFormat: outputFormat
                             )
                         } else if ctx.selectionViaCopy {
                             insertionOutcome = try await activateAndInsertText(
@@ -371,9 +379,21 @@ final class PromptPaletteHandler {
                                 deferredClipboardRestore: ctx.deferredClipboardRestore
                             )
                         } else if let element = ctx.focusedElement {
-                            insertionOutcome = textInsertionService.insertTextAt(element: element, text: accessibilityText)
-                                ? .insertedViaAccessibility
-                                : .failed
+                            let pasteOutcome = try await activateAndInsertText(
+                                result,
+                                bundleId: ctx.activeApp.bundleId,
+                                preserveClipboard: preserveClipboard,
+                                autoEnter: workflow.output.autoEnter,
+                                outputFormat: outputFormat,
+                                deferredClipboardRestore: ctx.deferredClipboardRestore
+                            )
+                            insertionOutcome = pasteOutcome != .failed
+                                ? pasteOutcome
+                                : (
+                                    textInsertionService.insertTextAt(element: element, text: accessibilityText)
+                                        ? .insertedViaAccessibility
+                                        : .failed
+                                )
                         } else {
                             insertionOutcome = .failed
                         }
@@ -477,7 +497,9 @@ final class PromptPaletteHandler {
         preserveClipboard: Bool,
         autoEnter: Bool,
         outputFormat: String?,
-        deferredClipboardRestore: TextInsertionService.DeferredClipboardRestore? = nil
+        deferredClipboardRestore: TextInsertionService.DeferredClipboardRestore? = nil,
+        pasteFallbackText: String? = nil,
+        pasteFallbackOutputFormat: String? = nil
     ) async -> InsertionOutcome {
         let replaced = textInsertionService.replaceSelectedText(in: selection, with: result)
 
@@ -494,11 +516,11 @@ final class PromptPaletteHandler {
 
         do {
             return try await activateAndInsertText(
-                result,
+                pasteFallbackText ?? result,
                 bundleId: bundleId,
                 preserveClipboard: preserveClipboard,
                 autoEnter: autoEnter,
-                outputFormat: outputFormat,
+                outputFormat: pasteFallbackOutputFormat ?? outputFormat,
                 deferredClipboardRestore: deferredClipboardRestore
             )
         } catch {
@@ -516,19 +538,46 @@ final class PromptPaletteHandler {
         outputFormat: String?,
         deferredClipboardRestore: TextInsertionService.DeferredClipboardRestore? = nil
     ) async throws -> InsertionOutcome {
+        if let bundleId, let activateAppForInsertionOverride {
+            guard await activateAppForInsertionOverride(bundleId) else {
+                return .failed
+            }
+            let result = try await textInsertionService.insertText(
+                text,
+                preserveClipboard: preserveClipboard,
+                autoEnter: autoEnter,
+                outputFormat: outputFormat,
+                deferredClipboardRestore: deferredClipboardRestore
+            )
+            logger.info("[PromptPalette] Shared insertion completed after test activation for \(bundleId): \(String(describing: result), privacy: .public)")
+
+            switch result {
+            case .insertedViaAccessibility:
+                return .insertedViaAccessibility
+            case .pasted:
+                return .insertedViaPaste
+            }
+        }
+
         guard let bundleId,
               let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId).first else {
             logger.warning("[PromptPalette] No running app for bundleId: \(bundleId ?? "nil")")
             return .failed
         }
 
-        _ = app.activate(from: NSRunningApplication.current)
-        try? await Task.sleep(for: .milliseconds(200))
+        let initialFrontmost = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        if initialFrontmost == bundleId {
+            logger.info("[PromptPalette] Source app already frontmost for insertion: \(bundleId)")
+        } else {
+            let activated = app.activate(from: NSRunningApplication.current)
+            logger.info("[PromptPalette] activate(from:) for \(bundleId): \(activated)")
+            try? await Task.sleep(for: .milliseconds(200))
 
-        let frontmost = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
-        guard frontmost == bundleId else {
-            logger.warning("[PromptPalette] Could not activate \(bundleId), frontmost: \(frontmost ?? "nil")")
-            return .failed
+            let frontmost = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+            guard frontmost == bundleId else {
+                logger.warning("[PromptPalette] Could not activate \(bundleId), frontmost: \(frontmost ?? "nil")")
+                return .failed
+            }
         }
 
         let result = try await textInsertionService.insertText(

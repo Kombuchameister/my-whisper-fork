@@ -182,6 +182,9 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
     var modifierFlagsStateProvider: () -> NSEvent.ModifierFlags = {
         NSEvent.ModifierFlags(rawValue: UInt(CGEventSource.flagsState(.combinedSessionState).rawValue))
     }
+    var workflowTextProcessingModifierPollInterval: TimeInterval = 0.05
+    var workflowTextProcessingModifierReleaseTimeout: TimeInterval = 2.0
+    var workflowTextProcessingPostReleaseDelay: TimeInterval = 0.15
 
     private var keyDownTime: Date?
     private var isActive = false
@@ -196,9 +199,6 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
     private static let monitorDedupWindow: TimeInterval = 0.12
     private static let capsLockKeyCode: UInt16 = 0x39
     private static let capsLockSuppressionWindow: TimeInterval = 0.25
-    private static let workflowTextProcessingModifierPollInterval: TimeInterval = 0.05
-    private static let workflowTextProcessingModifierReleaseTimeout: TimeInterval = 2.0
-    private static let workflowTextProcessingPostReleaseDelay: TimeInterval = 0.15
 
     nonisolated static func requestTimestamp() -> UInt64 {
         DispatchTime.now().uptimeNanoseconds
@@ -915,7 +915,7 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
             hotkey: hotkey,
             source: source
         ) {
-            handleWorkflowKeyUp(workflowId: workflowId, hotkey: hotkey, behavior: behavior)
+            handleWorkflowKeyUp(workflowId: workflowId, behavior: behavior)
         }
     }
 
@@ -1436,10 +1436,10 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
         }
     }
 
-    private func handleWorkflowKeyUp(workflowId: UUID, hotkey: UnifiedHotkey, behavior: WorkflowHotkeyBehavior) {
+    private func handleWorkflowKeyUp(workflowId: UUID, behavior: WorkflowHotkeyBehavior) {
         guard behavior == .startDictation else {
             activeWorkflowId = nil
-            dispatchWorkflowTextProcessingWhenInputSettles(workflowId: workflowId, hotkey: hotkey)
+            dispatchWorkflowTextProcessingWhenInputSettles(workflowId: workflowId)
             return
         }
         guard isActive, activeWorkflowId == workflowId else { return }
@@ -1462,16 +1462,14 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
 
     private func dispatchWorkflowTextProcessingWhenInputSettles(
         workflowId: UUID,
-        hotkey: UnifiedHotkey,
         deadline: Date? = nil,
         postReleaseDelayApplied: Bool = false
     ) {
-        let deadline = deadline ?? Date().addingTimeInterval(Self.workflowTextProcessingModifierReleaseTimeout)
+        let deadline = deadline ?? Date().addingTimeInterval(workflowTextProcessingModifierReleaseTimeout)
         guard workflowTextProcessingModifiersReleased() || Date() >= deadline else {
-            DispatchQueue.main.asyncAfter(deadline: .now() + Self.workflowTextProcessingModifierPollInterval) { [weak self] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + workflowTextProcessingModifierPollInterval) { [weak self] in
                 self?.dispatchWorkflowTextProcessingWhenInputSettles(
                     workflowId: workflowId,
-                    hotkey: hotkey,
                     deadline: deadline,
                     postReleaseDelayApplied: false
                 )
@@ -1480,10 +1478,9 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
         }
 
         if !postReleaseDelayApplied, Date() < deadline {
-            DispatchQueue.main.asyncAfter(deadline: .now() + Self.workflowTextProcessingPostReleaseDelay) { [weak self] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + workflowTextProcessingPostReleaseDelay) { [weak self] in
                 self?.dispatchWorkflowTextProcessingWhenInputSettles(
                     workflowId: workflowId,
-                    hotkey: hotkey,
                     deadline: deadline,
                     postReleaseDelayApplied: true
                 )

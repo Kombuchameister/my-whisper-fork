@@ -2670,6 +2670,43 @@ struct WorkflowDraft {
             }
         }
 
+        if usesLLMProcessing, let outputFormatOverrideValidationError {
+            return outputFormatOverrideValidationError
+        }
+
+        return nil
+    }
+
+    private var outputFormatOverrideValidationError: String? {
+        var seenBundleIdentifiers: Set<String> = []
+
+        for override in outputFormatOverrides {
+            let bundleIdentifiers = override.bundleIdentifiersText
+                .split { character in
+                    character == "," || character == "\n" || character == " "
+                }
+                .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            let trimmedFormat = override.format.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if bundleIdentifiers.isEmpty || trimmedFormat.isEmpty {
+                return localizedAppText(
+                    "App output overrides need at least one bundle identifier and an output format.",
+                    de: "App-Ausgabeüberschreibungen benötigen mindestens eine Bundle-ID und ein Ausgabeformat."
+                )
+            }
+
+            for bundleIdentifier in bundleIdentifiers {
+                let normalizedBundleIdentifier = bundleIdentifier.lowercased()
+                guard seenBundleIdentifiers.insert(normalizedBundleIdentifier).inserted else {
+                    return localizedAppText(
+                        "Each app bundle identifier can only appear in one output override.",
+                        de: "Jede App-Bundle-ID darf nur in einer Ausgabeüberschreibung vorkommen."
+                    )
+                }
+            }
+        }
+
         return nil
     }
 

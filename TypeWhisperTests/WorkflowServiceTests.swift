@@ -332,6 +332,53 @@ final class WorkflowServiceTests: XCTestCase {
         XCTAssertEqual(output.targetActionPluginId, "plugin.unavailable")
     }
 
+    @MainActor
+    func testWorkflowDraftValidationRejectsIncompleteOutputFormatOverride() throws {
+        let appSupportDirectory = try TestSupport.makeTemporaryDirectory(prefix: "WorkflowServiceTests")
+        defer { TestSupport.remove(appSupportDirectory) }
+
+        var draft = WorkflowDraft(template: .summary)
+        draft.outputFormatOverrides = [
+            WorkflowOutputFormatOverrideDraft(bundleIdentifiersText: "", format: "rtf")
+        ]
+
+        let error = draft.validationError(
+            hotkeyService: HotkeyService(),
+            workflowService: WorkflowService(appSupportDirectory: appSupportDirectory),
+            pluginManager: PluginManager(appSupportDirectory: appSupportDirectory),
+            existingWorkflowId: nil
+        )
+
+        XCTAssertEqual(
+            error,
+            "App output overrides need at least one bundle identifier and an output format."
+        )
+    }
+
+    @MainActor
+    func testWorkflowDraftValidationRejectsDuplicateOutputFormatOverrideBundleIdentifiers() throws {
+        let appSupportDirectory = try TestSupport.makeTemporaryDirectory(prefix: "WorkflowServiceTests")
+        defer { TestSupport.remove(appSupportDirectory) }
+
+        var draft = WorkflowDraft(template: .summary)
+        draft.outputFormatOverrides = [
+            WorkflowOutputFormatOverrideDraft(bundleIdentifiersText: "com.apple.Pages", format: "rtf"),
+            WorkflowOutputFormatOverrideDraft(bundleIdentifiersText: " COM.APPLE.PAGES ", format: "markdown")
+        ]
+
+        let error = draft.validationError(
+            hotkeyService: HotkeyService(),
+            workflowService: WorkflowService(appSupportDirectory: appSupportDirectory),
+            pluginManager: PluginManager(appSupportDirectory: appSupportDirectory),
+            existingWorkflowId: nil
+        )
+
+        XCTAssertEqual(
+            error,
+            "Each app bundle identifier can only appear in one output override."
+        )
+    }
+
     func testWorkflowDraftPreservesDictationTranscriptionOverridesWhenSaving() throws {
         let hotkey = UnifiedHotkey(keyCode: 15, modifierFlags: NSEvent.ModifierFlags.command.rawValue, isFn: false)
         let workflow = Workflow(
