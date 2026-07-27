@@ -258,14 +258,48 @@ private enum SafariBundleIdentifiers {
     }
 }
 
+struct SafariWindowSnapshot: Equatable {
+    let frame: CGRect
+    let isFullscreen: Bool?
+}
+
 enum IndicatorWindowFrameLookup {
+    private struct OwnedWindowFrame {
+        let ownerPID: pid_t
+        let frame: CGRect
+    }
+
+    private static let accessibilityFrameTolerance: CGFloat = 2
+
     @MainActor
-    static func safariWindowFrames(intersecting screenFrame: CGRect) -> [CGRect] {
-        windowFrames(intersecting: screenFrame) { ownerPID, _ in
+    static func safariWindows(intersecting screenFrame: CGRect) -> [SafariWindowSnapshot] {
+        let ownedWindowFrames = windowFrameRecords(intersecting: screenFrame) { ownerPID, _ in
             guard let application = NSRunningApplication(processIdentifier: ownerPID) else {
                 return false
             }
             return isSafariWindowOwner(application.bundleIdentifier)
+        }
+
+        var accessibilityWindowsByPID: [pid_t: [SafariWindowSnapshot]] = [:]
+        return ownedWindowFrames.map { ownedWindowFrame in
+            let accessibilitySnapshots: [SafariWindowSnapshot]
+            if let cachedWindows = accessibilityWindowsByPID[ownedWindowFrame.ownerPID] {
+                accessibilitySnapshots = cachedWindows
+            } else {
+                let windows = Self.accessibilityWindows(for: ownedWindowFrame.ownerPID)
+                accessibilityWindowsByPID[ownedWindowFrame.ownerPID] = windows
+                accessibilitySnapshots = windows
+            }
+
+            let isFullscreen = accessibilitySnapshots
+                .filter { framesApproximatelyMatch($0.frame, ownedWindowFrame.frame) }
+                .compactMap(\.isFullscreen)
+                .first
+
+            return SafariWindowSnapshot(
+                frame: ownedWindowFrame.frame,
+                isFullscreen: isFullscreen
+            )
         }
     }
 
@@ -281,6 +315,17 @@ enum IndicatorWindowFrameLookup {
         intersecting screenFrame: CGRect,
         matchingOwner: (pid_t, [String: Any]) -> Bool
     ) -> [CGRect] {
+        windowFrameRecords(
+            intersecting: screenFrame,
+            matchingOwner: matchingOwner
+        ).map(\.frame)
+    }
+
+    @MainActor
+    private static func windowFrameRecords(
+        intersecting screenFrame: CGRect,
+        matchingOwner: (pid_t, [String: Any]) -> Bool
+    ) -> [OwnedWindowFrame] {
         guard let windowList = CGWindowListCopyWindowInfo(
             [.optionOnScreenOnly, .excludeDesktopElements],
             kCGNullWindowID
@@ -306,7 +351,7 @@ enum IndicatorWindowFrameLookup {
             let alpha = windowInfo[kCGWindowAlpha as String] as? Double ?? 1
             guard alpha > 0 else { return nil }
 
-            return bounds
+            return OwnedWindowFrame(ownerPID: ownerPID, frame: bounds)
         }
     }
 
@@ -356,8 +401,12 @@ enum IndicatorWindowFrameLookup {
         guard let focusedWindow = focusedWindowElement() else {
             return nil
         }
-        let windowElement = focusedWindow as! AXUIElement
+        return accessibilityWindowFrame(focusedWindow as! AXUIElement)
+    }
 
+    private nonisolated static func accessibilityWindowFrame(
+        _ windowElement: AXUIElement
+    ) -> CGRect? {
         var positionValue: AnyObject?
         guard AXUIElementCopyAttributeValue(
             windowElement,
@@ -397,23 +446,31 @@ enum IndicatorWindowFrameLookup {
         guard let focusedWindow = focusedWindowElement() else {
             return nil
         }
-        let windowElement = focusedWindow as! AXUIElement
-
-        var fullScreenValue: AnyObject?
-        guard AXUIElementCopyAttributeValue(
-            windowElement,
+        return accessibilityBoolAttribute(
             "AXFullScreen" as CFString,
-            &fullScreenValue
+            on: focusedWindow as! AXUIElement
+        )
+    }
+
+    private nonisolated static func accessibilityBoolAttribute(
+        _ attribute: CFString,
+        on element: AXUIElement
+    ) -> Bool? {
+        var value: AnyObject?
+        guard AXUIElementCopyAttributeValue(
+            element,
+            attribute,
+            &value
         ) == .success,
-              let fullScreenValue else {
+              let value else {
             return nil
         }
 
-        if let isFullscreen = fullScreenValue as? Bool {
-            return isFullscreen
+        if let boolValue = value as? Bool {
+            return boolValue
         }
 
-        return (fullScreenValue as? NSNumber)?.boolValue
+        return (value as? NSNumber)?.boolValue
     }
 
     private nonisolated static func focusedWindowElement() -> AnyObject? {
@@ -440,6 +497,44 @@ enum IndicatorWindowFrameLookup {
             return nil
         }
         return focusedWindow
+    }
+
+    private static func accessibilityWindows(for processIdentifier: pid_t) -> [SafariWindowSnapshot] {
+        let applicationElement = AXUIElementCreateApplication(processIdentifier)
+
+        var windowsValue: AnyObject?
+        guard AXUIElementCopyAttributeValue(
+            applicationElement,
+            kAXWindowsAttribute as CFString,
+            &windowsValue
+        ) == .success,
+              let windows = windowsValue as? [AXUIElement] else {
+            return []
+        }
+
+        return windows.compactMap { windowElement in
+            guard let frame = accessibilityWindowFrame(windowElement) else {
+                return nil
+            }
+
+            return SafariWindowSnapshot(
+                frame: frame,
+                isFullscreen: accessibilityWindowIsFullscreen(windowElement)
+            )
+        }
+    }
+
+    private static func accessibilityWindowIsFullscreen(_ windowElement: AXUIElement) -> Bool? {
+        accessibilityBoolAttribute("AXFullScreen" as CFString, on: windowElement)
+    }
+
+    private static func framesApproximatelyMatch(_ lhs: CGRect, _ rhs: CGRect) -> Bool {
+        let lhs = lhs.standardized
+        let rhs = rhs.standardized
+        return abs(lhs.minX - rhs.minX) <= accessibilityFrameTolerance
+            && abs(lhs.minY - rhs.minY) <= accessibilityFrameTolerance
+            && abs(lhs.width - rhs.width) <= accessibilityFrameTolerance
+            && abs(lhs.height - rhs.height) <= accessibilityFrameTolerance
     }
 
     private static func isSafariWindowOwner(_ bundleIdentifier: String?) -> Bool {
@@ -484,7 +579,7 @@ enum IndicatorFullscreenSuppressionPolicy {
         focusedWindowFrameProvider: () -> CGRect? = IndicatorWindowFrameLookup.focusedWindowFrame,
         focusedWindowFullscreenProvider: () -> Bool? = IndicatorWindowFrameLookup.focusedWindowIsFullscreen,
         windowFrameProvider: (pid_t) -> CGRect? = IndicatorWindowFrameLookup.frontmostWindowFrame(for:),
-        safariWindowFramesProvider: @MainActor (CGRect) -> [CGRect] = IndicatorWindowFrameLookup.safariWindowFrames(intersecting:),
+        safariWindowsProvider: @MainActor (CGRect) -> [SafariWindowSnapshot] = IndicatorWindowFrameLookup.safariWindows(intersecting:),
         applicationWindowFramesProvider: @MainActor (pid_t, CGRect) -> [CGRect] = IndicatorWindowFrameLookup.applicationWindowFrames(for:intersecting:),
         appBundleIdentifier: String? = Bundle.main.bundleIdentifier
     ) -> Bool {
@@ -499,7 +594,7 @@ enum IndicatorFullscreenSuppressionPolicy {
         }
         let focusedWindowIsFullscreen = focusedWindowFullscreenProvider()
         let safeAreaTopInset = screen.safeAreaInsets.top
-        let safariWindowFrames = safariWindowFramesProvider(screen.frame)
+        let safariWindows = safariWindowsProvider(screen.frame)
         let applicationWindowFrames: [CGRect]
         if placement == .notchStrip,
            safeAreaTopInset > 0,
@@ -518,7 +613,7 @@ enum IndicatorFullscreenSuppressionPolicy {
             frontmostBundleIdentifier: application?.bundleIdentifier,
             appBundleIdentifier: appBundleIdentifier,
             placement: placement,
-            safariWindowFrames: safariWindowFrames,
+            safariWindows: safariWindows,
             applicationWindowFrames: applicationWindowFrames
         )
 
@@ -543,7 +638,7 @@ enum IndicatorFullscreenSuppressionPolicy {
         frontmostBundleIdentifier: String?,
         appBundleIdentifier: String?,
         placement: IndicatorPlacement = .notchStrip,
-        safariWindowFrames: [CGRect] = [],
+        safariWindows: [SafariWindowSnapshot] = [],
         applicationWindowFrames: [CGRect] = []
     ) -> Bool {
         guard safeAreaTopInset > 0, !screenFrame.isEmpty else {
@@ -552,12 +647,13 @@ enum IndicatorFullscreenSuppressionPolicy {
 
         let screenFrame = screenFrame.standardized
 
-        if safariWindowFrames.contains(where: {
+        if safariWindows.contains(where: {
             isFullscreenLikeOrContentWindowBelowNotch(
                 screenFrame: screenFrame,
                 safeAreaTopInset: safeAreaTopInset,
-                windowFrame: $0.standardized
+                windowFrame: $0.frame.standardized
             )
+                && $0.isFullscreen != false
         }) {
             return true
         }
@@ -610,7 +706,7 @@ enum IndicatorFullscreenSuppressionPolicy {
                 safeAreaTopInset: safeAreaTopInset,
                 windowFrame: windowFrame
            ) {
-            return true
+            return focusedWindowIsFullscreen != false
         }
 
         guard placement == .notchStrip else {
