@@ -14,7 +14,63 @@ final class OpenAIPluginTests: XCTestCase {
         let plugin: Any = OpenAIPlugin()
 
         XCTAssertTrue(plugin is any LiveTranscriptionCapablePlugin)
+        XCTAssertTrue(plugin is any LanguageHintDictionaryTermHintTranscriptionEnginePlugin)
+        XCTAssertTrue(plugin is any LiveLanguageHintDictionaryTermHintTranscriptionCapablePlugin)
         XCTAssertTrue(plugin is any TTSProviderPlugin)
+    }
+
+    func testOpenAINewInstallDefaultsToGPTTranscribeAndKeepsLegacyModels() throws {
+        let host = try PluginTestHostServices()
+        let plugin = OpenAIPlugin()
+
+        plugin.activate(host: host)
+
+        XCTAssertEqual(plugin.selectedModelId, "gpt-transcribe")
+        XCTAssertEqual(
+            plugin.transcriptionModels.map(\.id),
+            [
+                "gpt-transcribe",
+                "gpt-live-transcribe",
+                "whisper-1",
+                "gpt-4o-transcribe",
+                "gpt-4o-mini-transcribe",
+                "gpt-realtime-whisper",
+            ]
+        )
+        XCTAssertNil(host.userDefault(forKey: "selectedModel"))
+    }
+
+    func testOpenAIActivationPreservesPersistedLegacyModelSelection() throws {
+        let host = try PluginTestHostServices(defaults: ["selectedModel": "gpt-4o-mini-transcribe"])
+        let plugin = OpenAIPlugin()
+
+        plugin.activate(host: host)
+
+        XCTAssertEqual(plugin.selectedModelId, "gpt-4o-mini-transcribe")
+        XCTAssertEqual(host.userDefault(forKey: "selectedModel") as? String, "gpt-4o-mini-transcribe")
+    }
+
+    func testOpenAIContextAndLiveDelayPersistWithLowAsDefault() throws {
+        let host = try PluginTestHostServices()
+        let plugin = OpenAIPlugin()
+        plugin.activate(host: host)
+
+        XCTAssertEqual(plugin.transcriptionContext, "")
+        XCTAssertEqual(plugin.liveTranscriptionDelay, .low)
+
+        plugin.setTranscriptionContext("A TypeWhisper product interview.")
+        plugin.setLiveTranscriptionDelay(.high)
+
+        XCTAssertEqual(
+            host.userDefault(forKey: "transcriptionContext") as? String,
+            "A TypeWhisper product interview."
+        )
+        XCTAssertEqual(host.userDefault(forKey: "liveTranscriptionDelay") as? String, "high")
+
+        let restoredPlugin = OpenAIPlugin()
+        restoredPlugin.activate(host: host)
+        XCTAssertEqual(restoredPlugin.transcriptionContext, "A TypeWhisper product interview.")
+        XCTAssertEqual(restoredPlugin.liveTranscriptionDelay, .high)
     }
 
     func testOpenAIFallbackModelsIncludeGPT55First() {
@@ -24,13 +80,17 @@ final class OpenAIPluginTests: XCTestCase {
         XCTAssertTrue(plugin.supportedModels.contains { $0.id == "gpt-5.5" })
     }
 
-    func testOpenAIChatGPTLoginModelsIncludeGPT55First() throws {
+    func testOpenAIChatGPTLoginFallbackIncludesCurrentGPT56Models() throws {
         let host = try PluginTestHostServices(defaults: ["authMode": "chatgpt"])
         let plugin = OpenAIPlugin()
         plugin.activate(host: host)
 
-        XCTAssertEqual(plugin.supportedModels.first?.id, "gpt-5.5")
-        XCTAssertEqual(plugin.selectedLLMModelId, "gpt-5.5")
+        XCTAssertEqual(
+            Array(plugin.supportedModels.prefix(3).map(\.id)),
+            ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"]
+        )
+        XCTAssertEqual(plugin.selectedLLMModelId, "gpt-5.6-sol")
+        XCTAssertTrue(plugin.supportedModels.contains { $0.id == "gpt-5.5" })
     }
 
     func testOpenAIChatGPTLoginOnlyMakesLLMAuthRoleAvailable() throws {
@@ -148,6 +208,364 @@ final class OpenAIPluginTests: XCTestCase {
         XCTAssertTrue(retryBody.contains("name=\"prompt\"\r\n\r\nTypeWhisper"))
     }
 
+    func testGPTTranscribeSendsContextKeywordsAndOrderedLanguageHints() async throws {
+        let host = try PluginTestHostServices(
+            defaults: [
+                "selectedModel": "gpt-transcribe",
+                "transcriptionContext": "  A support call about account AC-42.  ",
+            ],
+            secrets: ["api-key": "sk-live"]
+        )
+        let plugin = OpenAIPlugin()
+        plugin.activate(host: host)
+
+        let store = PluginHTTPClientSessionStore()
+        PluginHTTPClientTestHarness.configure { _ in
+            store.makeSession(outcomes: [
+                .success(
+                    Data(#"{"text":"Bonjour","languages":[{"code":"fr"},{"code":"en"}]}"#.utf8),
+                    Self.httpResponse(
+                        url: "https://api.openai.com/v1/audio/transcriptions",
+                        statusCode: 200
+                    )
+                ),
+            ])
+        }
+
+        let result = try await plugin.transcribe(
+            audio: Self.testAudio(),
+            languageSelection: PluginLanguageSelection(
+                languageHints: ["de", "en", "DE", " "]
+            ),
+            translate: false,
+            prompt: "legacy dictionary prompt",
+            dictionaryTermHints: [
+                PluginDictionaryTermHint(text: " TypeWhisper "),
+                PluginDictionaryTermHint(text: "typewhisper"),
+                PluginDictionaryTermHint(text: "AC-42"),
+                PluginDictionaryTermHint(text: "bad<term"),
+                PluginDictionaryTermHint(text: "bad\nterm"),
+                PluginDictionaryTermHint(text: "München"),
+            ]
+        )
+
+        XCTAssertEqual(result.text, "Bonjour")
+        XCTAssertEqual(result.detectedLanguage, "fr")
+
+        let request = try XCTUnwrap(store.sessions.first?.requestedRequests.first)
+        XCTAssertEqual(request.url?.path, "/v1/audio/transcriptions")
+        let body = String(decoding: try XCTUnwrap(request.httpBody), as: UTF8.self)
+        XCTAssertTrue(body.contains("name=\"model\"\r\n\r\ngpt-transcribe"))
+        XCTAssertTrue(body.contains("name=\"response_format\"\r\n\r\njson"))
+        XCTAssertTrue(body.contains(
+            "name=\"prompt\"\r\n\r\nA support call about account AC-42."
+        ))
+        XCTAssertFalse(body.contains("legacy dictionary prompt"))
+        XCTAssertEqual(Self.formValues(named: "keywords[]", in: body), [
+            "TypeWhisper",
+            "AC-42",
+            "München",
+        ])
+        XCTAssertEqual(Self.formValues(named: "languages[]", in: body), ["de", "en"])
+        XCTAssertFalse(body.contains("name=\"language\"\r\n"))
+    }
+
+    func testGPTTranscribeOmitsEmptyContextKeywordsAndLanguages() async throws {
+        let host = try PluginTestHostServices(
+            defaults: [
+                "selectedModel": "gpt-transcribe",
+                "transcriptionContext": " \n ",
+            ],
+            secrets: ["api-key": "sk-live"]
+        )
+        let plugin = OpenAIPlugin()
+        plugin.activate(host: host)
+
+        let store = PluginHTTPClientSessionStore()
+        PluginHTTPClientTestHarness.configure { _ in
+            store.makeSession(outcomes: [
+                .success(
+                    Data(#"{"text":"Hello","languages":[]}"#.utf8),
+                    Self.httpResponse(
+                        url: "https://api.openai.com/v1/audio/transcriptions",
+                        statusCode: 200
+                    )
+                ),
+            ])
+        }
+
+        let result = try await plugin.transcribe(
+            audio: Self.testAudio(),
+            languageSelection: PluginLanguageSelection(),
+            translate: false,
+            prompt: nil,
+            dictionaryTermHints: [
+                PluginDictionaryTermHint(text: "invalid>keyword"),
+                PluginDictionaryTermHint(text: "\n"),
+            ]
+        )
+
+        XCTAssertNil(result.detectedLanguage)
+        let body = String(
+            decoding: try XCTUnwrap(store.sessions.first?.requestedRequests.first?.httpBody),
+            as: UTF8.self
+        )
+        XCTAssertFalse(body.contains("name=\"prompt\"\r\n"))
+        XCTAssertFalse(body.contains("name=\"keywords[]\"\r\n"))
+        XCTAssertFalse(body.contains("name=\"languages[]\"\r\n"))
+        XCTAssertFalse(body.contains("name=\"language\"\r\n"))
+    }
+
+    func testGPTTranscribeRetriesWithWavAndKeepsContextFields() async throws {
+        let host = try PluginTestHostServices(
+            defaults: [
+                "selectedModel": "gpt-transcribe",
+                "transcriptionContext": "A support call.",
+            ],
+            secrets: ["api-key": "sk-live"]
+        )
+        let plugin = OpenAIPlugin()
+        plugin.activate(host: host)
+
+        let store = PluginHTTPClientSessionStore()
+        PluginHTTPClientTestHarness.configure { _ in
+            store.makeSession(outcomes: [
+                .success(
+                    Data(#"{"error":{"message":"unsupported audio format"}}"#.utf8),
+                    Self.httpResponse(
+                        url: "https://api.openai.com/v1/audio/transcriptions",
+                        statusCode: 415
+                    )
+                ),
+                .success(
+                    Data(#"{"text":"Hello","languages":[{"code":"en"}]}"#.utf8),
+                    Self.httpResponse(
+                        url: "https://api.openai.com/v1/audio/transcriptions",
+                        statusCode: 200
+                    )
+                ),
+            ])
+        }
+
+        let result = try await plugin.transcribe(
+            audio: Self.testAudio(),
+            languageSelection: PluginLanguageSelection(languageHints: ["en", "de"]),
+            translate: false,
+            prompt: nil,
+            dictionaryTermHints: [PluginDictionaryTermHint(text: "TypeWhisper")]
+        )
+
+        XCTAssertEqual(result.detectedLanguage, "en")
+        let requests = try XCTUnwrap(store.sessions.first?.requestedRequests)
+        XCTAssertEqual(requests.count, 2)
+
+        let firstBody = String(decoding: try XCTUnwrap(requests[0].httpBody), as: UTF8.self)
+        let retryBody = String(decoding: try XCTUnwrap(requests[1].httpBody), as: UTF8.self)
+        XCTAssertTrue(firstBody.contains(#"filename="audio.m4a""#))
+        XCTAssertTrue(retryBody.contains(#"filename="audio.wav""#))
+        for body in [firstBody, retryBody] {
+            XCTAssertTrue(body.contains("name=\"prompt\"\r\n\r\nA support call."))
+            XCTAssertEqual(Self.formValues(named: "keywords[]", in: body), ["TypeWhisper"])
+            XCTAssertEqual(Self.formValues(named: "languages[]", in: body), ["en", "de"])
+        }
+    }
+
+    func testLegacyGPTTranscribeKeepsSingularLanguageAndPromptPayload() async throws {
+        let host = try PluginTestHostServices(
+            defaults: ["selectedModel": "gpt-4o-transcribe"],
+            secrets: ["api-key": "sk-live"]
+        )
+        let plugin = OpenAIPlugin()
+        plugin.activate(host: host)
+
+        let store = PluginHTTPClientSessionStore()
+        PluginHTTPClientTestHarness.configure { _ in
+            store.makeSession(outcomes: [
+                .success(
+                    Data(#"{"text":"Hallo"}"#.utf8),
+                    Self.httpResponse(
+                        url: "https://api.openai.com/v1/audio/transcriptions",
+                        statusCode: 200
+                    )
+                ),
+            ])
+        }
+
+        _ = try await plugin.transcribe(
+            audio: Self.testAudio(),
+            languageSelection: PluginLanguageSelection(languageHints: ["de", "en"]),
+            translate: false,
+            prompt: "TypeWhisper",
+            dictionaryTermHints: [PluginDictionaryTermHint(text: "ignored keyword")]
+        )
+
+        let body = String(
+            decoding: try XCTUnwrap(store.sessions.first?.requestedRequests.first?.httpBody),
+            as: UTF8.self
+        )
+        XCTAssertTrue(body.contains("name=\"response_format\"\r\n\r\njson"))
+        XCTAssertTrue(body.contains("name=\"language\"\r\n\r\nde"))
+        XCTAssertTrue(body.contains("name=\"prompt\"\r\n\r\nTypeWhisper"))
+        XCTAssertFalse(body.contains("name=\"languages[]\"\r\n"))
+        XCTAssertFalse(body.contains("name=\"keywords[]\"\r\n"))
+    }
+
+    func testGPTTranscribeMapsAuthenticationSizeAndRateLimitErrors() async throws {
+        for statusCode in [401, 413, 429] {
+            PluginHTTPClientTestHarness.reset()
+            let host = try PluginTestHostServices(
+                defaults: ["selectedModel": "gpt-transcribe"],
+                secrets: ["api-key": "sk-live"]
+            )
+            let plugin = OpenAIPlugin()
+            plugin.activate(host: host)
+
+            let store = PluginHTTPClientSessionStore()
+            PluginHTTPClientTestHarness.configure { _ in
+                store.makeSession(outcomes: [
+                    .success(
+                        Data(#"{"error":{"message":"request failed"}}"#.utf8),
+                        Self.httpResponse(
+                            url: "https://api.openai.com/v1/audio/transcriptions",
+                            statusCode: statusCode
+                        )
+                    ),
+                ])
+            }
+
+            do {
+                _ = try await plugin.transcribe(
+                    audio: Self.testAudio(),
+                    language: nil,
+                    translate: false,
+                    prompt: nil
+                )
+                XCTFail("Expected HTTP \(statusCode) to fail")
+            } catch let error as PluginTranscriptionError {
+                switch (statusCode, error) {
+                case (401, .invalidApiKey), (413, .fileTooLarge), (429, .rateLimited):
+                    break
+                default:
+                    XCTFail("Unexpected mapping for HTTP \(statusCode): \(error)")
+                }
+            } catch {
+                XCTFail("Unexpected error for HTTP \(statusCode): \(error)")
+            }
+
+            XCTAssertEqual(store.sessions.first?.requestedRequests.count, 1)
+        }
+    }
+
+    func testGPTTranscribeSurfacesValidationErrorWithoutModelFallback() async throws {
+        let host = try PluginTestHostServices(
+            defaults: ["selectedModel": "gpt-transcribe"],
+            secrets: ["api-key": "sk-live"]
+        )
+        let plugin = OpenAIPlugin()
+        plugin.activate(host: host)
+
+        let store = PluginHTTPClientSessionStore()
+        PluginHTTPClientTestHarness.configure { _ in
+            store.makeSession(outcomes: [
+                .success(
+                    Data(#"{"error":{"message":"prompt exceeds the model length limit"}}"#.utf8),
+                    Self.httpResponse(
+                        url: "https://api.openai.com/v1/audio/transcriptions",
+                        statusCode: 400
+                    )
+                ),
+            ])
+        }
+
+        do {
+            _ = try await plugin.transcribe(
+                audio: Self.testAudio(),
+                language: nil,
+                translate: false,
+                prompt: nil
+            )
+            XCTFail("Expected validation error")
+        } catch PluginTranscriptionError.apiError(let message) {
+            XCTAssertEqual(message, "HTTP 400: prompt exceeds the model length limit")
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+
+        XCTAssertEqual(store.sessions.first?.requestedRequests.count, 1)
+    }
+
+    func testTranslateIsBlockedForEveryModelExceptWhisperOne() async throws {
+        let host = try PluginTestHostServices(
+            defaults: ["selectedModel": "gpt-transcribe"],
+            secrets: ["api-key": "sk-live"]
+        )
+        let plugin = OpenAIPlugin()
+        plugin.activate(host: host)
+
+        let store = PluginHTTPClientSessionStore()
+        PluginHTTPClientTestHarness.configure { _ in
+            store.makeSession(outcomes: [.failure(URLError(.badServerResponse))])
+        }
+
+        XCTAssertTrue(plugin.transcriptionModelSupportsTranslation("whisper-1"))
+        for modelID in plugin.transcriptionModels.map(\.id) where modelID != "whisper-1" {
+            XCTAssertFalse(plugin.transcriptionModelSupportsTranslation(modelID))
+        }
+
+        do {
+            _ = try await plugin.transcribe(
+                audio: Self.testAudio(),
+                language: "de",
+                translate: true,
+                prompt: nil
+            )
+            XCTFail("Expected Translate to be blocked")
+        } catch PluginTranscriptionError.apiError(let message) {
+            XCTAssertEqual(message, "Translate requires Whisper 1.")
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+        XCTAssertTrue(store.sessions.isEmpty)
+    }
+
+    func testWhisperOneTranslateUsesTranslationsEndpoint() async throws {
+        let host = try PluginTestHostServices(
+            defaults: ["selectedModel": "whisper-1"],
+            secrets: ["api-key": "sk-live"]
+        )
+        let plugin = OpenAIPlugin()
+        plugin.activate(host: host)
+
+        let store = PluginHTTPClientSessionStore()
+        PluginHTTPClientTestHarness.configure { _ in
+            store.makeSession(outcomes: [
+                .success(
+                    Data(#"{"text":"Hello","language":"en"}"#.utf8),
+                    Self.httpResponse(
+                        url: "https://api.openai.com/v1/audio/translations",
+                        statusCode: 200
+                    )
+                ),
+            ])
+        }
+
+        let result = try await plugin.transcribe(
+            audio: Self.testAudio(),
+            language: "de",
+            translate: true,
+            prompt: nil
+        )
+
+        XCTAssertEqual(result.text, "Hello")
+        XCTAssertEqual(store.sessions.first?.requestedPaths, ["/v1/audio/translations"])
+        let body = String(
+            decoding: try XCTUnwrap(store.sessions.first?.requestedRequests.first?.httpBody),
+            as: UTF8.self
+        )
+        XCTAssertTrue(body.contains("name=\"model\"\r\n\r\nwhisper-1"))
+        XCTAssertFalse(body.contains("name=\"language\"\r\n"))
+    }
+
     func testOpenAIWithoutCredentialsMakesCloudAuthRolesUnavailable() throws {
         let host = try PluginTestHostServices()
         let plugin = OpenAIPlugin()
@@ -201,6 +619,57 @@ final class OpenAIPluginTests: XCTestCase {
         XCTAssertNil(transcription["prompt"])
 
         XCTAssertTrue(input["turn_detection"] is NSNull)
+    }
+
+    func testGPTLiveTranscribeSessionPayloadIncludesContextHintsAndLowDelay() throws {
+        let payload = OpenAIRealtimeTranscriptionSession.sessionUpdatePayload(
+            modelID: "gpt-live-transcribe",
+            languageSelection: PluginLanguageSelection(
+                languageHints: ["de", "en", "DE"]
+            ),
+            prompt: "A TypeWhisper product interview.",
+            keywords: ["TypeWhisper", "AC-42"],
+            delay: .low
+        )
+
+        let session = try XCTUnwrap(payload["session"] as? [String: Any])
+        let audio = try XCTUnwrap(session["audio"] as? [String: Any])
+        let input = try XCTUnwrap(audio["input"] as? [String: Any])
+        let transcription = try XCTUnwrap(input["transcription"] as? [String: Any])
+
+        XCTAssertEqual(transcription["model"] as? String, "gpt-live-transcribe")
+        XCTAssertEqual(
+            transcription["prompt"] as? String,
+            "A TypeWhisper product interview."
+        )
+        XCTAssertEqual(transcription["keywords"] as? [String], ["TypeWhisper", "AC-42"])
+        XCTAssertEqual(transcription["languages"] as? [String], ["de", "en"])
+        XCTAssertEqual(transcription["delay"] as? String, "low")
+        XCTAssertNil(transcription["language"])
+        XCTAssertTrue(input["turn_detection"] is NSNull)
+    }
+
+    func testFileModelRejectsNativeLiveSessionBeforeOpeningSocket() async throws {
+        let host = try PluginTestHostServices(
+            defaults: ["selectedModel": "gpt-transcribe"],
+            secrets: ["api-key": "sk-live"]
+        )
+        let plugin = OpenAIPlugin()
+        plugin.activate(host: host)
+
+        do {
+            _ = try await plugin.createLiveTranscriptionSession(
+                language: "de",
+                translate: false,
+                prompt: nil,
+                onProgress: { _ in true }
+            )
+            XCTFail("Expected file model to reject native live transcription")
+        } catch PluginTranscriptionError.apiError(let message) {
+            XCTAssertEqual(message, "GPT Transcribe is a file transcription model.")
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
     }
 
     func testOpenAIRealtimePCMConversionResamples16kTo24kPCM16() {
@@ -397,25 +866,196 @@ final class OpenAIPluginTests: XCTestCase {
         )
     }
 
-    func testOpenAIRefreshAvailableLLMModelsUsesChatGPTCatalogWithoutModelsEndpoint() async throws {
-        let host = try PluginTestHostServices(defaults: [
-            "authMode": "chatgpt",
-            "selectedLLMModel": "stale-model",
-        ])
+    func testOpenAIChatGPTModelsRequestUsesAccountScopedCodexEndpoint() throws {
+        let request = try OpenAIPlugin.makeChatGPTModelsRequest(
+            accessToken: "oauth-token",
+            accountID: "account-123",
+            clientVersion: "1.3.0"
+        )
+
+        XCTAssertEqual(request.httpMethod, "GET")
+        XCTAssertEqual(request.url?.host, "chatgpt.com")
+        XCTAssertEqual(request.url?.path, "/backend-api/codex/models")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer oauth-token")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "ChatGPT-Account-ID"), "account-123")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Accept"), "application/json")
+
+        let components = try XCTUnwrap(
+            URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false)
+        )
+        let query = Dictionary(
+            uniqueKeysWithValues: (components.queryItems ?? []).map { ($0.name, $0.value ?? "") }
+        )
+        XCTAssertEqual(query["client_version"], "1.3.0")
+    }
+
+    func testOpenAIRefreshAvailableLLMModelsFetchesFutureChatGPTCatalogAndPersistsSelection() async throws {
+        let host = try PluginTestHostServices(
+            defaults: [
+                "authMode": "chatgpt",
+                "selectedLLMModel": "gpt-5.6-sol",
+                "oauthAccountID": "account-123",
+                "oauthExpiresAt": Date().addingTimeInterval(3_600),
+            ],
+            secrets: [
+                "oauth-access-token": "oauth-token",
+                "oauth-refresh-token": "refresh-token",
+            ]
+        )
         let plugin = OpenAIPlugin()
         plugin.activate(host: host)
 
         let store = PluginHTTPClientSessionStore()
         PluginHTTPClientTestHarness.configure { _ in
-            store.makeSession(outcomes: [.failure(URLError(.badURL))])
+            store.makeSession(outcomes: [
+                .success(
+                    Data(
+                        """
+                        {
+                          "models": [
+                            {
+                              "slug": "gpt-hidden",
+                              "display_name": "Hidden",
+                              "priority": 0,
+                              "visibility": "hide"
+                            },
+                            {
+                              "slug": "gpt-5.6-sol",
+                              "display_name": "GPT-5.6 Sol",
+                              "priority": 2,
+                              "visibility": "list"
+                            },
+                            {
+                              "slug": "gpt-5.7",
+                              "display_name": "GPT-5.7",
+                              "priority": 1,
+                              "visibility": "list"
+                            },
+                            {
+                              "slug": "gpt-internal",
+                              "display_name": "Internal",
+                              "priority": 3,
+                              "visibility": "none"
+                            }
+                          ]
+                        }
+                        """.utf8
+                    ),
+                    Self.httpResponse(
+                        url: "https://chatgpt.com/backend-api/codex/models",
+                        statusCode: 200
+                    )
+                ),
+            ])
         }
 
         let models = await plugin.refreshAvailableLLMModels()
 
-        XCTAssertEqual(models.first?.id, "gpt-5.5")
+        XCTAssertEqual(models.map(\.id), ["gpt-5.7", "gpt-5.6-sol"])
+        XCTAssertEqual(models.map(\.displayName), ["GPT-5.7", "GPT-5.6 Sol"])
+        XCTAssertEqual(plugin.supportedModels.map(\.id), ["gpt-5.7", "gpt-5.6-sol"])
+        XCTAssertEqual(plugin.selectedLLMModelId, "gpt-5.6-sol")
+        XCTAssertEqual(host.userDefault(forKey: "selectedLLMModel") as? String, "gpt-5.6-sol")
+
+        let request = try XCTUnwrap(store.sessions.first?.requestedRequests.first)
+        XCTAssertEqual(request.url?.path, "/backend-api/codex/models")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer oauth-token")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "ChatGPT-Account-ID"), "account-123")
+        let components = try XCTUnwrap(
+            URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false)
+        )
+        XCTAssertFalse(
+            components.queryItems?
+                .first(where: { $0.name == "client_version" })?
+                .value?
+                .isEmpty ?? true
+        )
+
+        let cachedData = try XCTUnwrap(host.userDefault(forKey: "fetchedChatGPTModels") as? Data)
+        let cache = try JSONDecoder().decode(OpenAIChatGPTModelCache.self, from: cachedData)
+        XCTAssertEqual(cache.accountID, "account-123")
+        XCTAssertEqual(cache.models.map(\.id), ["gpt-5.7", "gpt-5.6-sol"])
+
+        let restoredPlugin = OpenAIPlugin()
+        restoredPlugin.activate(host: host)
+        XCTAssertEqual(restoredPlugin.supportedModels.map(\.id), ["gpt-5.7", "gpt-5.6-sol"])
+        XCTAssertEqual(restoredPlugin.selectedLLMModelId, "gpt-5.6-sol")
+    }
+
+    func testOpenAIChatGPTModelRefreshFailureKeepsFallbackAndSelection() async throws {
+        let host = try PluginTestHostServices(
+            defaults: [
+                "authMode": "chatgpt",
+                "selectedLLMModel": "gpt-5.5",
+                "oauthAccountID": "account-123",
+                "oauthExpiresAt": Date().addingTimeInterval(3_600),
+            ],
+            secrets: [
+                "oauth-access-token": "oauth-token",
+                "oauth-refresh-token": "refresh-token",
+            ]
+        )
+        let plugin = OpenAIPlugin()
+        plugin.activate(host: host)
+
+        let store = PluginHTTPClientSessionStore()
+        PluginHTTPClientTestHarness.configure { _ in
+            store.makeSession(outcomes: [.failure(URLError(.cannotConnectToHost))])
+        }
+
+        let models = await plugin.refreshAvailableLLMModels()
+
+        XCTAssertTrue(models.isEmpty)
+        XCTAssertEqual(plugin.supportedModels.first?.id, "gpt-5.6-sol")
         XCTAssertEqual(plugin.selectedLLMModelId, "gpt-5.5")
         XCTAssertEqual(host.userDefault(forKey: "selectedLLMModel") as? String, "gpt-5.5")
-        XCTAssertTrue(store.sessions.isEmpty)
+        XCTAssertEqual(store.sessions.first?.requestedPaths, ["/backend-api/codex/models"])
+    }
+
+    func testOpenAIChatGPTModelCacheIsScopedToAccount() throws {
+        let cache = OpenAIChatGPTModelCache(
+            accountID: "old-account",
+            models: [
+                OpenAIChatGPTModel(
+                    id: "gpt-5.7",
+                    displayName: "GPT-5.7",
+                    priority: 1,
+                    visibility: "list"
+                ),
+            ]
+        )
+        let host = try PluginTestHostServices(defaults: [
+            "authMode": "chatgpt",
+            "selectedLLMModel": "gpt-5.5",
+            "oauthAccountID": "new-account",
+            "fetchedChatGPTModels": try JSONEncoder().encode(cache),
+        ])
+        let plugin = OpenAIPlugin()
+
+        plugin.activate(host: host)
+
+        XCTAssertEqual(plugin.supportedModels.first?.id, "gpt-5.6-sol")
+        XCTAssertFalse(plugin.supportedModels.contains { $0.id == "gpt-5.7" })
+        XCTAssertEqual(plugin.selectedLLMModelId, "gpt-5.5")
+    }
+
+    private static func testAudio() -> AudioData {
+        let samples = [Float](repeating: 0.1, count: 16_000)
+        return AudioData(
+            samples: samples,
+            wavData: PluginWavEncoder.encode(samples),
+            duration: 1.0
+        )
+    }
+
+    private static func formValues(named name: String, in body: String) -> [String] {
+        let marker = "name=\"\(name)\"\r\n\r\n"
+        return body
+            .components(separatedBy: marker)
+            .dropFirst()
+            .compactMap { component in
+                component.components(separatedBy: "\r\n").first
+            }
     }
 
     private static func httpResponse(url: String, statusCode: Int) -> HTTPURLResponse {
