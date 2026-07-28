@@ -203,6 +203,12 @@ final class DictationViewModel: ObservableObject {
     @Published var indicatorVisibleInScreenCaptures: Bool {
         didSet { Self.persistIndicatorVisibleInScreenCaptures(indicatorVisibleInScreenCaptures) }
     }
+    /// Engine override for the live transcript preview only. `nil` = follow the
+    /// dictation engine (prior behavior). Lets the preview run a fast local
+    /// streaming engine while the final transcription uses a cloud engine.
+    @Published var livePreviewEngineId: String? {
+        didSet { Self.persistLivePreviewEngineId(livePreviewEngineId) }
+    }
     @Published var indicatorTranscriptPreviewFontSizeOffset: Int {
         didSet {
             let clampedOffset = Self.clampedIndicatorTranscriptPreviewFontSizeOffset(indicatorTranscriptPreviewFontSizeOffset)
@@ -348,6 +354,10 @@ final class DictationViewModel: ObservableObject {
         let normalizeNumbers: Bool?
     }
     private var lastStreamingParams: StreamingParamsSnapshot?
+    /// Whether the most recent `streamingHandler.start(...)` ran the preview on the
+    /// dictation engine. When false (a distinct preview engine), the live session's
+    /// text is display-only and must never be promoted to the final transcription.
+    private var lastPreviewFollowsDictationEngine = true
     private var isStopInFlight = false
     private var activeDictationSessionID: UUID?
     private var pendingHotkeyDictationStart: PendingHotkeyDictationStart?
@@ -503,6 +513,7 @@ final class DictationViewModel: ObservableObject {
         self.indicatorTranscriptPreviewEnabled = Self.loadIndicatorTranscriptPreviewEnabled()
         self.indicatorVisibleInScreenCaptures = Self.loadIndicatorVisibleInScreenCaptures()
         self.indicatorTranscriptPreviewFontSizeOffset = Self.loadIndicatorTranscriptPreviewFontSizeOffset()
+        self.livePreviewEngineId = Self.loadLivePreviewEngineId()
         self.preserveClipboard = UserDefaults.standard.bool(forKey: UserDefaultsKeys.preserveClipboard)
         self.mediaPauseEnabled = UserDefaults.standard.bool(forKey: UserDefaultsKeys.mediaPauseEnabled)
         self.transcribeShortQuietClipsAggressively = Self.loadTranscribeShortQuietClipsAggressively()
@@ -594,6 +605,22 @@ final class DictationViewModel: ObservableObject {
 
     nonisolated static func persistIndicatorVisibleInScreenCaptures(_ visible: Bool, defaults: UserDefaults = .standard) {
         defaults.set(visible, forKey: UserDefaultsKeys.indicatorVisibleInScreenCaptures)
+    }
+
+    nonisolated static func loadLivePreviewEngineId(defaults: UserDefaults = .standard) -> String? {
+        guard let engineId = defaults.string(forKey: UserDefaultsKeys.livePreviewEngineId),
+              !engineId.isEmpty else {
+            return nil
+        }
+        return engineId
+    }
+
+    nonisolated static func persistLivePreviewEngineId(_ engineId: String?, defaults: UserDefaults = .standard) {
+        if let engineId, !engineId.isEmpty {
+            defaults.set(engineId, forKey: UserDefaultsKeys.livePreviewEngineId)
+        } else {
+            defaults.removeObject(forKey: UserDefaultsKeys.livePreviewEngineId)
+        }
     }
 
     nonisolated static func loadIndicatorTranscriptPreviewFontSizeOffset(defaults: UserDefaults = .standard) -> Int {
@@ -1569,13 +1596,24 @@ final class DictationViewModel: ObservableObject {
 
         let streamingParams = lastStreamingParams
         lastStreamingParams = nil
+        let previewFollowedDictationEngine = lastPreviewFollowsDictationEngine
+        lastPreviewFollowsDictationEngine = true
         stopRecordingTimer()
         let previewText = partialText.trimmingCharacters(in: .whitespacesAndNewlines)
         let stopPolicy = AudioRecordingService.StopPolicy.finalizeShortSpeech()
         var samples = await audioRecordingService.stopRecording(policy: stopPolicy)
         guard !Task.isCancelled else { return }
         logger.info("Stop timing: stopRecording done elapsedMs=\(stopElapsedMs(), privacy: .public), previewTextLength=\(previewText.count, privacy: .public)")
-        let liveSessionResultBeforePreviewFallback = await streamingHandler.finish(finalSamples: samples)
+        let liveSessionResultBeforePreviewFallback: TranscriptionResult?
+        if previewFollowedDictationEngine {
+            liveSessionResultBeforePreviewFallback = await streamingHandler.finish(finalSamples: samples)
+        } else {
+            // The live session ran on a preview-only engine; its text is display-only
+            // and the final transcription comes from the dictation engine below. Don't
+            // await the preview's (possibly network-bound) finalization — cancel it.
+            streamingHandler.stop()
+            liveSessionResultBeforePreviewFallback = nil
+        }
         guard !Task.isCancelled else { return }
         logger.info("Stop timing: streamingHandler.finish done elapsedMs=\(stopElapsedMs(), privacy: .public), resultTextLength=\(liveSessionResultBeforePreviewFallback?.text.count ?? -1, privacy: .public)")
         var liveSessionResult = liveSessionResultBeforePreviewFallback.map {
@@ -1594,7 +1632,8 @@ final class DictationViewModel: ObservableObject {
 
         let peakLevel = audioRecordingService.peakRawAudioLevel
         let rawDuration = Double(samples.count) / AudioRecordingService.targetSampleRate
-        if !hasConfirmedTranscriptionResultText(liveSessionResult),
+        if previewFollowedDictationEngine,
+           !hasConfirmedTranscriptionResultText(liveSessionResult),
            let previewResult = stableLivePreviewFallbackResult(
             previewText: previewText,
             streamingParams: streamingParams,
@@ -1602,7 +1641,16 @@ final class DictationViewModel: ObservableObject {
            ) {
             liveSessionResult = previewResult
         }
+        // A distinct preview engine's text never becomes the final result, but its
+        // having recognized speech still counts for the discard-quiet-clip gating —
+        // otherwise valid quiet speech would be discarded before the dictation
+        // engine gets to transcribe it.
+        let previewEngineConfirmedSpeech = !previewFollowedDictationEngine
+            && StreamingHandler.isSubstantiveStablePreview(
+                previewText.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
         let hasConfirmedText = hasConfirmedTranscriptionResultText(liveSessionResult)
+            || previewEngineConfirmedSpeech
         let decision = classifyShortSpeech(
             rawDuration: rawDuration,
             peakLevel: peakLevel,
@@ -2196,20 +2244,150 @@ final class DictationViewModel: ObservableObject {
             cloudModelOverride: effectiveCloudModelOverride,
             normalizeNumbers: effectiveNumberNormalizationOverride
         )
-        lastStreamingParams = allowLiveTranscription ? params : nil
-        let dictionaryProviderId = params.engineOverrideId ?? params.providerId
+        let resolution = Self.resolvePreviewEngine(
+            preferredPreviewEngineId: livePreviewEngineId,
+            dictationEngineOverrideId: params.engineOverrideId,
+            selectedProviderId: params.providerId,
+            isEngineAvailable: { [weak self] engineId in
+                guard let self, let engine = PluginManager.shared?.transcriptionEngine(for: engineId) else {
+                    return false
+                }
+                return self.canUseEngineForPreview(engine)
+            }
+        )
+        let previewEngineOverrideId: String?
+        let previewUsable: Bool
+        switch resolution {
+        case .followsDictationEngine:
+            previewEngineOverrideId = params.engineOverrideId
+            previewUsable = true
+        case .overrideEngine(let engineId):
+            previewEngineOverrideId = engineId
+            previewUsable = true
+        case .previewUnavailable:
+            // The user explicitly chose a preview engine that can't run right now.
+            // Fail visibly (no preview) instead of silently resuming preview
+            // traffic on the (possibly metered cloud) dictation engine.
+            previewEngineOverrideId = params.engineOverrideId
+            previewUsable = false
+            logger.warning("Selected live preview engine is unavailable; preview disabled for this recording instead of falling back to the dictation engine")
+        }
+        let effectiveAllowLiveTranscription = allowLiveTranscription && previewUsable
+        lastStreamingParams = effectiveAllowLiveTranscription ? params : nil
+        let previewFollowsDictationEngine =
+            (previewEngineOverrideId ?? params.providerId) == (params.engineOverrideId ?? params.providerId)
+        lastPreviewFollowsDictationEngine = previewFollowsDictationEngine
+        let dictionaryProviderId = previewEngineOverrideId ?? params.providerId
+        // A distinct preview engine that can't translate still previews the speech —
+        // as a transcription. The final (translating) result comes from the dictation
+        // engine anyway; keeping .translate here would make its sessions fail outright.
+        var previewTask = params.task
+        if !previewFollowsDictationEngine,
+           previewTask == .translate,
+           let previewProviderId = previewEngineOverrideId,
+           let previewPlugin = PluginManager.shared?.transcriptionEngine(for: previewProviderId),
+           !previewPlugin.supportsTranslation {
+            previewTask = .transcribe
+        }
         streamingHandler.start(
             streamPrompt: dictionaryService.getTermsForPrompt(providerId: dictionaryProviderId) ?? "",
             dictionaryTermHints: dictionaryService.getTermHints(providerId: dictionaryProviderId),
-            engineOverrideId: params.engineOverrideId,
+            engineOverrideId: previewEngineOverrideId,
             selectedProviderId: params.providerId,
             languageSelection: params.languageSelection,
-            task: params.task,
-            cloudModelOverride: params.cloudModelOverride,
+            task: previewTask,
+            cloudModelOverride: previewFollowsDictationEngine ? params.cloudModelOverride : nil,
             normalizeNumbers: params.normalizeNumbers,
-            allowLiveTranscription: allowLiveTranscription,
+            allowLiveTranscription: effectiveAllowLiveTranscription,
             stateCheck: { [weak self] in self?.state == .recording }
         )
+    }
+
+    /// Whether an engine is usable as the live preview engine: auth-available and
+    /// either currently configured or restorable on demand (an installed local
+    /// engine whose model was auto-unloaded restores at session start via
+    /// `prepareEngineForTranscription` → `triggerRestoreModel`), AND actually able
+    /// to produce a preview — via a native live session or the batch fallback.
+    func canUseEngineForPreview(_ engine: TranscriptionEnginePlugin) -> Bool {
+        // `loadedModel` is persisted by the host under the plugin's MANIFEST id
+        // (`HostServicesImpl.setUserDefault` writes `plugin.<manifest.id>.<key>`),
+        // which is not the engine's `providerId` — e.g. "parakeet" vs
+        // "com.typewhisper.parakeet". Resolve through the plugin so the lookup
+        // reads the key the plugin actually wrote; an unresolvable engine is not
+        // restorable, so it correctly fails the readiness gate.
+        let pluginId = PluginManager.shared?.loadedTranscriptionPlugin(for: engine.providerId)?.manifest.id
+        guard Self.engineIsReadyOrRestorableForPreview(
+            authAvailable: modelManager.canUseForTranscription(engine),
+            isConfigured: engine.isConfigured,
+            hasPersistedRestorableModel: pluginId.map { Self.hasPersistedRestorableModel(pluginId: $0) } ?? false,
+            canPrepare: modelManager.canPrepareForTranscription(engine)
+        ) else { return false }
+        if engine is any LiveTranscriptionCapablePlugin { return true }
+        let allowsFallback = (engine as? any TranscriptPreviewFallbackPolicyProviding)?
+            .allowsTranscriptPreviewFallback ?? true
+        return allowsFallback
+    }
+
+    /// Whether the plugin has a persisted `loadedModel` default —  the state
+    /// `triggerRestoreModel` restores from. Auto-unload keeps it (restorable);
+    /// manually unloading a model clears it (restore is a no-op, so the engine
+    /// must not be treated as available). Same plugin-scoped convention key the
+    /// host special-cases in `HostServicesImpl.userDefault(forKey:)`.
+    ///
+    /// Takes the plugin's MANIFEST id, not an engine `providerId` — the two differ
+    /// (`com.typewhisper.parakeet` vs `parakeet`) and only the former matches what
+    /// `HostServicesImpl` wrote.
+    nonisolated static func hasPersistedRestorableModel(
+        pluginId: String,
+        defaults: UserDefaults = .standard
+    ) -> Bool {
+        defaults.object(forKey: "plugin.\(pluginId).loadedModel") != nil
+    }
+
+    /// Pure readiness predicate for the preview engine. A persisted restorable
+    /// model counts as available even when it is not currently loaded
+    /// (`isConfigured == false`) — auto-unloaded local engines restore at
+    /// session start. `canPrepare` additionally keeps Apple Speech's
+    /// catalog-based grace from `canPrepareForTranscription`.
+    nonisolated static func engineIsReadyOrRestorableForPreview(
+        authAvailable: Bool,
+        isConfigured: Bool,
+        hasPersistedRestorableModel: Bool,
+        canPrepare: Bool
+    ) -> Bool {
+        guard authAvailable else { return false }
+        return isConfigured || hasPersistedRestorableModel || canPrepare
+    }
+
+    enum PreviewEngineResolution: Equatable {
+        /// No usable distinct preference — the preview follows the dictation
+        /// engine (prior behavior), keeping any cloud model override intact.
+        case followsDictationEngine
+        /// A distinct, usable preview engine runs the preview session.
+        case overrideEngine(String)
+        /// A preview engine is explicitly selected but unusable — suppress the
+        /// preview entirely rather than silently falling back to the (possibly
+        /// metered cloud) dictation engine.
+        case previewUnavailable
+    }
+
+    /// Resolve which engine the live transcript preview session should use.
+    nonisolated static func resolvePreviewEngine(
+        preferredPreviewEngineId: String?,
+        dictationEngineOverrideId: String?,
+        selectedProviderId: String?,
+        isEngineAvailable: (String) -> Bool
+    ) -> PreviewEngineResolution {
+        guard let preferred = preferredPreviewEngineId, !preferred.isEmpty else {
+            return .followsDictationEngine
+        }
+        guard isEngineAvailable(preferred) else {
+            return .previewUnavailable
+        }
+        if preferred == (dictationEngineOverrideId ?? selectedProviderId) {
+            return .followsDictationEngine
+        }
+        return .overrideEngine(preferred)
     }
 
     /// Restart live streaming if the currently effective params differ from the ones

@@ -5935,6 +5935,22 @@ final class TypeWhisperIntegrationTests: XCTestCase {
         let errorLogService = ErrorLogService(appSupportDirectory: appSupportDirectory)
         let settingsViewModel = SettingsViewModel(modelManager: modelManager)
 
+        // Unit tests must start from the documented defaults (preview enabled,
+        // preview engine = match dictation engine); the test host app's persisted
+        // preferences would otherwise leak in. `DictationViewModel` reads both keys
+        // synchronously in its initializer, so restoring on exit keeps the isolation
+        // while leaving a developer's real preferences untouched.
+        let livePreviewEngineKey = UserDefaultsKeys.livePreviewEngineId
+        let previewEnabledKey = UserDefaultsKeys.indicatorTranscriptPreviewEnabled
+        let originalLivePreviewEngine = UserDefaults.standard.object(forKey: livePreviewEngineKey)
+        let originalPreviewEnabled = UserDefaults.standard.object(forKey: previewEnabledKey)
+        UserDefaults.standard.removeObject(forKey: livePreviewEngineKey)
+        UserDefaults.standard.removeObject(forKey: previewEnabledKey)
+        defer {
+            Self.restoreUserDefault(originalLivePreviewEngine, forKey: livePreviewEngineKey)
+            Self.restoreUserDefault(originalPreviewEnabled, forKey: previewEnabledKey)
+        }
+
         let dictationViewModel = DictationViewModel(
             audioRecordingService: audioRecordingService,
             textInsertionService: textInsertionService,
@@ -6347,6 +6363,22 @@ final class TypeWhisperIntegrationTests: XCTestCase {
         let errorLogService = ErrorLogService(appSupportDirectory: appSupportDirectory)
         let settingsViewModel = SettingsViewModel(modelManager: modelManager)
 
+        // Unit tests must start from the documented defaults (preview enabled,
+        // preview engine = match dictation engine); the test host app's persisted
+        // preferences would otherwise leak in. `DictationViewModel` reads both keys
+        // synchronously in its initializer, so restoring on exit keeps the isolation
+        // while leaving a developer's real preferences untouched.
+        let livePreviewEngineKey = UserDefaultsKeys.livePreviewEngineId
+        let previewEnabledKey = UserDefaultsKeys.indicatorTranscriptPreviewEnabled
+        let originalLivePreviewEngine = UserDefaults.standard.object(forKey: livePreviewEngineKey)
+        let originalPreviewEnabled = UserDefaults.standard.object(forKey: previewEnabledKey)
+        UserDefaults.standard.removeObject(forKey: livePreviewEngineKey)
+        UserDefaults.standard.removeObject(forKey: previewEnabledKey)
+        defer {
+            Self.restoreUserDefault(originalLivePreviewEngine, forKey: livePreviewEngineKey)
+            Self.restoreUserDefault(originalPreviewEnabled, forKey: previewEnabledKey)
+        }
+
         let dictationViewModel = DictationViewModel(
             audioRecordingService: audioRecordingService,
             textInsertionService: textInsertionService,
@@ -6655,6 +6687,22 @@ final class TypeWhisperIntegrationTests: XCTestCase {
         let errorLogService = ErrorLogService(appSupportDirectory: appSupportDirectory)
         let settingsViewModel = SettingsViewModel(modelManager: modelManager)
         let mediaPlaybackService = mediaPlaybackService ?? MediaPlaybackService(startListening: false)
+
+        // Unit tests must start from the documented defaults (preview enabled,
+        // preview engine = match dictation engine); the test host app's persisted
+        // preferences would otherwise leak in. `DictationViewModel` reads both keys
+        // synchronously in its initializer, so restoring on exit keeps the isolation
+        // while leaving a developer's real preferences untouched.
+        let livePreviewEngineKey = UserDefaultsKeys.livePreviewEngineId
+        let previewEnabledKey = UserDefaultsKeys.indicatorTranscriptPreviewEnabled
+        let originalLivePreviewEngine = UserDefaults.standard.object(forKey: livePreviewEngineKey)
+        let originalPreviewEnabled = UserDefaults.standard.object(forKey: previewEnabledKey)
+        UserDefaults.standard.removeObject(forKey: livePreviewEngineKey)
+        UserDefaults.standard.removeObject(forKey: previewEnabledKey)
+        defer {
+            Self.restoreUserDefault(originalLivePreviewEngine, forKey: livePreviewEngineKey)
+            Self.restoreUserDefault(originalPreviewEnabled, forKey: previewEnabledKey)
+        }
 
         let dictationViewModel = DictationViewModel(
             audioRecordingService: audioRecordingService,
