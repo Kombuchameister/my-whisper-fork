@@ -649,7 +649,7 @@ final class OpenAIPluginTests: XCTestCase {
         XCTAssertTrue(input["turn_detection"] is NSNull)
     }
 
-    func testFileModelRejectsNativeLiveSessionBeforeOpeningSocket() async throws {
+    func testFileModelLiveSessionFinalizesTheCompleteBufferedAudio() async throws {
         let host = try PluginTestHostServices(
             defaults: ["selectedModel": "gpt-transcribe"],
             secrets: ["api-key": "sk-live"]
@@ -657,19 +657,80 @@ final class OpenAIPluginTests: XCTestCase {
         let plugin = OpenAIPlugin()
         plugin.activate(host: host)
 
-        do {
-            _ = try await plugin.createLiveTranscriptionSession(
-                language: "de",
-                translate: false,
-                prompt: nil,
-                onProgress: { _ in true }
-            )
-            XCTFail("Expected file model to reject native live transcription")
-        } catch PluginTranscriptionError.apiError(let message) {
-            XCTAssertEqual(message, "GPT Transcribe is a file transcription model.")
-        } catch {
-            XCTFail("Unexpected error: \(error)")
+        let store = PluginHTTPClientSessionStore()
+        PluginHTTPClientTestHarness.configure { _ in
+            store.makeSession(outcomes: [
+                .success(
+                    Data(#"{"text":"The second ending is present.","languages":[{"code":"en"}]}"#.utf8),
+                    Self.httpResponse(
+                        url: "https://api.openai.com/v1/audio/transcriptions",
+                        statusCode: 200
+                    )
+                ),
+            ])
         }
+
+        let session = try await plugin.createLiveTranscriptionSession(
+            language: "en",
+            translate: false,
+            prompt: nil,
+            onProgress: { _ in true }
+        )
+        try await session.appendAudio(samples: [Float](repeating: 0.1, count: 8_000))
+        try await session.appendAudio(samples: [Float](repeating: 0.2, count: 8_000))
+
+        let result = try await session.finish()
+
+        XCTAssertEqual(result.text, "The second ending is present.")
+        XCTAssertEqual(result.detectedLanguage, "en")
+        XCTAssertEqual(store.sessions.first?.requestedPaths, ["/v1/audio/transcriptions"])
+
+        let request = try XCTUnwrap(store.sessions.first?.requestedRequests.first)
+        let body = String(decoding: try XCTUnwrap(request.httpBody), as: UTF8.self)
+        XCTAssertTrue(body.contains("name=\"model\"\r\n\r\ngpt-transcribe"))
+        XCTAssertTrue(body.contains("name=\"languages[]\"\r\n\r\nen"))
+    }
+
+    func testFileModelLiveSessionKeepsPreviewAndFinalTranscriptionSeparate() async throws {
+        let recorder = OpenAIFileTranscriptionRecorder()
+        let previews = OpenAIFileTranscriptionPreviewRecorder()
+        let session = OpenAIFileTranscriptionSession(
+            transcribe: { audio in
+                await recorder.record(sampleCount: audio.samples.count)
+                return PluginTranscriptionResult(text: "\(audio.samples.count) samples")
+            },
+            onProgress: { text in
+                previews.record(text)
+                return true
+            }
+        )
+
+        try await session.appendAudio(samples: [Float](repeating: 0.1, count: 48_000))
+        try await session.appendAudio(samples: [Float](repeating: 0.1, count: 16_000))
+        let result = try await session.finish()
+
+        let recordedSampleCounts = await recorder.sampleCounts
+        XCTAssertEqual(recordedSampleCounts, [48_000, 64_000])
+        XCTAssertEqual(previews.values, ["48000 samples"])
+        XCTAssertEqual(result.text, "64000 samples")
+    }
+
+    func testFileModelLiveSessionSerializesAndCoalescesReentrantPreviews() async throws {
+        let sessionBox = OpenAIFileTranscriptionSessionBox()
+        let recorder = ReentrantOpenAIFileTranscriptionRecorder(sessionBox: sessionBox)
+        let session = OpenAIFileTranscriptionSession(
+            transcribe: { audio in
+                try await recorder.transcribe(audio)
+            },
+            onProgress: { _ in true }
+        )
+        await sessionBox.store(session)
+
+        try await session.appendAudio(samples: [Float](repeating: 0.1, count: 48_000))
+
+        let snapshot = await recorder.snapshot
+        XCTAssertEqual(snapshot.sampleCounts, [48_000, 96_000])
+        XCTAssertEqual(snapshot.maximumConcurrentRequestCount, 1)
     }
 
     func testOpenAIRealtimePCMConversionResamples16kTo24kPCM16() {
@@ -1077,6 +1138,74 @@ private final class FinishCounter: @unchecked Sendable {
 
     func increment() {
         lock.withLock { $0 += 1 }
+    }
+}
+
+private actor OpenAIFileTranscriptionRecorder {
+    private(set) var sampleCounts: [Int] = []
+
+    func record(sampleCount: Int) {
+        sampleCounts.append(sampleCount)
+    }
+}
+
+private actor OpenAIFileTranscriptionSessionBox {
+    private var session: OpenAIFileTranscriptionSession?
+
+    func store(_ session: OpenAIFileTranscriptionSession) {
+        self.session = session
+    }
+
+    func appendAudio(samples: [Float]) async throws {
+        try await session?.appendAudio(samples: samples)
+    }
+}
+
+private actor ReentrantOpenAIFileTranscriptionRecorder {
+    struct Snapshot {
+        let sampleCounts: [Int]
+        let maximumConcurrentRequestCount: Int
+    }
+
+    private let sessionBox: OpenAIFileTranscriptionSessionBox
+    private var sampleCounts: [Int] = []
+    private var activeRequestCount = 0
+    private var maximumConcurrentRequestCount = 0
+
+    init(sessionBox: OpenAIFileTranscriptionSessionBox) {
+        self.sessionBox = sessionBox
+    }
+
+    func transcribe(_ audio: AudioData) async throws -> PluginTranscriptionResult {
+        activeRequestCount += 1
+        defer { activeRequestCount -= 1 }
+        maximumConcurrentRequestCount = max(maximumConcurrentRequestCount, activeRequestCount)
+        sampleCounts.append(audio.samples.count)
+
+        if sampleCounts.count == 1 {
+            try await sessionBox.appendAudio(samples: [Float](repeating: 0.1, count: 48_000))
+        }
+
+        return PluginTranscriptionResult(text: "\(audio.samples.count) samples")
+    }
+
+    var snapshot: Snapshot {
+        Snapshot(
+            sampleCounts: sampleCounts,
+            maximumConcurrentRequestCount: maximumConcurrentRequestCount
+        )
+    }
+}
+
+private final class OpenAIFileTranscriptionPreviewRecorder: @unchecked Sendable {
+    private let lock = OSAllocatedUnfairLock(initialState: [String]())
+
+    var values: [String] {
+        lock.withLock { $0 }
+    }
+
+    func record(_ value: String) {
+        lock.withLock { $0.append(value) }
     }
 }
 
