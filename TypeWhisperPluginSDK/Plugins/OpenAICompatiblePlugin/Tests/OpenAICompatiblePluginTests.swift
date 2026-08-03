@@ -305,7 +305,7 @@ final class OpenAICompatiblePluginTests: XCTestCase {
         let host = try PluginTestHostServices(
             defaults: [
                 "baseURL": "https://example.test/openai?tenant=contoso",
-                "selectedModel": "gpt-live-transcribe",
+                "selectedModel": "gpt-transcribe",
                 "selectedLLMModel": "gpt-chat",
             ]
         )
@@ -845,5 +845,546 @@ final class OpenAICompatiblePluginTests: XCTestCase {
             httpVersion: nil,
             headerFields: nil
         )!
+    }
+
+    // MARK: - Realtime Transport: Migration & Defaults
+
+    func testSavedProfilesWithoutTransportDecodeAsAuto() throws {
+        let savedProfiles = Data(
+            """
+            [
+              {
+                "id": "openai-compatible",
+                "name": "OpenAI Compatible",
+                "baseURL": "https://legacy-profile.test",
+                "selectedModelId": "whisper-legacy",
+                "selectedLLMModelId": "chat-legacy",
+                "llmTemperatureModeRaw": "providerDefault",
+                "llmTemperatureValue": 0.3,
+                "fetchedModels": []
+              }
+            ]
+            """.utf8
+        )
+        let host = try PluginTestHostServices(defaults: ["profiles": savedProfiles])
+        let plugin = OpenAICompatiblePlugin()
+
+        plugin.activate(host: host)
+
+        let profile = try XCTUnwrap(plugin.profileSnapshot(for: plugin.providerId))
+        XCTAssertEqual(profile.transcriptionTransport, .auto)
+        XCTAssertNoThrow(try JSONEncoder().encode(plugin.profileSnapshots))
+    }
+
+    func testLegacyConfigurationMigratesWithAutoTransport() throws {
+        let host = try PluginTestHostServices(
+            defaults: ["baseURL": "https://legacy.test", "selectedModel": "whisper-legacy"]
+        )
+        let plugin = OpenAICompatiblePlugin()
+
+        plugin.activate(host: host)
+
+        let profile = try XCTUnwrap(plugin.profileSnapshots.first)
+        XCTAssertEqual(profile.transcriptionTransport, .auto)
+    }
+
+    // MARK: - Realtime Transport: Auto Resolution
+
+    func testAutoTransportResolvesKnownRealtimeModelIDsToRealtime() throws {
+        let host = try PluginTestHostServices(defaults: ["baseURL": "https://example.test"])
+        let plugin = OpenAICompatiblePlugin()
+        plugin.activate(host: host)
+
+        for modelId in ["gpt-live-transcribe", "gpt-realtime-whisper", "GPT-Live-Transcribe"] {
+            plugin.selectModel(modelId, for: plugin.providerId)
+            XCTAssertEqual(
+                plugin.resolvedTranscriptionTransport(for: plugin.providerId),
+                .realtime,
+                "Expected \(modelId) to auto-resolve to realtime"
+            )
+            XCTAssertTrue(plugin.supportsStreaming(for: plugin.providerId))
+        }
+    }
+
+    func testAutoTransportResolvesUnknownModelIDsToBatch() throws {
+        let host = try PluginTestHostServices(defaults: ["baseURL": "https://example.test"])
+        let plugin = OpenAICompatiblePlugin()
+        plugin.activate(host: host)
+
+        for modelId in ["whisper-1", "gpt-4o-transcribe", "my-custom-azure-deployment"] {
+            plugin.selectModel(modelId, for: plugin.providerId)
+            XCTAssertEqual(
+                plugin.resolvedTranscriptionTransport(for: plugin.providerId),
+                .batch,
+                "Expected \(modelId) to auto-resolve to batch"
+            )
+            XCTAssertFalse(plugin.supportsStreaming(for: plugin.providerId))
+        }
+    }
+
+    // MARK: - Realtime Transport: Explicit Override
+
+    func testExplicitBatchTransportOverridesKnownRealtimeModelID() throws {
+        let host = try PluginTestHostServices(
+            defaults: ["baseURL": "https://example.test", "selectedModel": "gpt-live-transcribe"]
+        )
+        let plugin = OpenAICompatiblePlugin()
+        plugin.activate(host: host)
+
+        plugin.setTranscriptionTransport(.batch, for: plugin.providerId)
+
+        XCTAssertEqual(plugin.resolvedTranscriptionTransport(for: plugin.providerId), .batch)
+        XCTAssertFalse(plugin.supportsStreaming(for: plugin.providerId))
+    }
+
+    func testExplicitRealtimeTransportOverridesCustomAzureDeploymentAlias() throws {
+        let host = try PluginTestHostServices(
+            defaults: [
+                "baseURL": "https://foundry-example.services.ai.azure.com/openai",
+                "selectedModel": "my-gpt-live-transcribe-deployment",
+            ]
+        )
+        let plugin = OpenAICompatiblePlugin()
+        plugin.activate(host: host)
+
+        plugin.setTranscriptionTransport(.realtime, for: plugin.providerId)
+
+        XCTAssertEqual(plugin.resolvedTranscriptionTransport(for: plugin.providerId), .realtime)
+        XCTAssertTrue(plugin.supportsStreaming(for: plugin.providerId))
+    }
+
+    func testAdditionalProfileTransportIsIndependentFromDefaultProfile() throws {
+        let host = try PluginTestHostServices(
+            defaults: ["baseURL": "https://example.test", "selectedModel": "gpt-live-transcribe"]
+        )
+        let plugin = OpenAICompatiblePlugin()
+        plugin.activate(host: host)
+        let alter = plugin.addProfile(named: "Alter")
+        plugin.setBaseURL("https://alter.test", for: alter.id)
+        plugin.selectModel("whisper-1", for: alter.id)
+
+        // Default profile auto-resolves to realtime (gpt-live-transcribe), the
+        // additional profile auto-resolves to batch (whisper-1) — independent state.
+        XCTAssertTrue(plugin.supportsStreaming(for: plugin.providerId))
+        XCTAssertFalse(plugin.supportsStreaming(for: alter.id))
+
+        let engine = try XCTUnwrap(plugin.additionalTranscriptionEngines.first)
+        XCTAssertFalse(engine.supportsStreaming)
+    }
+
+    // MARK: - Realtime URL Construction
+
+    func testRealtimeURLConvertsHTTPSToWSSAndAppendsRealtimePathAndIntent() throws {
+        let url = try XCTUnwrap(
+            OpenAICompatiblePlugin.realtimeRequestURL(
+                baseURL: "https://foundry-example.services.ai.azure.com/openai",
+                apiVersion: ""
+            )
+        )
+
+        XCTAssertEqual(url.scheme, "wss")
+        XCTAssertEqual(url.host, "foundry-example.services.ai.azure.com")
+        XCTAssertEqual(url.path, "/openai/v1/realtime")
+
+        let components = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false))
+        XCTAssertEqual(components.queryItems, [URLQueryItem(name: "intent", value: "transcription")])
+    }
+
+    func testRealtimeURLConvertsHTTPToWS() throws {
+        let url = try XCTUnwrap(
+            OpenAICompatiblePlugin.realtimeRequestURL(baseURL: "http://localhost:11434", apiVersion: "")
+        )
+
+        XCTAssertEqual(url.scheme, "ws")
+        XCTAssertEqual(url.path, "/v1/realtime")
+    }
+
+    func testRealtimeURLPreservesConfiguredBasePathAndExistingQuery() throws {
+        let url = try XCTUnwrap(
+            OpenAICompatiblePlugin.realtimeRequestURL(
+                baseURL: "https://example.test/openai?tenant=contoso",
+                apiVersion: ""
+            )
+        )
+
+        XCTAssertEqual(url.path, "/openai/v1/realtime")
+        let components = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false))
+        XCTAssertEqual(
+            components.queryItems,
+            [
+                URLQueryItem(name: "tenant", value: "contoso"),
+                URLQueryItem(name: "intent", value: "transcription"),
+            ]
+        )
+    }
+
+    func testRealtimeURLAppliesConfiguredAPIVersionWithoutDuplication() throws {
+        let url = try XCTUnwrap(
+            OpenAICompatiblePlugin.realtimeRequestURL(
+                baseURL: "https://foundry-example.services.ai.azure.com/openai",
+                apiVersion: "preview"
+            )
+        )
+
+        let components = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false))
+        XCTAssertEqual(
+            components.queryItems,
+            [
+                URLQueryItem(name: "api-version", value: "preview"),
+                URLQueryItem(name: "intent", value: "transcription"),
+            ]
+        )
+    }
+
+    func testRealtimeURLReturnsNilForInvalidBaseURL() {
+        XCTAssertNil(OpenAICompatiblePlugin.realtimeRequestURL(baseURL: "http://[::1", apiVersion: ""))
+    }
+
+    // MARK: - Realtime Auth
+
+    func testRealtimeRequestAppliesBearerAuthenticationForNonAzureEndpoints() throws {
+        let host = try PluginTestHostServices(
+            defaults: ["baseURL": "https://example.test"],
+            secrets: ["api-key": "sk-test"]
+        )
+        let plugin = OpenAICompatiblePlugin()
+        plugin.activate(host: host)
+        let profile = try XCTUnwrap(plugin.profileSnapshot(for: plugin.providerId))
+
+        let request = try XCTUnwrap(plugin.realtimeRequest(for: profile, profileId: plugin.providerId))
+
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer sk-test")
+        XCTAssertNil(request.value(forHTTPHeaderField: "api-key"))
+    }
+
+    func testRealtimeRequestAppliesAzureAPIKeyHeaderAlongsideBearer() throws {
+        let host = try PluginTestHostServices(
+            defaults: [
+                "baseURL": "https://foundry-example.services.ai.azure.com/openai",
+                "apiVersion": "preview",
+            ],
+            secrets: ["api-key": "azure-key"]
+        )
+        let plugin = OpenAICompatiblePlugin()
+        plugin.activate(host: host)
+        let profile = try XCTUnwrap(plugin.profileSnapshot(for: plugin.providerId))
+
+        let request = try XCTUnwrap(plugin.realtimeRequest(for: profile, profileId: plugin.providerId))
+
+        XCTAssertEqual(request.url?.scheme, "wss")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer azure-key")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "api-key"), "azure-key")
+    }
+
+    // MARK: - Live Session: Batch/Translate Guardrails
+
+    func testCreateLiveTranscriptionSessionThrowsForBatchResolvedModelSoHostCanFallBack() async throws {
+        let host = try PluginTestHostServices(
+            defaults: ["baseURL": "https://example.test", "selectedModel": "whisper-1"]
+        )
+        let plugin = OpenAICompatiblePlugin()
+        plugin.activate(host: host)
+
+        do {
+            _ = try await plugin.createLiveTranscriptionSession(
+                language: nil,
+                translate: false,
+                prompt: nil,
+                onProgress: { _ in true }
+            )
+            XCTFail("Expected batch-routed models to throw so the host preview-loop fallback engages")
+        } catch let error as PluginTranscriptionError {
+            guard case .apiError = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+        }
+    }
+
+    func testCreateLiveTranscriptionSessionThrowsWithoutSelectedModel() async throws {
+        let host = try PluginTestHostServices(defaults: ["baseURL": "https://example.test"])
+        let plugin = OpenAICompatiblePlugin()
+        plugin.activate(host: host)
+
+        do {
+            _ = try await plugin.createLiveTranscriptionSession(
+                language: nil,
+                translate: false,
+                prompt: nil,
+                onProgress: { _ in true }
+            )
+            XCTFail("Expected noModelSelected")
+        } catch let error as PluginTranscriptionError {
+            guard case .noModelSelected = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+        }
+    }
+
+    func testCreateLiveTranscriptionSessionRejectsTranslationForRealtimeModels() async throws {
+        let host = try PluginTestHostServices(
+            defaults: ["baseURL": "https://example.test", "selectedModel": "gpt-live-transcribe"]
+        )
+        let plugin = OpenAICompatiblePlugin()
+        plugin.activate(host: host)
+
+        do {
+            _ = try await plugin.createLiveTranscriptionSession(
+                language: nil,
+                translate: true,
+                prompt: nil,
+                onProgress: { _ in true }
+            )
+            XCTFail("Expected realtime translation to be rejected")
+        } catch let error as PluginTranscriptionError {
+            guard case .apiError(let message) = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+            XCTAssertTrue(message.localizedCaseInsensitiveContains("translat"))
+        }
+    }
+
+    func testRegularTranscriptionStreamsRealtimeAudioWithoutLivePreview() async throws {
+        let host = try PluginTestHostServices(
+            defaults: [
+                "baseURL": "https://example.test",
+                "selectedModel": "gpt-live-transcribe",
+            ]
+        )
+        let plugin = OpenAICompatiblePlugin()
+        plugin.activate(host: host)
+        let session = RealtimeSessionSpy(
+            result: PluginTranscriptionResult(text: "Direct realtime result", detectedLanguage: "en")
+        )
+        let connector = RealtimeSessionConnectorSpy(session: session)
+        plugin.realtimeSessionConnector = connector
+        let samples = Array(repeating: Float(0.25), count: 16_001)
+
+        let result = try await plugin.transcribe(
+            audio: AudioData(
+                samples: samples,
+                wavData: PluginWavEncoder.encode(samples),
+                duration: Double(samples.count) / 16_000
+            ),
+            language: "en",
+            translate: false,
+            prompt: "Direct transcription"
+        )
+
+        let recordedConnection = await connector.snapshot()
+        let connection = try XCTUnwrap(recordedConnection)
+        let sessionSnapshot = await session.snapshot()
+        XCTAssertEqual(connection.request.url?.path, "/v1/realtime")
+        XCTAssertEqual(connection.configuration.modelID, "gpt-live-transcribe")
+        XCTAssertEqual(connection.configuration.languageSelection.requestedLanguage, "en")
+        XCTAssertEqual(connection.configuration.prompt, "Direct transcription")
+        XCTAssertEqual(sessionSnapshot.chunkSizes, [16_000, 1])
+        XCTAssertEqual(sessionSnapshot.samples, samples)
+        XCTAssertEqual(sessionSnapshot.finishCount, 1)
+        XCTAssertEqual(sessionSnapshot.cancelCount, 0)
+        XCTAssertEqual(result.text, "Direct realtime result")
+    }
+
+    func testRealtimeHelperIsCompiledIntoPluginModule() {
+        XCTAssertTrue(
+            String(reflecting: PluginOpenAIRealtimeTranscriptionSession.self)
+                .hasPrefix("OpenAICompatiblePlugin.")
+        )
+    }
+
+    func testTransportSettingsHaveGermanAndJapaneseLocalizations() throws {
+        let catalogURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Localizable.xcstrings")
+        let catalogData = try Data(contentsOf: catalogURL)
+        let catalog = try XCTUnwrap(JSONSerialization.jsonObject(with: catalogData) as? [String: Any])
+        let strings = try XCTUnwrap(catalog["strings"] as? [String: Any])
+        let helpText = "Auto uses realtime streaming only for known realtime model IDs (gpt-live-transcribe, gpt-realtime-whisper) and batch upload otherwise. Choose Realtime to force streaming for any OpenAI-compatible server that supports the /v1/realtime WebSocket API, including custom deployment aliases (e.g. an Azure OpenAI or Microsoft Foundry gpt-live-transcribe deployment) — some providers, including Azure, require a preview API version for realtime transcription. Choose Batch to always use /v1/audio/transcriptions."
+
+        for key in ["Transcription Transport", "Auto", "Batch", "Realtime", helpText] {
+            let entry = try XCTUnwrap(strings[key] as? [String: Any], "Missing localization key: \(key)")
+            let localizations = try XCTUnwrap(entry["localizations"] as? [String: Any])
+            XCTAssertNotNil(localizations["de"], "Missing German localization for \(key)")
+            XCTAssertNotNil(localizations["ja"], "Missing Japanese localization for \(key)")
+        }
+    }
+
+    // MARK: - Realtime Session Configuration Payload
+
+    func testContextAwareRealtimeSessionPayloadIncludesLanguagesKeywordsAndDelay() throws {
+        let configuration = PluginOpenAIRealtimeTranscriptionConfiguration(
+            modelID: "my-gpt-live-transcribe-deployment",
+            languageSelection: PluginLanguageSelection(languageHints: ["de", "en"]),
+            prompt: "Interview about TypeWhisper.",
+            keywords: PluginOpenAIRealtimeTranscriptionConfiguration.normalizedRealtimeKeywords(
+                from: [PluginDictionaryTermHint(text: "TypeWhisper"), PluginDictionaryTermHint(text: "<bad>")]
+            ),
+            delay: .low,
+            usesContextAwareHints: true
+        )
+
+        let payload = PluginOpenAIRealtimeTranscriptionSession.sessionUpdatePayload(configuration: configuration)
+
+        let session = try XCTUnwrap(payload["session"] as? [String: Any])
+        let audio = try XCTUnwrap(session["audio"] as? [String: Any])
+        let input = try XCTUnwrap(audio["input"] as? [String: Any])
+        let format = try XCTUnwrap(input["format"] as? [String: Any])
+        let transcription = try XCTUnwrap(input["transcription"] as? [String: Any])
+
+        XCTAssertEqual(format["type"] as? String, "audio/pcm")
+        XCTAssertEqual(format["rate"] as? Int, PluginOpenAIRealtimeTranscriptionSession.targetSampleRate)
+        XCTAssertTrue(input["turn_detection"] is NSNull)
+        XCTAssertEqual(transcription["model"] as? String, "my-gpt-live-transcribe-deployment")
+        XCTAssertEqual(transcription["languages"] as? [String], ["de", "en"])
+        XCTAssertEqual(transcription["prompt"] as? String, "Interview about TypeWhisper.")
+        XCTAssertEqual(transcription["keywords"] as? [String], ["TypeWhisper"])
+        XCTAssertEqual(transcription["delay"] as? String, "low")
+        XCTAssertNil(transcription["language"])
+    }
+
+    func testLegacyRealtimeSessionPayloadUsesSingularLanguageAndOmitsHints() throws {
+        let configuration = PluginOpenAIRealtimeTranscriptionConfiguration(
+            modelID: "gpt-realtime-whisper",
+            languageSelection: PluginLanguageSelection(requestedLanguage: "de"),
+            prompt: "Ignored for legacy protocol",
+            keywords: [],
+            delay: nil,
+            usesContextAwareHints: false
+        )
+
+        let payload = PluginOpenAIRealtimeTranscriptionSession.sessionUpdatePayload(configuration: configuration)
+
+        let session = try XCTUnwrap(payload["session"] as? [String: Any])
+        let audio = try XCTUnwrap(session["audio"] as? [String: Any])
+        let input = try XCTUnwrap(audio["input"] as? [String: Any])
+        let transcription = try XCTUnwrap(input["transcription"] as? [String: Any])
+
+        XCTAssertEqual(transcription["model"] as? String, "gpt-realtime-whisper")
+        XCTAssertEqual(transcription["language"] as? String, "de")
+        XCTAssertNil(transcription["languages"])
+        XCTAssertNil(transcription["prompt"])
+        XCTAssertNil(transcription["keywords"])
+        XCTAssertNil(transcription["delay"])
+    }
+
+    func testRealtimeTranscriptCollectorAndSessionAssembleTranscript() async throws {
+        let collector = PluginOpenAIRealtimeTranscriptCollector()
+        _ = try await collector.applyEvent(Data(
+            #"{"type":"conversation.item.input_audio_transcription.completed","item_id":"item_1","transcript":"Guten Tag"}"#.utf8
+        ))
+        let session = PluginOpenAIRealtimeTranscriptionSession(
+            webSocketTask: nil,
+            receiveTask: nil,
+            collector: collector,
+            language: "de",
+            onProgress: { _ in true }
+        )
+
+        let result = try await session.finish()
+        await session.cancel()
+
+        XCTAssertEqual(result.text, "Guten Tag")
+        XCTAssertEqual(result.detectedLanguage, "de")
+    }
+
+    func testRealtimeTranscriptCollectorUsesStableFallbackForMissingItemID() async throws {
+        let collector = PluginOpenAIRealtimeTranscriptCollector()
+
+        _ = try await collector.applyEvent(Data(
+            #"{"type":"conversation.item.input_audio_transcription.delta","delta":"Guten "}"#.utf8
+        ))
+        _ = try await collector.applyEvent(Data(
+            #"{"type":"conversation.item.input_audio_transcription.delta","delta":"Tag"}"#.utf8
+        ))
+        _ = try await collector.applyEvent(Data(
+            #"{"type":"conversation.item.input_audio_transcription.completed","transcript":"Guten Tag"}"#.utf8
+        ))
+
+        let currentText = await collector.currentText()
+        XCTAssertEqual(currentText, "Guten Tag")
+    }
+
+    func testRealtimeSocketOpenWaiterResumesWhenCancelled() async throws {
+        let waiter = PluginOpenAIRealtimeWebSocketOpenWaiter()
+        let waitTask = Task {
+            try await waiter.waitForOpen()
+        }
+
+        await Task.yield()
+        waitTask.cancel()
+
+        do {
+            try await waitTask.value
+            XCTFail("Expected cancellation")
+        } catch is CancellationError {
+            // Expected.
+        }
+    }
+
+    private actor RealtimeSessionConnectorSpy: OpenAICompatibleRealtimeSessionConnecting {
+        struct Connection: Sendable {
+            let request: URLRequest
+            let configuration: PluginOpenAIRealtimeTranscriptionConfiguration
+        }
+
+        private let session: any LiveTranscriptionSession
+        private var connection: Connection?
+
+        init(session: any LiveTranscriptionSession) {
+            self.session = session
+        }
+
+        func connect(
+            request: URLRequest,
+            configuration: PluginOpenAIRealtimeTranscriptionConfiguration,
+            onProgress: @Sendable @escaping (String) -> Bool
+        ) async throws -> any LiveTranscriptionSession {
+            connection = Connection(request: request, configuration: configuration)
+            return session
+        }
+
+        func snapshot() -> Connection? {
+            connection
+        }
+    }
+
+    private actor RealtimeSessionSpy: LiveTranscriptionSession {
+        struct Snapshot: Sendable {
+            let samples: [Float]
+            let chunkSizes: [Int]
+            let finishCount: Int
+            let cancelCount: Int
+        }
+
+        private let result: PluginTranscriptionResult
+        private var chunks: [[Float]] = []
+        private var finishCount = 0
+        private var cancelCount = 0
+
+        init(result: PluginTranscriptionResult) {
+            self.result = result
+        }
+
+        func appendAudio(samples: [Float]) async throws {
+            chunks.append(samples)
+        }
+
+        func finish() async throws -> PluginTranscriptionResult {
+            finishCount += 1
+            return result
+        }
+
+        func cancel() async {
+            cancelCount += 1
+        }
+
+        func snapshot() -> Snapshot {
+            Snapshot(
+                samples: chunks.flatMap { $0 },
+                chunkSizes: chunks.map(\.count),
+                finishCount: finishCount,
+                cancelCount: cancelCount
+            )
+        }
     }
 }
