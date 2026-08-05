@@ -273,17 +273,19 @@ struct IndicatorFeedbackProgressBar: View {
     let remainingFraction: Double
 
     var body: some View {
-        GeometryReader { geometry in
-            Rectangle()
-                .fill(Color.white.opacity(0.65))
-                .frame(
-                    width: geometry.size.width * CGFloat(min(max(remainingFraction, 0), 1)),
-                    height: 2
-                )
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .frame(height: 2)
-        .accessibilityHidden(true)
+        Rectangle()
+            .fill(Color.white.opacity(0.65))
+            .frame(maxWidth: .infinity)
+            .frame(height: 2)
+            .scaleEffect(
+                x: CGFloat(min(max(remainingFraction, 0), 1)),
+                y: 1,
+                anchor: .leading
+            )
+            .transaction { transaction in
+                transaction.animation = nil
+            }
+            .accessibilityHidden(true)
     }
 }
 

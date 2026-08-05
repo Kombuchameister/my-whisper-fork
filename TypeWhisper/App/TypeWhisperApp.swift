@@ -1,6 +1,7 @@
 import SwiftUI
 import AVFoundation
 import Combine
+import Foundation
 import TypeWhisperPluginSDK
 @preconcurrency import Sparkle
 
@@ -38,6 +39,35 @@ enum DockIconVisibility {
 
         guard !showMenuBarIcon else { return false }
         return dockIconBehavior == .keepVisible
+    }
+}
+
+final class ManagedAppReopenSuppression: @unchecked Sendable {
+    static let shared = ManagedAppReopenSuppression()
+
+    private let lock = NSLock()
+    private let duration: TimeInterval
+    private var deadline: Date?
+
+    init(duration: TimeInterval = 1.5) {
+        self.duration = duration
+    }
+
+    func markBackgroundInteraction(at now: Date = Date()) {
+        lock.withLock {
+            deadline = now.addingTimeInterval(duration)
+        }
+    }
+
+    func consumeIfActive(at now: Date = Date()) -> Bool {
+        lock.withLock {
+            guard let deadline, deadline >= now else {
+                self.deadline = nil
+                return false
+            }
+            self.deadline = nil
+            return true
+        }
     }
 }
 
@@ -625,6 +655,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUUpdaterDelegate {
             UserDefaultsKeys.appFormattingEnabled: true,
             UserDefaultsKeys.transcriptionNumberNormalizationEnabled: true,
             UserDefaultsKeys.targetAppCorrectionLearningEnabled: false,
+            UserDefaultsKeys.calendarMeetingStartMode: CalendarMeetingStartMode.off.rawValue,
+            UserDefaultsKeys.calendarMeetingAutoStopEnabled: false,
+            UserDefaultsKeys.calendarMeetingSuppressedOccurrenceDigests: [String](),
+            UserDefaultsKeys.calendarMeetingReminderRequestDigests: [String](),
+            UserDefaultsKeys.calendarMeetingNotificationsConfigured: false,
             UserDefaultsKeys.dictationRecoveryRetentionDays: DictationRecoveryRetentionPolicy.defaultPolicy.rawValue
         ])
     }
@@ -636,10 +671,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUUpdaterDelegate {
             return
         }
 
+        ServiceContainer.shared.calendarMeetingAutomationController
+            .installNotificationRouterIfNeeded()
+
         UpdateChecker.shared = updateChecker
         applyActivationPolicy()
 
-        let coordinator = IndicatorCoordinator()
+        let coordinator = IndicatorCoordinator(
+            countdownModel: ServiceContainer.shared.calendarMeetingCountdownModel
+        )
         coordinator.startObserving()
         indicatorCoordinator = coordinator
 
@@ -714,6 +754,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUUpdaterDelegate {
             queue: .main
         ) { _ in
             PluginHTTPClient.resetSharedSession(reason: "macOS wake")
+            Task { @MainActor in
+                ServiceContainer.shared.calendarMeetingAutomationController.handleWake()
+            }
         }
 
         // Observe settings window lifecycle
@@ -735,10 +778,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUUpdaterDelegate {
 
     func applicationDidBecomeActive(_ notification: Notification) {
         guard !AppConstants.isRunningTests else { return }
+        ServiceContainer.shared.calendarMeetingAutomationController.handleApplicationBecameActive()
         Task { await ServiceContainer.shared.cloudFolderSyncController.syncNow() }
     }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        guard !AppConstants.isRunningTests else { return }
+        ServiceContainer.shared.calendarMeetingAutomationController.shutdown()
+    }
+
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        if ManagedAppReopenSuppression.shared.consumeIfActive() {
+            return true
+        }
         if !hasVisibleManagedWindow {
             if HomeViewModel.shared.showSetupWizard {
                 openSetupWindow()

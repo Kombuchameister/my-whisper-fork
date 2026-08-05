@@ -789,7 +789,8 @@ final class AudioRecorderService: ObservableObject, @unchecked Sendable {
         micEnabled: Bool,
         systemAudioEnabled: Bool,
         format: OutputFormat,
-        microphoneSelection: ResolvedRecordingInputSelection = .systemDefault
+        microphoneSelection: ResolvedRecordingInputSelection = .systemDefault,
+        preferredBaseName: String? = nil
     ) async throws -> URL {
         guard micEnabled || systemAudioEnabled else {
             throw RecorderError.noSourceEnabled
@@ -808,10 +809,13 @@ final class AudioRecorderService: ObservableObject, @unchecked Sendable {
         try createDirectoryIfNeeded(dir)
 
         // Generate output filename
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd HH.mm.ss"
-        let timestamp = formatter.string(from: Date())
-        let outputURL = dir.appendingPathComponent("Recording \(timestamp).\(format.fileExtension)")
+        let baseName = preferredBaseName
+            ?? CalendarMeetingRecordingFilename.preferredBaseName(title: "")
+        let outputURL = CalendarMeetingRecordingFilename.availableURL(
+            in: dir,
+            preferredBaseName: baseName,
+            fileExtension: format.fileExtension
+        )
         self.finalOutputURL = outputURL
 
         if let startRecordingOverride {
