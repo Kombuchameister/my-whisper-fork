@@ -94,32 +94,62 @@ final class SpeechmaticsPlugin: NSObject, TranscriptionEnginePlugin, DictionaryT
     var dictionaryTermsSupport: DictionaryTermsSupport { .supported }
     var dictionaryTermsBudget: DictionaryTermsBudget { Self.dictionaryBudget }
 
+    // Codes that map 1:1 onto a Speechmatics language pack. The previous list also
+    // advertised gu/is/ka/kk/ml/mk/pa/sq/sr/te, none of which Speechmatics serves -
+    // picking any of them failed the job with HTTP 400 "Languagepack is not supported".
+    static let languagePackCodes: [String] = [
+        "ar", "bg", "ca", "cmn", "cs", "cy", "da", "de", "el", "en",
+        "es", "et", "eu", "fa", "fi", "fr", "ga", "gl", "he", "hi",
+        "hr", "hu", "id", "it", "ja", "ko", "lt", "lv", "ms", "mt",
+        "nl", "no", "pl", "pt", "ro", "ru", "sk", "sl", "sv", "sw",
+        "ta", "th", "tr", "uk", "ur", "vi", "yue",
+    ]
+
+    // Speechmatics identifies Mandarin by its ISO 639-3 code, but the app's spoken
+    // language list only offers the generic "zh", so it is advertised as an alias and
+    // resolved before the request is built.
+    static let languagePackAliases: [String: String] = [
+        "zh": "cmn",
+    ]
+
     var supportedLanguages: [String] {
-        [
-            "ar", "bg", "ca", "cmn", "cs", "cy", "da", "de", "el", "en",
-            "es", "et", "eu", "fa", "fi", "fr", "ga", "gl", "gu", "he",
-            "hi", "hr", "hu", "id", "is", "it", "ja", "ka", "kk", "ko",
-            "lt", "lv", "mk", "ml", "ms", "mt", "nl", "no", "pa", "pl",
-            "pt", "ro", "ru", "sk", "sl", "sq", "sr", "sv", "sw", "ta",
-            "te", "th", "tr", "uk", "ur", "vi", "yue", "zh",
-        ]
+        Self.languagePackCodes + ["zh"]
+    }
+
+    static func languagePack(for language: String?) -> String {
+        guard let language, !language.isEmpty else { return "auto" }
+        return languagePackAliases[language] ?? language
+    }
+
+    // Language identification is a batch-only feature, so "auto" is not a value the
+    // realtime endpoint accepts.
+    static func supportsRealtimeStreaming(language: String?) -> Bool {
+        languagePack(for: language) != "auto"
     }
 
     // MARK: - Region Helpers
 
-    fileprivate var wsHost: String {
-        switch _selectedRegion {
+    // The realtime and batch namespaces do not share region labels: realtime keeps
+    // the legacy "usa" prefix, while batch only serves the numbered SaaS endpoints
+    // (eu1/eu2/us1/us2/au1). "usa.asr.api.speechmatics.com" is not a registered
+    // host and fails the TLS handshake.
+    static func wsHost(forRegion region: String?) -> String {
+        switch region {
         case "us": return "usa.rt.speechmatics.com"
         default: return "eu2.rt.speechmatics.com"
         }
     }
 
-    fileprivate var batchHost: String {
-        switch _selectedRegion {
-        case "us": return "usa.asr.api.speechmatics.com"
+    static func batchHost(forRegion region: String?) -> String {
+        switch region {
+        case "us": return "us1.asr.api.speechmatics.com"
         default: return "asr.api.speechmatics.com"
         }
     }
+
+    fileprivate var wsHost: String { Self.wsHost(forRegion: _selectedRegion) }
+
+    fileprivate var batchHost: String { Self.batchHost(forRegion: _selectedRegion) }
 
     // MARK: - Transcription (REST Fallback)
 
@@ -154,6 +184,19 @@ final class SpeechmaticsPlugin: NSObject, TranscriptionEnginePlugin, DictionaryT
         }
         guard let modelId = _selectedModelId else {
             throw PluginTranscriptionError.noModelSelected
+        }
+
+        // Without a language the job needs language identification, which only the
+        // batch API offers - opening the realtime endpoint would just get rejected
+        // and reach a transcript through the fallback below.
+        guard Self.supportsRealtimeStreaming(language: language) else {
+            return try await transcribeREST(
+                audio: audio,
+                language: language,
+                modelId: modelId,
+                apiKey: apiKey,
+                prompt: prompt
+            )
         }
 
         do {
@@ -207,7 +250,7 @@ final class SpeechmaticsPlugin: NSObject, TranscriptionEnginePlugin, DictionaryT
 
         let boundary = UUID().uuidString
 
-        let lang = (language?.isEmpty == false) ? language! : "auto"
+        let lang = Self.languagePack(for: language)
         var transcriptionConfig: [String: Any] = [
             "language": lang,
             "operating_point": modelId,
@@ -364,7 +407,7 @@ final class SpeechmaticsPlugin: NSObject, TranscriptionEnginePlugin, DictionaryT
         wsTask.resume()
 
         // Send StartRecognition message
-        let lang = (language?.isEmpty == false) ? language! : "auto"
+        let lang = Self.languagePack(for: language)
         var transcriptionConfig: [String: Any] = [
             "language": lang,
             "operating_point": modelId,
