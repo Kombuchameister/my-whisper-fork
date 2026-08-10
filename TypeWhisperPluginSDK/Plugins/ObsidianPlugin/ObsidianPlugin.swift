@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import TypeWhisperPluginSDK
+import os
 
 // MARK: - Plugin Entry Point
 
@@ -8,6 +9,9 @@ import TypeWhisperPluginSDK
 final class ObsidianPlugin: NSObject, ActionPlugin, @unchecked Sendable {
     static let pluginId = "com.typewhisper.obsidian"
     static let pluginName = "Obsidian"
+    private static let historySyncActionID = "com.typewhisper.history.transcription-updated"
+    private static let liveSyncEntryRetention: TimeInterval = 30 * 24 * 60 * 60
+    private static let liveSyncEntryLimit = 500
 
     var actionName: String { "Save to Obsidian" }
     var actionId: String { "obsidian-save-note" }
@@ -20,12 +24,15 @@ final class ObsidianPlugin: NSObject, ActionPlugin, @unchecked Sendable {
     fileprivate var _vaultPath: String = ""
     fileprivate var _subfolder: String = "TypeWhisper"
     fileprivate var _filenameTemplate: String = "{{DATE}} {{TIME}} {{APP}}"
+    fileprivate var _noteTemplate: String = "{{TRANSCRIPT}}"
     fileprivate var _dailyNoteEnabled: Bool = false
     fileprivate var _dailyNoteFormat: String = "{{DATE}}"
     fileprivate var _dailyNoteAppendTemplate: String = "## {{TIME}}\n\n{{TEXT}}"
     fileprivate var _frontmatterEnabled: Bool = true
     fileprivate var _frontmatterTags: [String] = ["typewhisper"]
     fileprivate var _autoExportEnabled: Bool = false
+    fileprivate var _liveSyncEnabled: Bool = true
+    private let liveSyncEntries = OSAllocatedUnfairLock(initialState: [String: LiveSyncEntry]())
 
     required override init() {
         super.init()
@@ -55,12 +62,25 @@ final class ObsidianPlugin: NSObject, ActionPlugin, @unchecked Sendable {
         _vaultPath = host?.userDefault(forKey: "vaultPath") as? String ?? ""
         _subfolder = host?.userDefault(forKey: "subfolder") as? String ?? "TypeWhisper"
         _filenameTemplate = host?.userDefault(forKey: "filenameTemplate") as? String ?? "{{DATE}} {{TIME}} {{APP}}"
+        _noteTemplate = host?.userDefault(forKey: "noteTemplate") as? String ?? "{{TRANSCRIPT}}"
         _dailyNoteEnabled = host?.userDefault(forKey: "dailyNoteEnabled") as? Bool ?? false
         _dailyNoteFormat = host?.userDefault(forKey: "dailyNoteFormat") as? String ?? "{{DATE}}"
         _dailyNoteAppendTemplate = host?.userDefault(forKey: "dailyNoteAppendTemplate") as? String ?? DailyNoteAppendPreset.timestamp.template
         _frontmatterEnabled = host?.userDefault(forKey: "frontmatterEnabled") as? Bool ?? true
         _frontmatterTags = host?.userDefault(forKey: "frontmatterTags") as? [String] ?? ["typewhisper"]
         _autoExportEnabled = host?.userDefault(forKey: "autoExportEnabled") as? Bool ?? false
+        _liveSyncEnabled = host?.userDefault(forKey: "liveSyncEnabled") as? Bool ?? true
+        let storedEntries: [String: LiveSyncEntry]
+        if let data = host?.userDefault(forKey: "liveSyncEntries") as? Data,
+           let entries = try? JSONDecoder().decode([String: LiveSyncEntry].self, from: data) {
+            storedEntries = entries
+        } else {
+            storedEntries = [:]
+        }
+        liveSyncEntries.withLock { entries in
+            entries = storedEntries
+            persistLiveSyncEntries(&entries)
+        }
 
         // Auto-detect vault if none set
         if _vaultPath.isEmpty {
@@ -82,12 +102,19 @@ final class ObsidianPlugin: NSObject, ActionPlugin, @unchecked Sendable {
             subscriptionId = nil
         }
 
-        guard _autoExportEnabled else { return }
+        guard _autoExportEnabled || _liveSyncEnabled else { return }
 
         subscriptionId = host?.eventBus.subscribe { [weak self] event in
             switch event {
             case .transcriptionCompleted(let payload):
-                await self?.autoExport(payload: payload)
+                if self?._autoExportEnabled == true {
+                    await self?.autoExport(payload: payload)
+                } else if self?._liveSyncEnabled == true {
+                    await self?.adoptMatchingActionExport(payload: payload)
+                }
+            case .actionCompleted(let payload) where payload.actionId == Self.historySyncActionID:
+                guard self?._liveSyncEnabled == true else { return }
+                await self?.liveSync(payload: payload)
             default:
                 break
             }
@@ -123,8 +150,92 @@ final class ObsidianPlugin: NSObject, ActionPlugin, @unchecked Sendable {
 
     // MARK: - File Writing
 
-    private func resolveTemplate(_ template: String, appName: String?, language: String?, timeFormat: String = "HH-mm-ss") -> String {
-        let now = Date()
+    private struct HistorySyncPayload: Codable, Sendable {
+        let id: UUID
+        let rawText: String
+        let finalText: String
+        let language: String?
+        let engineUsed: String
+        let modelUsed: String?
+        let durationSeconds: Double
+        let appName: String?
+        let bundleIdentifier: String?
+        let url: String?
+        let pipelineSteps: [String]
+    }
+
+    private struct NoteContext: Codable, Sendable {
+        let timestamp: Date
+        let rawText: String
+        let finalText: String
+        let appName: String?
+        let bundleIdentifier: String?
+        let url: String?
+        let language: String?
+        let engineUsed: String?
+        let modelUsed: String?
+        let durationSeconds: Double?
+        let pipelineSteps: [String]
+
+        init(input: String, actionContext: ActionContext) {
+            timestamp = Date()
+            rawText = actionContext.originalText.isEmpty ? input : actionContext.originalText
+            finalText = input
+            appName = actionContext.appName
+            bundleIdentifier = actionContext.bundleIdentifier
+            url = actionContext.url
+            language = actionContext.language
+            engineUsed = nil
+            modelUsed = nil
+            durationSeconds = nil
+            pipelineSteps = []
+        }
+
+        init(_ payload: TranscriptionCompletedPayload) {
+            timestamp = payload.timestamp
+            rawText = payload.rawText
+            finalText = payload.finalText
+            appName = payload.appName
+            bundleIdentifier = payload.bundleIdentifier
+            url = payload.url
+            language = payload.language
+            engineUsed = payload.engineUsed
+            modelUsed = payload.modelUsed
+            durationSeconds = payload.durationSeconds
+            pipelineSteps = []
+        }
+
+        init(_ payload: HistorySyncPayload, timestamp: Date) {
+            self.timestamp = timestamp
+            rawText = payload.rawText
+            finalText = payload.finalText
+            appName = payload.appName
+            bundleIdentifier = payload.bundleIdentifier
+            url = payload.url
+            language = payload.language
+            engineUsed = payload.engineUsed
+            modelUsed = payload.modelUsed
+            durationSeconds = payload.durationSeconds
+            pipelineSteps = payload.pipelineSteps
+        }
+    }
+
+    private struct LiveSyncEntry: Codable, Sendable {
+        let path: String
+        let context: NoteContext
+        let awaitingCompletion: Bool
+    }
+
+    private struct WrittenNote {
+        let name: String
+        let path: String
+    }
+
+    private func resolveTemplate(
+        _ template: String,
+        context: NoteContext,
+        timeFormat: String = "HH-mm-ss"
+    ) -> String {
         let dateFormatter = DateFormatter()
         dateFormatter.calendar = Calendar(identifier: .gregorian)
         dateFormatter.locale = Locale(identifier: "en_US_POSIX")
@@ -135,46 +246,101 @@ final class ObsidianPlugin: NSObject, ActionPlugin, @unchecked Sendable {
         timeFormatter.dateFormat = timeFormat
 
         var result = template
-        result = result.replacingOccurrences(of: "{{DATE}}", with: dateFormatter.string(from: now))
-        result = result.replacingOccurrences(of: "{{TIME}}", with: timeFormatter.string(from: now))
-        result = result.replacingOccurrences(of: "{{APP}}", with: appName ?? "Unknown")
-        result = result.replacingOccurrences(of: "{{LANGUAGE}}", with: language ?? "unknown")
-        result = result.replacingOccurrences(of: "{{LANG}}", with: language ?? "unknown")
+        let duration = context.durationSeconds.map {
+            String(format: "%.1f", locale: Locale(identifier: "en_US_POSIX"), $0)
+        } ?? ""
+        let values: [String: String] = [
+            "APP": context.appName ?? "Unknown",
+            "BUNDLE_ID": context.bundleIdentifier ?? "",
+            "DATE": dateFormatter.string(from: context.timestamp),
+            "DURATION": duration,
+            "ENGINE": context.engineUsed ?? "",
+            "LANG": context.language ?? "unknown",
+            "LANGUAGE": context.language ?? "unknown",
+            "MODEL": context.modelUsed ?? "",
+            "PROCESSING": context.pipelineSteps.joined(separator: ", "),
+            "RAW_TRANSCRIPT": context.rawText,
+            "TEXT": context.finalText,
+            "TIME": timeFormatter.string(from: context.timestamp),
+            "TRANSCRIPT": context.finalText,
+            "URL": context.url ?? "",
+            "WORDS": String(context.finalText.split(whereSeparator: { $0.isWhitespace }).count),
+        ]
+        for (key, value) in values {
+            result = result.replacingOccurrences(of: "{{\(key)}}", with: value)
+            result = result.replacingOccurrences(of: "{{\(key.lowercased())}}", with: value)
+        }
         return result
     }
 
-    private func resolveDailyNoteAppendTemplate(_ template: String, text: String, appName: String?, url: String?, language: String?) -> String {
-        var result = resolveTemplate(template, appName: appName, language: language, timeFormat: "HH:mm")
-        result = result.replacingOccurrences(of: "{{TEXT}}", with: text)
-        result = result.replacingOccurrences(of: "{{URL}}", with: url ?? "")
-        return result
+    private func resolveDailyNoteAppendTemplate(_ template: String, context: NoteContext) -> String {
+        resolveTemplate(template, context: context, timeFormat: "HH:mm")
     }
 
     private func sanitizeFilename(_ name: String) -> String {
-        let illegal = CharacterSet(charactersIn: "/:\\*?\"<>|")
-        return name.components(separatedBy: illegal).joined()
+        let illegal = CharacterSet(charactersIn: "/:\\*?\"<>|[]")
+            .union(.controlCharacters)
+        return name
+            .components(separatedBy: illegal)
+            .joined()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func buildFrontmatter(appName: String?, bundleId: String?, url: String?, language: String?) -> String {
+    private func buildFrontmatter(context: NoteContext, includeAppMetadata: Bool = true) -> String {
         var lines = ["---"]
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime]
-        lines.append("date: \(formatter.string(from: Date()))")
-        if let app = appName { lines.append("app: \(app)") }
-        if let bid = bundleId { lines.append("bundleId: \(bid)") }
-        if let u = url { lines.append("url: \(u)") }
-        if let lang = language { lines.append("language: \(lang)") }
+        lines.append("date: \(formatter.string(from: context.timestamp))")
+        if includeAppMetadata, let app = context.appName { lines.append("app: \(yamlScalar(app))") }
+        if includeAppMetadata, let bid = context.bundleIdentifier { lines.append("bundleId: \(yamlScalar(bid))") }
+        if includeAppMetadata, let url = context.url { lines.append("url: \(yamlScalar(url))") }
+        if let language = context.language { lines.append("language: \(yamlScalar(language))") }
+        if let engine = context.engineUsed { lines.append("engine: \(yamlScalar(engine))") }
+        if let model = context.modelUsed { lines.append("model: \(yamlScalar(model))") }
+        if let duration = context.durationSeconds {
+            lines.append("duration: \(String(format: "%.1f", locale: Locale(identifier: "en_US_POSIX"), duration))")
+        }
+        lines.append("words: \(context.finalText.split(whereSeparator: { $0.isWhitespace }).count)")
+        if !context.pipelineSteps.isEmpty {
+            lines.append("processing:")
+            for step in context.pipelineSteps {
+                lines.append("  - \(yamlScalar(step))")
+            }
+        }
         if !_frontmatterTags.isEmpty {
             lines.append("tags:")
             for tag in _frontmatterTags {
-                lines.append("  - \(tag)")
+                lines.append("  - \(yamlScalar(tag))")
             }
         }
         lines.append("---")
         return lines.joined(separator: "\n")
     }
 
-    private func writeNote(text: String, appName: String?, bundleId: String?, url: String?, language: String?) throws -> String {
+    private func yamlScalar(_ value: String) -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.withoutEscapingSlashes]
+        guard let data = try? encoder.encode(value),
+              let encoded = String(data: data, encoding: .utf8) else {
+            return "\"\""
+        }
+        return encoded
+    }
+
+    private func renderNote(context: NoteContext) -> String {
+        var content = ""
+        if _frontmatterEnabled {
+            content += buildFrontmatter(context: context)
+            content += "\n\n"
+        }
+        let template = _noteTemplate.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "{{TRANSCRIPT}}"
+            : _noteTemplate
+        content += resolveTemplate(template, context: context)
+        return content
+    }
+
+    private func writeNote(context: NoteContext) throws -> WrittenNote {
         guard !_vaultPath.isEmpty else {
             throw NSError(domain: "ObsidianPlugin", code: 1, userInfo: [NSLocalizedDescriptionKey: "No vault configured"])
         }
@@ -191,34 +357,28 @@ final class ObsidianPlugin: NSObject, ActionPlugin, @unchecked Sendable {
         try fm.createDirectory(atPath: folderPath, withIntermediateDirectories: true)
 
         if _dailyNoteEnabled {
-            return try writeDailyNote(text: text, folderPath: folderPath, appName: appName, bundleId: bundleId, url: url, language: language)
+            return try writeDailyNote(context: context, folderPath: folderPath)
         } else {
-            return try writeNewNote(text: text, folderPath: folderPath, appName: appName, bundleId: bundleId, url: url, language: language)
+            return try writeNewNote(context: context, folderPath: folderPath)
         }
     }
 
-    private func writeNewNote(text: String, folderPath: String, appName: String?, bundleId: String?, url: String?, language: String?) throws -> String {
-        let resolvedName = resolveTemplate(_filenameTemplate, appName: appName, language: language)
+    private func writeNewNote(context: NoteContext, folderPath: String) throws -> WrittenNote {
+        let resolvedName = resolveTemplate(_filenameTemplate, context: context)
         let sanitized = sanitizeFilename(resolvedName)
         let filename = sanitized.isEmpty ? "Note" : sanitized
         let filePath = (folderPath as NSString).appendingPathComponent("\(filename).md")
 
-        var content = ""
-        if _frontmatterEnabled {
-            content += buildFrontmatter(appName: appName, bundleId: bundleId, url: url, language: language)
-            content += "\n\n"
-        }
-        content += text
-
         // Handle duplicate filenames
         let finalPath = uniquePath(for: filePath)
-        try content.write(toFile: finalPath, atomically: true, encoding: .utf8)
+        try renderNote(context: context).write(toFile: finalPath, atomically: true, encoding: .utf8)
 
-        return ((finalPath as NSString).lastPathComponent as NSString).deletingPathExtension
+        let name = ((finalPath as NSString).lastPathComponent as NSString).deletingPathExtension
+        return WrittenNote(name: name, path: finalPath)
     }
 
-    private func writeDailyNote(text: String, folderPath: String, appName: String?, bundleId: String?, url: String?, language: String?) throws -> String {
-        let resolvedName = resolveTemplate(_dailyNoteFormat, appName: appName, language: language)
+    private func writeDailyNote(context: NoteContext, folderPath: String) throws -> WrittenNote {
+        let resolvedName = resolveTemplate(_dailyNoteFormat, context: context)
         let sanitized = sanitizeFilename(resolvedName)
         let filename = sanitized.isEmpty ? "Daily" : sanitized
         let filePath = (folderPath as NSString).appendingPathComponent("\(filename).md")
@@ -226,10 +386,7 @@ final class ObsidianPlugin: NSObject, ActionPlugin, @unchecked Sendable {
         let fm = FileManager.default
         let appendContent = resolveDailyNoteAppendTemplate(
             _dailyNoteAppendTemplate,
-            text: text,
-            appName: appName,
-            url: url,
-            language: language
+            context: context
         )
 
         if fm.fileExists(atPath: filePath) {
@@ -254,19 +411,140 @@ final class ObsidianPlugin: NSObject, ActionPlugin, @unchecked Sendable {
             var content = ""
             if _frontmatterEnabled {
                 let includeAppMeta = _dailyNoteFormat.contains("{{APP}}")
-                content += buildFrontmatter(
-                    appName: includeAppMeta ? appName : nil,
-                    bundleId: includeAppMeta ? bundleId : nil,
-                    url: includeAppMeta ? url : nil,
-                    language: language
-                )
+                content += buildFrontmatter(context: context, includeAppMetadata: includeAppMeta)
                 content += "\n\n"
             }
             content += appendContent
             try content.write(toFile: filePath, atomically: true, encoding: .utf8)
         }
 
-        return filename
+        return WrittenNote(name: filename, path: filePath)
+    }
+
+    private func liveSyncKey(for timestamp: Date) -> String {
+        String(timestamp.timeIntervalSinceReferenceDate.bitPattern, radix: 16)
+    }
+
+    @discardableResult
+    private func pruneLiveSyncEntries(_ entries: inout [String: LiveSyncEntry], now: Date = Date()) -> Bool {
+        let originalCount = entries.count
+        let cutoff = now.addingTimeInterval(-Self.liveSyncEntryRetention)
+        entries = entries.filter { $0.value.context.timestamp >= cutoff }
+
+        if entries.count > Self.liveSyncEntryLimit {
+            entries = Dictionary(
+                uniqueKeysWithValues: entries
+                    .sorted { lhs, rhs in
+                        if lhs.value.context.timestamp == rhs.value.context.timestamp {
+                            return lhs.key < rhs.key
+                        }
+                        return lhs.value.context.timestamp > rhs.value.context.timestamp
+                    }
+                    .prefix(Self.liveSyncEntryLimit)
+                    .map { ($0.key, $0.value) }
+            )
+        }
+        return entries.count != originalCount
+    }
+
+    private func persistLiveSyncEntries(_ entries: inout [String: LiveSyncEntry]) {
+        pruneLiveSyncEntries(&entries)
+        guard let data = try? JSONEncoder().encode(entries) else {
+            print("[ObsidianPlugin] Failed to persist live sync entries")
+            return
+        }
+        saveSetting(data, forKey: "liveSyncEntries")
+    }
+
+    private func storeLiveSyncEntry(
+        path: String,
+        context: NoteContext,
+        awaitingCompletion: Bool,
+        entries: inout [String: LiveSyncEntry]
+    ) {
+        entries[liveSyncKey(for: context.timestamp)] = LiveSyncEntry(
+            path: path,
+            context: context,
+            awaitingCompletion: awaitingCompletion
+        )
+        persistLiveSyncEntries(&entries)
+    }
+
+    private func removeLiveSyncEntry(forKey key: String, entries: inout [String: LiveSyncEntry]) {
+        entries.removeValue(forKey: key)
+        persistLiveSyncEntries(&entries)
+    }
+
+    private func matchingEntryKey(
+        for context: NoteContext,
+        requireMatchingFinalText: Bool,
+        requireAwaitingCompletion: Bool = false,
+        entries: [String: LiveSyncEntry]
+    ) -> String? {
+        let exactKey = liveSyncKey(for: context.timestamp)
+        if let exactEntry = entries[exactKey],
+           entryMatches(
+               exactEntry,
+               context: context,
+               requireMatchingFinalText: requireMatchingFinalText,
+               requireAwaitingCompletion: requireAwaitingCompletion
+           ) {
+            return exactKey
+        }
+
+        return entries
+            .filter { _, entry in
+                abs(entry.context.timestamp.timeIntervalSince(context.timestamp)) <= 60
+                    && entryMatches(
+                        entry,
+                        context: context,
+                        requireMatchingFinalText: requireMatchingFinalText,
+                        requireAwaitingCompletion: requireAwaitingCompletion
+                    )
+            }
+            .min { lhs, rhs in
+                abs(lhs.value.context.timestamp.timeIntervalSince(context.timestamp))
+                    < abs(rhs.value.context.timestamp.timeIntervalSince(context.timestamp))
+            }?
+            .key
+    }
+
+    private func entryMatches(
+        _ entry: LiveSyncEntry,
+        context: NoteContext,
+        requireMatchingFinalText: Bool,
+        requireAwaitingCompletion: Bool
+    ) -> Bool {
+        entry.context.rawText == context.rawText
+            && entry.context.bundleIdentifier == context.bundleIdentifier
+            && (!requireMatchingFinalText || entry.context.finalText == context.finalText)
+            && (!requireAwaitingCompletion || entry.awaitingCompletion)
+    }
+
+    private func isInsideConfiguredVault(_ path: String) -> Bool {
+        guard !_vaultPath.isEmpty else { return false }
+        let vaultURL = URL(fileURLWithPath: _vaultPath, isDirectory: true)
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
+        let noteURL = URL(fileURLWithPath: path, isDirectory: false)
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
+        let vaultComponents = vaultURL.pathComponents
+        let noteComponents = noteURL.pathComponents
+        guard noteComponents.count > vaultComponents.count,
+              noteURL.pathExtension.compare("md", options: .caseInsensitive) == .orderedSame else {
+            return false
+        }
+
+        let volumeIsCaseSensitive = (try? vaultURL.resourceValues(
+            forKeys: [.volumeSupportsCaseSensitiveNamesKey]
+        ).volumeSupportsCaseSensitiveNames) ?? true
+        return zip(vaultComponents, noteComponents).allSatisfy { vaultComponent, noteComponent in
+            if volumeIsCaseSensitive {
+                return vaultComponent == noteComponent
+            }
+            return vaultComponent.compare(noteComponent, options: .caseInsensitive) == .orderedSame
+        }
     }
 
     private func uniquePath(for path: String) -> String {
@@ -295,16 +573,22 @@ final class ObsidianPlugin: NSObject, ActionPlugin, @unchecked Sendable {
         }
 
         do {
-            let noteName = try writeNote(
-                text: input,
-                appName: context.appName,
-                bundleId: context.bundleIdentifier,
-                url: context.url,
-                language: context.language
-            )
+            let noteContext = NoteContext(input: input, actionContext: context)
+            let note = try liveSyncEntries.withLock { entries in
+                let note = try writeNote(context: noteContext)
+                if _liveSyncEnabled, !_dailyNoteEnabled {
+                    storeLiveSyncEntry(
+                        path: note.path,
+                        context: noteContext,
+                        awaitingCompletion: true,
+                        entries: &entries
+                    )
+                }
+                return note
+            }
             return ActionResult(
                 success: true,
-                message: noteName,
+                message: note.name,
                 icon: "checkmark.circle.fill",
                 displayDuration: 3
             )
@@ -321,16 +605,133 @@ final class ObsidianPlugin: NSObject, ActionPlugin, @unchecked Sendable {
         guard !text.isEmpty else { return }
 
         do {
-            _ = try writeNote(
-                text: text,
-                appName: payload.appName,
-                bundleId: payload.bundleIdentifier,
-                url: payload.url,
-                language: payload.language
-            )
+            try liveSyncEntries.withLock { entries in
+                if _liveSyncEnabled,
+                   !_dailyNoteEnabled,
+                   adoptMatchingActionExport(payload: payload, entries: &entries) {
+                    return
+                }
+                let noteContext = NoteContext(payload)
+                let note = try writeNote(context: noteContext)
+                if _liveSyncEnabled, !_dailyNoteEnabled {
+                    storeLiveSyncEntry(
+                        path: note.path,
+                        context: noteContext,
+                        awaitingCompletion: false,
+                        entries: &entries
+                    )
+                }
+            }
         } catch {
             print("[ObsidianPlugin] Auto-export failed: \(error)")
         }
+    }
+
+    @discardableResult
+    private func adoptMatchingActionExport(payload: TranscriptionCompletedPayload) async -> Bool {
+        liveSyncEntries.withLock { entries in
+            adoptMatchingActionExport(payload: payload, entries: &entries)
+        }
+    }
+
+    private func adoptMatchingActionExport(
+        payload: TranscriptionCompletedPayload,
+        entries: inout [String: LiveSyncEntry]
+    ) -> Bool {
+        guard !_dailyNoteEnabled, isConfigured else { return false }
+        let didPrune = pruneLiveSyncEntries(&entries)
+        let completedContext = NoteContext(payload)
+        guard let oldKey = matchingEntryKey(
+            for: completedContext,
+            requireMatchingFinalText: true,
+            requireAwaitingCompletion: true,
+            entries: entries
+        ),
+              let existingEntry = entries[oldKey] else {
+            if didPrune {
+                persistLiveSyncEntries(&entries)
+            }
+            return false
+        }
+
+        let newKey = liveSyncKey(for: completedContext.timestamp)
+        let adoptedEntry = LiveSyncEntry(
+            path: existingEntry.path,
+            context: completedContext,
+            awaitingCompletion: false
+        )
+        guard isInsideConfiguredVault(adoptedEntry.path),
+              FileManager.default.fileExists(atPath: adoptedEntry.path) else {
+            removeLiveSyncEntry(forKey: oldKey, entries: &entries)
+            return false
+        }
+
+        do {
+            try rewriteLiveSyncEntry(adoptedEntry)
+            entries.removeValue(forKey: oldKey)
+            entries[newKey] = adoptedEntry
+            persistLiveSyncEntries(&entries)
+            return true
+        } catch {
+            print("[ObsidianPlugin] Failed to associate an action export with its transcription: \(error)")
+            return false
+        }
+    }
+
+    private func liveSync(payload: ActionCompletedPayload) async {
+        guard !_dailyNoteEnabled,
+              payload.success,
+              let data = payload.message.data(using: .utf8),
+              let update = try? JSONDecoder().decode(HistorySyncPayload.self, from: data) else { return }
+
+        let updatedContext = NoteContext(update, timestamp: payload.timestamp)
+        liveSyncEntries.withLock { entries in
+            let didPrune = pruneLiveSyncEntries(&entries)
+            guard let oldKey = matchingEntryKey(
+                for: updatedContext,
+                requireMatchingFinalText: false,
+                entries: entries
+            ),
+                  let existingEntry = entries[oldKey] else {
+                if didPrune {
+                    persistLiveSyncEntries(&entries)
+                }
+                return
+            }
+            guard isInsideConfiguredVault(existingEntry.path) else {
+                removeLiveSyncEntry(forKey: oldKey, entries: &entries)
+                print("[ObsidianPlugin] Live sync ignored a note path outside the configured vault")
+                return
+            }
+
+            do {
+                let updatedEntry = LiveSyncEntry(
+                    path: existingEntry.path,
+                    context: updatedContext,
+                    awaitingCompletion: false
+                )
+                try rewriteLiveSyncEntry(updatedEntry)
+                let newKey = liveSyncKey(for: updatedContext.timestamp)
+                entries.removeValue(forKey: oldKey)
+                entries[newKey] = updatedEntry
+                persistLiveSyncEntries(&entries)
+            } catch {
+                print("[ObsidianPlugin] Live sync failed: \(error)")
+            }
+        }
+    }
+
+    private func rewriteLiveSyncEntry(_ entry: LiveSyncEntry) throws {
+        let noteURL = URL(fileURLWithPath: entry.path)
+        try FileManager.default.createDirectory(
+            at: noteURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try renderNote(context: entry.context).write(
+            to: noteURL,
+            atomically: true,
+            encoding: .utf8
+        )
     }
 
     // MARK: - Settings View
@@ -348,6 +749,7 @@ private struct ObsidianSettingsView: View {
     @State private var detectedVaults: [ObsidianPlugin.VaultInfo] = []
     @State private var subfolder: String = "TypeWhisper"
     @State private var filenameTemplate: String = "{{DATE}} {{TIME}} {{APP}}"
+    @State private var noteTemplate: String = "{{TRANSCRIPT}}"
     @State private var dailyNoteEnabled: Bool = false
     @State private var dailyNoteFormat: String = "{{DATE}}"
     @State private var dailyNoteAppendTemplate: String = DailyNoteAppendPreset.timestamp.template
@@ -355,6 +757,7 @@ private struct ObsidianSettingsView: View {
     @State private var frontmatterEnabled: Bool = true
     @State private var tagsInput: String = "typewhisper"
     @State private var autoExportEnabled: Bool = false
+    @State private var liveSyncEnabled: Bool = true
     private let bundle = pluginModuleBundle
 
     var body: some View {
@@ -440,6 +843,25 @@ private struct ObsidianSettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                         .padding(.leading, 108)
+
+                    if !dailyNoteEnabled {
+                        Text("Note Template", bundle: bundle)
+                            .font(.subheadline.weight(.medium))
+                            .padding(.top, 4)
+
+                        TextEditor(text: $noteTemplate)
+                            .font(.system(.body, design: .monospaced))
+                            .frame(height: 112)
+                            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.25)))
+                            .onChange(of: noteTemplate) { _, newValue in
+                                plugin._noteTemplate = newValue
+                                plugin.saveSetting(newValue, forKey: "noteTemplate")
+                            }
+
+                        Text("Placeholders: {{TRANSCRIPT}}, {{RAW_TRANSCRIPT}}, {{DATE}}, {{TIME}}, {{APP}}, {{LANGUAGE}}, {{URL}}, {{ENGINE}}, {{MODEL}}, {{DURATION}}, {{WORDS}}", bundle: bundle)
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
                 }
 
                 Divider()
@@ -561,6 +983,28 @@ private struct ObsidianSettingsView: View {
                         plugin.saveSetting(newValue, forKey: "autoExportEnabled")
                         plugin.updateAutoExportSubscription()
                     }
+
+                    Toggle(isOn: $liveSyncEnabled) {
+                        VStack(alignment: .leading) {
+                            Text("Live Sync History Edits", bundle: bundle)
+                                .font(.headline)
+                            Text("Keep exported individual notes up to date when their transcript is edited in TypeWhisper. External Obsidian edits may be overwritten.", bundle: bundle)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .disabled(dailyNoteEnabled)
+                    .onChange(of: liveSyncEnabled) { _, newValue in
+                        plugin._liveSyncEnabled = newValue
+                        plugin.saveSetting(newValue, forKey: "liveSyncEnabled")
+                        plugin.updateAutoExportSubscription()
+                    }
+
+                    if dailyNoteEnabled {
+                        Text("Live Sync is available for individual notes only.", bundle: bundle)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 Divider()
@@ -598,6 +1042,7 @@ private struct ObsidianSettingsView: View {
             vaultPath = plugin._vaultPath
             subfolder = plugin._subfolder
             filenameTemplate = plugin._filenameTemplate
+            noteTemplate = plugin._noteTemplate
             dailyNoteEnabled = plugin._dailyNoteEnabled
             dailyNoteFormat = plugin._dailyNoteFormat
             dailyNoteAppendTemplate = plugin._dailyNoteAppendTemplate
@@ -605,6 +1050,7 @@ private struct ObsidianSettingsView: View {
             frontmatterEnabled = plugin._frontmatterEnabled
             tagsInput = plugin._frontmatterTags.joined(separator: ", ")
             autoExportEnabled = plugin._autoExportEnabled
+            liveSyncEnabled = plugin._liveSyncEnabled
             detectedVaults = ObsidianPlugin.detectVaults() ?? []
         }
     }
