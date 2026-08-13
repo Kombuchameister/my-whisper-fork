@@ -4297,12 +4297,12 @@ final class TypeWhisperIntegrationTests: XCTestCase {
     }
 
     @MainActor
-    func testAutoEnterSkipsReturnWithoutFocusedTextField() async throws {
+    func testAutoEnterTriggersReturnWhenAXFocusedTextRoleIsUnavailable() async throws {
         let service = TextInsertionService()
         let pasteboard = NSPasteboard.withUniqueName()
         service.accessibilityGrantedOverride = true
         service.pasteboardProvider = { pasteboard }
-        service.focusedTextFieldOverride = { false }
+        service.focusedTextElementOverride = { nil }
 
         var didSimulatePaste = false
         service.pasteSimulatorOverride = {
@@ -4317,17 +4317,16 @@ final class TypeWhisperIntegrationTests: XCTestCase {
         _ = try await service.insertText("Hello", autoEnter: true)
 
         XCTAssertTrue(didSimulatePaste)
-        XCTAssertFalse(didSimulateReturn)
+        XCTAssertTrue(didSimulateReturn)
         XCTAssertEqual(pasteboard.string(forType: .string), "Hello")
     }
 
     @MainActor
-    func testAutoEnterTriggersReturnWithFocusedTextField() async throws {
+    func testDisabledAutoEnterSkipsReturnAfterPaste() async throws {
         let service = TextInsertionService()
         let pasteboard = NSPasteboard.withUniqueName()
         service.accessibilityGrantedOverride = true
         service.pasteboardProvider = { pasteboard }
-        service.focusedTextFieldOverride = { true }
         service.pasteSimulatorOverride = {}
 
         var didSimulateReturn = false
@@ -4335,14 +4334,14 @@ final class TypeWhisperIntegrationTests: XCTestCase {
             didSimulateReturn = true
         }
 
-        _ = try await service.insertText("Hello", autoEnter: true)
+        _ = try await service.insertText("Hello", autoEnter: false)
 
-        XCTAssertTrue(didSimulateReturn)
+        XCTAssertFalse(didSimulateReturn)
         XCTAssertEqual(pasteboard.string(forType: .string), "Hello")
     }
 
     @MainActor
-    func testPreserveClipboardAvoidsPasteboardWhenVerifiedAccessibilityInsertionSucceeds() async throws {
+    func testAutoEnterTriggersReturnAfterVerifiedAccessibilityInsertionWithoutPasteboard() async throws {
         let service = TextInsertionService()
         let pasteboard = NSPasteboard.withUniqueName()
         let element = AXUIElementCreateSystemWide()
@@ -4370,14 +4369,20 @@ final class TypeWhisperIntegrationTests: XCTestCase {
         service.pasteSimulatorOverride = {
             didSimulatePaste = true
         }
+        var didSimulateReturn = false
+        service.returnSimulatorOverride = {
+            didSimulateReturn = true
+        }
 
         pasteboard.clearContents()
         pasteboard.setString("Existing", forType: .string)
 
-        _ = try await service.insertText("Hello", preserveClipboard: true)
+        let result = try await service.insertText("Hello", preserveClipboard: true, autoEnter: true)
 
         XCTAssertEqual(insertedText, "Hello")
         XCTAssertFalse(didSimulatePaste)
+        XCTAssertTrue(didSimulateReturn)
+        XCTAssertEqual(result, .insertedViaAccessibility)
         XCTAssertEqual(pasteboard.string(forType: .string), "Existing")
     }
 
