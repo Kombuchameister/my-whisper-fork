@@ -89,6 +89,36 @@ final class Qwen3PluginTests: XCTestCase {
         }
     }
 
+    func testChunkTranscriberReportsIncompleteWhenLoopedPrimaryFallbackHitsTokenLimit() {
+        let loopedPrimary = Array(repeating: "loop", count: 16).joined(separator: " ")
+        XCTAssertTrue(QwenTranscriptGuard.isLikelyLooped(loopedPrimary))
+
+        XCTAssertThrowsError(
+            try QwenChunkTranscriber.transcribe(
+                primaryChunks: [1],
+                primaryTokenLimit: 2_048,
+                fallbackTokenLimit: 1_536,
+                makeFallbackChunks: { _ in [10] },
+                generatePrimary: { _ in
+                    QwenChunkGeneration(
+                        text: loopedPrimary,
+                        language: "Chinese",
+                        generatedTokenCount: 100
+                    )
+                },
+                generateFallback: { _ in
+                    QwenChunkGeneration(
+                        text: "partial fallback",
+                        language: "Chinese",
+                        generatedTokenCount: 1_536
+                    )
+                }
+            )
+        ) { error in
+            XCTAssertEqual(error as? QwenChunkTranscriptionError, .incomplete)
+        }
+    }
+
     func testAutoDetectDoesNotForceEnglish() {
         XCTAssertNil(Qwen3Plugin.resolveLanguageName(nil))
         XCTAssertNil(Qwen3Plugin.resolveLanguageName(""))

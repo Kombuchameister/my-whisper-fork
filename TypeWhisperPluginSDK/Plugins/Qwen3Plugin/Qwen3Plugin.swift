@@ -722,8 +722,7 @@ enum QwenChunkTranscriber {
                 chunkTexts.append(fallback.transcript.text)
                 chunkLanguages.append(fallback.transcript.language)
             } else if fallback.reachedTokenLimit || fallback.transcript.text.isEmpty {
-                chunkTexts.append(primary.text)
-                chunkLanguages.append(primary.language)
+                throw QwenChunkTranscriptionError.incomplete
             } else if QwenTranscriptGuard.isLikelyLooped(fallback.transcript.text) {
                 chunkTexts.append(
                     QwenTranscriptGuard.preferredTranscript(
