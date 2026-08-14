@@ -4,6 +4,91 @@ import TypeWhisperPluginSDKTesting
 @testable import Qwen3Plugin
 
 final class Qwen3PluginTests: XCTestCase {
+    func testChunkTranscriberProcessesEveryChunkWithAnIndependentTokenBudget() throws {
+        let chunks = Array(0..<24)
+        var generatedChunks: [Int] = []
+
+        let result = try QwenChunkTranscriber.transcribe(
+            primaryChunks: chunks,
+            primaryTokenLimit: 2_048,
+            fallbackTokenLimit: 1_536,
+            makeFallbackChunks: { _ in
+                XCTFail("Fallback should not run for complete primary chunks")
+                return []
+            },
+            generatePrimary: { chunk in
+                generatedChunks.append(chunk)
+                return QwenChunkGeneration(
+                    text: "chunk-\(chunk)",
+                    language: "Chinese",
+                    generatedTokenCount: 100
+                )
+            },
+            generateFallback: { _ in
+                XCTFail("Fallback should not run for complete primary chunks")
+                return QwenChunkGeneration(text: "", language: nil, generatedTokenCount: 0)
+            }
+        )
+
+        // The cumulative 2,400 generated tokens exceed the old shared 2,048-token cap.
+        XCTAssertEqual(generatedChunks, chunks)
+        XCTAssertEqual(result.text, chunks.map { "chunk-\($0)" }.joined(separator: " "))
+        XCTAssertEqual(result.language, "Chinese")
+    }
+
+    func testChunkTranscriberRetriesCappedPrimaryChunkWithSmallerFallbackChunks() throws {
+        let result = try QwenChunkTranscriber.transcribe(
+            primaryChunks: [1],
+            primaryTokenLimit: 2_048,
+            fallbackTokenLimit: 1_536,
+            makeFallbackChunks: { _ in [10, 11] },
+            generatePrimary: { _ in
+                QwenChunkGeneration(
+                    text: "partial primary",
+                    language: "Chinese",
+                    generatedTokenCount: 2_048
+                )
+            },
+            generateFallback: { chunk in
+                QwenChunkGeneration(
+                    text: "fallback-\(chunk)",
+                    language: "Chinese",
+                    generatedTokenCount: 100
+                )
+            }
+        )
+
+        XCTAssertEqual(result.text, "fallback-10 fallback-11")
+        XCTAssertEqual(result.language, "Chinese")
+    }
+
+    func testChunkTranscriberReportsIncompleteWhenFallbackAlsoHitsTokenLimit() {
+        XCTAssertThrowsError(
+            try QwenChunkTranscriber.transcribe(
+                primaryChunks: [1],
+                primaryTokenLimit: 2_048,
+                fallbackTokenLimit: 1_536,
+                makeFallbackChunks: { _ in [10] },
+                generatePrimary: { _ in
+                    QwenChunkGeneration(
+                        text: "partial primary",
+                        language: "Chinese",
+                        generatedTokenCount: 2_048
+                    )
+                },
+                generateFallback: { _ in
+                    QwenChunkGeneration(
+                        text: "partial fallback",
+                        language: "Chinese",
+                        generatedTokenCount: 1_536
+                    )
+                }
+            )
+        ) { error in
+            XCTAssertEqual(error as? QwenChunkTranscriptionError, .incomplete)
+        }
+    }
+
     func testAutoDetectDoesNotForceEnglish() {
         XCTAssertNil(Qwen3Plugin.resolveLanguageName(nil))
         XCTAssertNil(Qwen3Plugin.resolveLanguageName(""))
