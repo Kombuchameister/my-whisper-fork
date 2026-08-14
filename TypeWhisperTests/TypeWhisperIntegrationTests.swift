@@ -3902,6 +3902,424 @@ final class TypeWhisperIntegrationTests: XCTestCase {
     }
 
     @MainActor
+    private func waitForLiveFieldUpdate(
+        _ description: String,
+        condition: () -> Bool
+    ) async throws {
+        for _ in 0..<100 {
+            if condition() {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(1))
+        }
+        XCTFail("Timed out waiting for live-field update: \(description)")
+    }
+
+    @MainActor
+    func testLiveFieldSessionRevisesOneOwnedRangeAndFinalizesInPlace() async throws {
+        let service = TextInsertionService()
+        let element = AXUIElementCreateSystemWide()
+        var value = "Before  after"
+        var selectedRange = NSRange(location: 7, length: 0)
+        var writes: [String] = []
+
+        service.accessibilityGrantedOverride = true
+        service.captureActiveAppOverride = { ("Notes", "com.apple.Notes", nil) }
+        service.focusedTextElementOverride = { element }
+        service.liveFieldTargetEligibilityOverride = { _ in true }
+        service.focusedTextStateOverride = { _ in
+            (value: value, selectedText: nil, selectedRange: selectedRange)
+        }
+        service.setSelectedRangeOverride = { _, range in
+            selectedRange = range
+            return true
+        }
+        service.insertTextAtOverride = { _, text in
+            writes.append(text)
+            value = (value as NSString).replacingCharacters(in: selectedRange, with: text)
+            selectedRange = NSRange(
+                location: selectedRange.location + (text as NSString).length,
+                length: 0
+            )
+            return true
+        }
+
+        let target = try XCTUnwrap(
+            service.captureLiveFieldTarget(expectedBundleIdentifier: "com.apple.Notes")
+        )
+        let session = LiveFieldTranscriptSession(
+            sessionID: UUID(),
+            target: target,
+            textInsertionService: service,
+            updateInterval: .milliseconds(1)
+        )
+
+        session.receivePartial("Hello")
+        try await waitForLiveFieldUpdate("first partial") { writes == ["Hello"] }
+        session.receivePartial("Hello world")
+        try await waitForLiveFieldUpdate("revised partial") {
+            value == "Before Hello world after"
+        }
+
+        XCTAssertEqual(value, "Before Hello world after")
+        XCTAssertEqual(writes, ["Hello", "Hello world"])
+        XCTAssertEqual(session.state, .active)
+
+        let result = session.finalize(with: "Final text")
+        guard case .applied(let observation) = result else {
+            return XCTFail("Expected final live-field replacement")
+        }
+        XCTAssertEqual(value, "Before Final text after")
+        XCTAssertEqual(observation.value, value)
+        XCTAssertEqual(selectedRange, NSRange(location: 17, length: 0))
+        XCTAssertEqual(session.state, .finalized)
+    }
+
+    @MainActor
+    func testLiveFieldSessionDetachesAfterUserChangesText() async throws {
+        let service = TextInsertionService()
+        let element = AXUIElementCreateSystemWide()
+        var value = ""
+        var selectedRange = NSRange(location: 0, length: 0)
+        var writeCount = 0
+
+        service.accessibilityGrantedOverride = true
+        service.captureActiveAppOverride = { ("TextEdit", "com.apple.TextEdit", nil) }
+        service.focusedTextElementOverride = { element }
+        service.liveFieldTargetEligibilityOverride = { _ in true }
+        service.focusedTextStateOverride = { _ in
+            (value: value, selectedText: nil, selectedRange: selectedRange)
+        }
+        service.setSelectedRangeOverride = { _, range in
+            selectedRange = range
+            return true
+        }
+        service.insertTextAtOverride = { _, text in
+            writeCount += 1
+            value = (value as NSString).replacingCharacters(in: selectedRange, with: text)
+            selectedRange = NSRange(
+                location: selectedRange.location + (text as NSString).length,
+                length: 0
+            )
+            return true
+        }
+
+        let target = try XCTUnwrap(
+            service.captureLiveFieldTarget(expectedBundleIdentifier: "com.apple.TextEdit")
+        )
+        let session = LiveFieldTranscriptSession(
+            sessionID: UUID(),
+            target: target,
+            textInsertionService: service,
+            updateInterval: .milliseconds(1)
+        )
+        session.receivePartial("Hello")
+        try await waitForLiveFieldUpdate("initial partial") { writeCount == 1 }
+
+        value += "!"
+        selectedRange = NSRange(location: 6, length: 0)
+        session.receivePartial("Hello world")
+        try await waitForLiveFieldUpdate("detach after external edit") {
+            session.state == .detached
+        }
+
+        XCTAssertEqual(session.state, .detached)
+        XCTAssertEqual(value, "Hello!")
+        XCTAssertEqual(writeCount, 1)
+
+        let result = session.finalize(with: "Final")
+        guard case .detached(let hadAttemptedMutation) = result else {
+            return XCTFail("Expected detached finalization")
+        }
+        XCTAssertTrue(hadAttemptedMutation)
+        XCTAssertEqual(value, "Hello!")
+        XCTAssertEqual(writeCount, 1)
+    }
+
+    @MainActor
+    func testLiveFieldSessionCancellationRemovesOnlyOwnedText() async throws {
+        let service = TextInsertionService()
+        let element = AXUIElementCreateSystemWide()
+        var value = "Start end"
+        var selectedRange = NSRange(location: 6, length: 0)
+
+        service.accessibilityGrantedOverride = true
+        service.captureActiveAppOverride = { ("Mail", "com.apple.mail", nil) }
+        service.focusedTextElementOverride = { element }
+        service.liveFieldTargetEligibilityOverride = { _ in true }
+        service.focusedTextStateOverride = { _ in
+            (value: value, selectedText: nil, selectedRange: selectedRange)
+        }
+        service.setSelectedRangeOverride = { _, range in
+            selectedRange = range
+            return true
+        }
+        service.insertTextAtOverride = { _, text in
+            value = (value as NSString).replacingCharacters(in: selectedRange, with: text)
+            selectedRange = NSRange(
+                location: selectedRange.location + (text as NSString).length,
+                length: 0
+            )
+            return true
+        }
+
+        let target = try XCTUnwrap(
+            service.captureLiveFieldTarget(expectedBundleIdentifier: "com.apple.mail")
+        )
+        let session = LiveFieldTranscriptSession(
+            sessionID: UUID(),
+            target: target,
+            textInsertionService: service,
+            updateInterval: .milliseconds(1)
+        )
+        session.receivePartial("draft ")
+        try await waitForLiveFieldUpdate("cancellable partial") { value == "Start draft end" }
+
+        guard case .applied = session.cancel() else {
+            return XCTFail("Expected cancellation cleanup")
+        }
+        XCTAssertEqual(value, "Start end")
+        XCTAssertEqual(selectedRange, NSRange(location: 6, length: 0))
+        XCTAssertEqual(session.state, .cancelled)
+    }
+
+    @MainActor
+    func testLiveFieldTargetRejectsNonEmptySelection() {
+        let service = TextInsertionService()
+        let element = AXUIElementCreateSystemWide()
+        service.accessibilityGrantedOverride = true
+        service.captureActiveAppOverride = { ("Notes", "com.apple.Notes", nil) }
+        service.focusedTextElementOverride = { element }
+        service.liveFieldTargetEligibilityOverride = { _ in true }
+        service.focusedTextStateOverride = { _ in
+            (value: "Selected", selectedText: "Selected", selectedRange: NSRange(location: 0, length: 8))
+        }
+
+        XCTAssertNil(
+            service.captureLiveFieldTarget(expectedBundleIdentifier: "com.apple.Notes")
+        )
+    }
+
+    @MainActor
+    func testLiveFieldTargetRejectsElectronApplication() {
+        let service = TextInsertionService()
+        let element = AXUIElementCreateSystemWide()
+
+        service.accessibilityGrantedOverride = true
+        service.captureActiveAppOverride = { ("Electron App", "com.example.electron", nil) }
+        service.liveFieldElectronApplicationOverride = { _ in true }
+        service.focusedTextElementOverride = { element }
+        service.liveFieldTargetEligibilityOverride = { _ in true }
+        service.focusedTextStateOverride = { _ in
+            (value: "", selectedText: nil, selectedRange: NSRange(location: 0, length: 0))
+        }
+
+        XCTAssertNil(
+            service.captureLiveFieldTarget(expectedBundleIdentifier: "com.example.electron")
+        )
+    }
+
+    @MainActor
+    func testLiveFieldSessionTreatsExposedPlaceholderAsEmptyText() async throws {
+        let service = TextInsertionService()
+        let element = AXUIElementCreateSystemWide()
+        let placeholder = "Ask anything or type @ to add context"
+        var value = placeholder
+        var selectedRange = NSRange(location: 0, length: 0)
+
+        service.accessibilityGrantedOverride = true
+        service.captureActiveAppOverride = { ("T3 Code", "com.t3.code", nil) }
+        service.focusedTextElementOverride = { element }
+        service.focusedTextPlaceholderOverride = { _ in value == placeholder ? placeholder : nil }
+        service.liveFieldTargetEligibilityOverride = { _ in true }
+        service.focusedTextStateOverride = { _ in
+            (value: value, selectedText: nil, selectedRange: selectedRange)
+        }
+        service.setSelectedRangeOverride = { _, range in
+            selectedRange = range
+            return true
+        }
+        service.insertTextAtOverride = { _, text in
+            if value == placeholder {
+                value = ""
+            }
+            value = (value as NSString).replacingCharacters(in: selectedRange, with: text)
+            selectedRange = NSRange(
+                location: selectedRange.location + (text as NSString).length,
+                length: 0
+            )
+            return true
+        }
+
+        let target = try XCTUnwrap(
+            service.captureLiveFieldTarget(expectedBundleIdentifier: "com.t3.code")
+        )
+        XCTAssertEqual(target.originalInsertionContext.value, "")
+
+        let session = LiveFieldTranscriptSession(
+            sessionID: UUID(),
+            target: target,
+            textInsertionService: service,
+            updateInterval: .milliseconds(1)
+        )
+        session.receivePartial("Hello from TypeWhisper")
+        try await waitForLiveFieldUpdate("placeholder replacement") {
+            value == "Hello from TypeWhisper"
+        }
+
+        XCTAssertEqual(session.state, .active)
+        XCTAssertEqual(value, "Hello from TypeWhisper")
+        guard case .applied = session.finalize(with: "Final transcript") else {
+            return XCTFail("Expected placeholder-backed field to finalize in place")
+        }
+        XCTAssertEqual(value, "Final transcript")
+    }
+
+    @MainActor
+    func testLiveFieldSessionAllowsFallbackWhenInitialAXWriteFails() async throws {
+        let service = TextInsertionService()
+        let element = AXUIElementCreateSystemWide()
+        var selectedRange = NSRange(location: 0, length: 0)
+
+        service.accessibilityGrantedOverride = true
+        service.captureActiveAppOverride = { ("T3 Code", "com.t3.code", nil) }
+        service.focusedTextElementOverride = { element }
+        service.liveFieldTargetEligibilityOverride = { _ in true }
+        service.focusedTextStateOverride = { _ in
+            (value: "", selectedText: nil, selectedRange: selectedRange)
+        }
+        service.setSelectedRangeOverride = { _, range in
+            selectedRange = range
+            return true
+        }
+        service.insertTextAtOverride = { _, _ in false }
+
+        let target = try XCTUnwrap(
+            service.captureLiveFieldTarget(expectedBundleIdentifier: "com.t3.code")
+        )
+        let session = LiveFieldTranscriptSession(
+            sessionID: UUID(),
+            target: target,
+            textInsertionService: service,
+            updateInterval: .milliseconds(1)
+        )
+        session.receivePartial("Hello")
+        try await waitForLiveFieldUpdate("failed AX write fallback") {
+            session.state == .detached
+        }
+
+        XCTAssertEqual(session.state, .detached)
+        guard case .detached(let hadAttemptedMutation) = session.finalize(with: "Final") else {
+            return XCTFail("Expected the failed inline session to detach")
+        }
+        XCTAssertFalse(hadAttemptedMutation)
+    }
+
+    @MainActor
+    func testLiveFieldSessionAllowsFallbackWhenAXSuccessLeavesFieldUnchanged() async throws {
+        let service = TextInsertionService()
+        let element = AXUIElementCreateSystemWide()
+        var selectedRange = NSRange(location: 0, length: 0)
+
+        service.accessibilityGrantedOverride = true
+        service.captureActiveAppOverride = { ("T3 Code", "com.t3.code", nil) }
+        service.focusedTextElementOverride = { element }
+        service.liveFieldTargetEligibilityOverride = { _ in true }
+        service.focusedTextStateOverride = { _ in
+            (value: "", selectedText: nil, selectedRange: selectedRange)
+        }
+        service.setSelectedRangeOverride = { _, range in
+            selectedRange = range
+            return true
+        }
+        service.insertTextAtOverride = { _, _ in true }
+
+        let target = try XCTUnwrap(
+            service.captureLiveFieldTarget(expectedBundleIdentifier: "com.t3.code")
+        )
+        let session = LiveFieldTranscriptSession(
+            sessionID: UUID(),
+            target: target,
+            textInsertionService: service,
+            updateInterval: .milliseconds(1)
+        )
+        session.receivePartial("Hello")
+        try await waitForLiveFieldUpdate("ignored AX write fallback") {
+            session.state == .detached
+        }
+
+        XCTAssertEqual(session.state, .detached)
+        guard case .detached(let hadAttemptedMutation) = session.finalize(with: "Final") else {
+            return XCTFail("Expected ignored AX success to detach")
+        }
+        XCTAssertFalse(hadAttemptedMutation)
+    }
+
+    @MainActor
+    func testLiveFieldSessionRebindsToRecreatedWebEditorElement() async throws {
+        let service = TextInsertionService()
+        let originalElement = AXUIElementCreateSystemWide()
+        let recreatedElement = AXUIElementCreateApplication(ProcessInfo.processInfo.processIdentifier)
+        XCTAssertFalse(CFEqual(originalElement, recreatedElement))
+        var element = originalElement
+        var value = ""
+        var selectedRange = NSRange(location: 0, length: 0)
+        var timeoutApplications: [(element: AXUIElement, timeout: Float)] = []
+
+        service.accessibilityGrantedOverride = true
+        service.captureActiveAppOverride = { ("T3 Code", "com.t3.code", nil) }
+        service.focusedTextElementOverride = { element }
+        service.liveFieldTargetEligibilityOverride = { _ in true }
+        service.setMessagingTimeoutOverride = { element, timeout in
+            timeoutApplications.append((element, timeout))
+        }
+        service.focusedTextStateOverride = { _ in
+            (value: value, selectedText: nil, selectedRange: selectedRange)
+        }
+        service.setSelectedRangeOverride = { _, range in
+            selectedRange = range
+            return true
+        }
+        service.insertTextAtOverride = { _, text in
+            value = (value as NSString).replacingCharacters(in: selectedRange, with: text)
+            selectedRange = NSRange(
+                location: selectedRange.location + (text as NSString).length,
+                length: 0
+            )
+            element = recreatedElement
+            return true
+        }
+
+        let target = try XCTUnwrap(
+            service.captureLiveFieldTarget(expectedBundleIdentifier: "com.t3.code")
+        )
+        let session = LiveFieldTranscriptSession(
+            sessionID: UUID(),
+            target: target,
+            textInsertionService: service,
+            updateInterval: .milliseconds(1)
+        )
+        session.receivePartial("Hello")
+        try await waitForLiveFieldUpdate("first recreated-element partial") {
+            value == "Hello"
+        }
+        session.receivePartial("Hello from Electron")
+        try await waitForLiveFieldUpdate("second recreated-element partial") {
+            value == "Hello from Electron"
+        }
+
+        XCTAssertEqual(session.state, .active)
+        XCTAssertEqual(value, "Hello from Electron")
+        XCTAssertTrue(timeoutApplications.allSatisfy { $0.timeout > 0 })
+        XCTAssertTrue(timeoutApplications.contains { CFEqual($0.element, originalElement) })
+        XCTAssertTrue(timeoutApplications.contains { CFEqual($0.element, recreatedElement) })
+        guard case .applied = session.finalize(with: "Final transcript") else {
+            return XCTFail("Expected recreated Electron element to finalize")
+        }
+        XCTAssertEqual(value, "Final transcript")
+    }
+
+    @MainActor
     func testGetTextSelectionDerivesSelectedTextFromFocusedValueAndRange() {
         let service = TextInsertionService()
         let element = AXUIElementCreateSystemWide()

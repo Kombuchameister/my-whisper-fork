@@ -229,6 +229,13 @@ struct AdvancedSettingsView: View {
                     )
                 }
 
+                Toggle(isOn: $dictation.liveFieldTranscriptEnabled) {
+                    SettingsInfoLabel(
+                        title: String(localized: "Show live transcript in the active text field"),
+                        info: String(localized: "Supported text fields are updated while you speak. TypeWhisper inserts the final transcript normally when direct updates are unavailable.")
+                    )
+                }
+
                 Toggle(isOn: $dictation.microphoneBoostEnabled) {
                     SettingsInfoLabel(
                         title: localizedAppText("Whisper Mode (AGC)", de: "Whisper-Modus (AGC)"),
@@ -658,6 +665,9 @@ struct AdvancedSettingsView: View {
             pluginRegistryService: container.pluginRegistryService,
             historyService: container.historyService,
             usageStatisticsService: container.usageStatisticsService,
+            liveFieldTranscriptEnabledDidChange: { enabled in
+                dictation.liveFieldTranscriptEnabled = enabled
+            },
             recoveryRetentionPolicyDidChange: { policy in
                 _ = container.audioRecordingService.updateRecoveryRetentionPolicy(policy)
             }
