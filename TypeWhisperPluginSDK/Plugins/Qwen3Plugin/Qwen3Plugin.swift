@@ -182,45 +182,51 @@ final class Qwen3Plugin: NSObject, TranscriptionEnginePlugin, TranscriptionModel
             let languageName = Self.resolveLanguageName(language)
             let context = Self.contextBiasString(from: prompt)
 
-            let primaryOutput = Self.generate(
-                model: model,
-                audio: audioArray,
-                params: Self.primaryParams,
-                context: context,
-                language: languageName
-            )
-            let primaryText = Self.normalizeTranscript(primaryOutput.text)
-            let text: String
-            let outputLanguageName: String?
+            // mlx-audio-swift treats maxTokens as one shared budget across every
+            // internally generated chunk. Split here so long files receive a fresh
+            // generation budget per chunk instead of silently stopping at the cap.
+            let primaryChunks = splitAudioIntoChunks(
+                audioArray,
+                sampleRate: Self.sampleRate,
+                chunkDuration: Self.primaryParams.chunkDuration,
+                minChunkDuration: Self.primaryParams.minChunkDuration
+            ).map(\.0)
 
-            if QwenTranscriptGuard.isLikelyLooped(primaryText) {
-                let fallbackOutput = Self.generate(
-                    model: model,
-                    audio: audioArray,
-                    params: Self.fallbackParams,
-                    context: "",
-                    language: languageName
-                )
-                let fallbackText = Self.normalizeTranscript(fallbackOutput.text)
-
-                if fallbackText.isEmpty {
-                    text = primaryText
-                    outputLanguageName = primaryOutput.language
-                } else if QwenTranscriptGuard.isLikelyLooped(fallbackText) {
-                    text = QwenTranscriptGuard.preferredTranscript(primary: primaryText, fallback: fallbackText)
-                    outputLanguageName = primaryOutput.language ?? fallbackOutput.language
-                } else {
-                    text = fallbackText
-                    outputLanguageName = fallbackOutput.language
+            let transcript = try QwenChunkTranscriber.transcribe(
+                primaryChunks: primaryChunks,
+                primaryTokenLimit: Self.primaryParams.maxTokens,
+                fallbackTokenLimit: Self.fallbackParams.maxTokens,
+                makeFallbackChunks: { chunk in
+                    splitAudioIntoChunks(
+                        chunk,
+                        sampleRate: Self.sampleRate,
+                        chunkDuration: Self.fallbackParams.chunkDuration,
+                        minChunkDuration: Self.fallbackParams.minChunkDuration
+                    ).map(\.0)
+                },
+                generatePrimary: { chunk in
+                    Self.generateSingleChunk(
+                        model: model,
+                        audio: chunk,
+                        params: Self.primaryParams,
+                        context: context,
+                        language: languageName
+                    )
+                },
+                generateFallback: { chunk in
+                    Self.generateSingleChunk(
+                        model: model,
+                        audio: chunk,
+                        params: Self.fallbackParams,
+                        context: "",
+                        language: languageName
+                    )
                 }
-            } else {
-                text = primaryText
-                outputLanguageName = primaryOutput.language
-            }
+            )
 
-            let resultLanguageName = outputLanguageName ?? languageName
+            let resultLanguageName = transcript.language ?? languageName
             let cleanedText = QwenTranscriptGuard.removingLikelyTrailingArtifact(
-                from: text,
+                from: transcript.text,
                 languageName: resultLanguageName
             )
             let detectedLanguage = Self.languageCode(forQwenLanguageName: resultLanguageName) ?? language
@@ -627,21 +633,30 @@ final class Qwen3Plugin: NSObject, TranscriptionEnginePlugin, TranscriptionModel
         Qwen3ContextBiasFormatter.format(prompt: prompt)
     }
 
-    private static func generate(
+    private static let sampleRate = 16_000
+
+    private static func generateSingleChunk(
         model: Qwen3ASRModel,
         audio: MLXArray,
         params: STTGenerateParameters,
         context: String,
         language: String?
-    ) -> STTOutput {
-        model.generate(
+    ) -> QwenChunkGeneration {
+        let output = model.generate(
             audio: audio,
             maxTokens: params.maxTokens,
             temperature: params.temperature,
             context: context,
             language: language,
-            chunkDuration: params.chunkDuration,
+            // The plugin already split the source. Keep the upstream model from
+            // creating another set of chunks with a shared token budget.
+            chunkDuration: 1_200,
             minChunkDuration: params.minChunkDuration
+        )
+        return QwenChunkGeneration(
+            text: normalizeTranscript(output.text),
+            language: output.language,
+            generatedTokenCount: output.generationTokens
         )
     }
 
@@ -649,6 +664,132 @@ final class Qwen3Plugin: NSObject, TranscriptionEnginePlugin, TranscriptionModel
         text
             .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+struct QwenChunkGeneration: Equatable {
+    let text: String
+    let language: String?
+    let generatedTokenCount: Int
+}
+
+struct QwenChunkTranscript: Equatable {
+    let text: String
+    let language: String?
+}
+
+enum QwenChunkTranscriptionError: LocalizedError, Equatable {
+    case incomplete
+
+    var errorDescription: String? {
+        "Qwen3 ASR could not complete the entire audio because a chunk reached the model output limit."
+    }
+}
+
+enum QwenChunkTranscriber {
+    static func transcribe<Chunk>(
+        primaryChunks: [Chunk],
+        primaryTokenLimit: Int,
+        fallbackTokenLimit: Int,
+        makeFallbackChunks: (Chunk) -> [Chunk],
+        generatePrimary: (Chunk) -> QwenChunkGeneration,
+        generateFallback: (Chunk) -> QwenChunkGeneration
+    ) throws -> QwenChunkTranscript {
+        var chunkTexts: [String] = []
+        var chunkLanguages: [String?] = []
+
+        for chunk in primaryChunks {
+            try Task.checkCancellation()
+            let primary = generatePrimary(chunk)
+            let primaryReachedLimit = primary.generatedTokenCount >= primaryTokenLimit
+
+            guard primaryReachedLimit || QwenTranscriptGuard.isLikelyLooped(primary.text) else {
+                chunkTexts.append(primary.text)
+                chunkLanguages.append(primary.language)
+                continue
+            }
+
+            let fallback = try transcribeFallbackChunks(
+                makeFallbackChunks(chunk),
+                tokenLimit: fallbackTokenLimit,
+                generate: generateFallback
+            )
+
+            if primaryReachedLimit {
+                guard !fallback.reachedTokenLimit, !fallback.transcript.text.isEmpty else {
+                    throw QwenChunkTranscriptionError.incomplete
+                }
+                chunkTexts.append(fallback.transcript.text)
+                chunkLanguages.append(fallback.transcript.language)
+            } else if fallback.reachedTokenLimit || fallback.transcript.text.isEmpty {
+                throw QwenChunkTranscriptionError.incomplete
+            } else if QwenTranscriptGuard.isLikelyLooped(fallback.transcript.text) {
+                chunkTexts.append(
+                    QwenTranscriptGuard.preferredTranscript(
+                        primary: primary.text,
+                        fallback: fallback.transcript.text
+                    )
+                )
+                chunkLanguages.append(primary.language ?? fallback.transcript.language)
+            } else {
+                chunkTexts.append(fallback.transcript.text)
+                chunkLanguages.append(fallback.transcript.language)
+            }
+        }
+
+        return QwenChunkTranscript(
+            text: joinedTranscript(chunkTexts),
+            language: mergedLanguage(chunkLanguages)
+        )
+    }
+
+    private static func transcribeFallbackChunks<Chunk>(
+        _ chunks: [Chunk],
+        tokenLimit: Int,
+        generate: (Chunk) -> QwenChunkGeneration
+    ) throws -> (transcript: QwenChunkTranscript, reachedTokenLimit: Bool) {
+        var texts: [String] = []
+        var languages: [String?] = []
+        var reachedTokenLimit = false
+
+        for chunk in chunks {
+            try Task.checkCancellation()
+            let output = generate(chunk)
+            texts.append(output.text)
+            languages.append(output.language)
+            reachedTokenLimit = reachedTokenLimit || output.generatedTokenCount >= tokenLimit
+        }
+
+        return (
+            QwenChunkTranscript(
+                text: joinedTranscript(texts),
+                language: mergedLanguage(languages)
+            ),
+            reachedTokenLimit
+        )
+    }
+
+    private static func joinedTranscript(_ texts: [String]) -> String {
+        texts
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func mergedLanguage(_ languages: [String?]) -> String? {
+        var seen: Set<String> = []
+        var merged: [String] = []
+
+        for language in languages {
+            guard let language = language?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !language.isEmpty,
+                  seen.insert(language).inserted else {
+                continue
+            }
+            merged.append(language)
+        }
+
+        return merged.isEmpty ? nil : merged.joined(separator: ",")
     }
 }
 
