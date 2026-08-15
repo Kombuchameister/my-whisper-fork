@@ -186,6 +186,136 @@ final class AudioEngineRecoverySupportTests: XCTestCase {
         )
     }
 
+    func testBuiltInInputPreparationAllowsOnlyAutomaticBuiltInDefaultRoute() {
+        XCTAssertTrue(BuiltInRecordingInputPreparationPolicy.isEligible(
+            hasMicrophonePermission: true,
+            selectedDeviceID: nil,
+            hasExplicitDeviceSelection: false,
+            usesBluetoothTransport: false,
+            defaultInputDeviceID: AudioDeviceID(1),
+            defaultInputTransport: kAudioDeviceTransportTypeBuiltIn
+        ))
+    }
+
+    func testBuiltInInputPreparationRejectsExplicitExternalAndBluetoothRoutes() {
+        let defaultDeviceID = AudioDeviceID(1)
+
+        XCTAssertFalse(BuiltInRecordingInputPreparationPolicy.isEligible(
+            hasMicrophonePermission: true,
+            selectedDeviceID: defaultDeviceID,
+            hasExplicitDeviceSelection: true,
+            usesBluetoothTransport: false,
+            defaultInputDeviceID: defaultDeviceID,
+            defaultInputTransport: kAudioDeviceTransportTypeBuiltIn
+        ))
+        XCTAssertFalse(BuiltInRecordingInputPreparationPolicy.isEligible(
+            hasMicrophonePermission: true,
+            selectedDeviceID: AudioDeviceID(2),
+            hasExplicitDeviceSelection: false,
+            usesBluetoothTransport: true,
+            defaultInputDeviceID: AudioDeviceID(2),
+            defaultInputTransport: kAudioDeviceTransportTypeBluetooth
+        ))
+        XCTAssertFalse(BuiltInRecordingInputPreparationPolicy.isEligible(
+            hasMicrophonePermission: true,
+            selectedDeviceID: nil,
+            hasExplicitDeviceSelection: false,
+            usesBluetoothTransport: false,
+            defaultInputDeviceID: AudioDeviceID(3),
+            defaultInputTransport: kAudioDeviceTransportTypeUSB
+        ))
+        XCTAssertFalse(BuiltInRecordingInputPreparationPolicy.isEligible(
+            hasMicrophonePermission: false,
+            selectedDeviceID: nil,
+            hasExplicitDeviceSelection: false,
+            usesBluetoothTransport: false,
+            defaultInputDeviceID: defaultDeviceID,
+            defaultInputTransport: kAudioDeviceTransportTypeBuiltIn
+        ))
+    }
+
+    func testUSBInputPreparationAllowsOnlyExplicitSelectedUSBRoute() {
+        XCTAssertTrue(USBRecordingInputPreparationPolicy.isEligible(
+            hasMicrophonePermission: true,
+            selectedDeviceID: AudioDeviceID(2),
+            hasExplicitDeviceSelection: true,
+            usesBluetoothTransport: false,
+            selectedInputTransport: kAudioDeviceTransportTypeUSB
+        ))
+
+        XCTAssertFalse(USBRecordingInputPreparationPolicy.isEligible(
+            hasMicrophonePermission: true,
+            selectedDeviceID: AudioDeviceID(2),
+            hasExplicitDeviceSelection: false,
+            usesBluetoothTransport: false,
+            selectedInputTransport: kAudioDeviceTransportTypeUSB
+        ))
+        XCTAssertFalse(USBRecordingInputPreparationPolicy.isEligible(
+            hasMicrophonePermission: true,
+            selectedDeviceID: AudioDeviceID(3),
+            hasExplicitDeviceSelection: true,
+            usesBluetoothTransport: false,
+            selectedInputTransport: kAudioDeviceTransportTypeVirtual
+        ))
+        XCTAssertFalse(USBRecordingInputPreparationPolicy.isEligible(
+            hasMicrophonePermission: true,
+            selectedDeviceID: AudioDeviceID(4),
+            hasExplicitDeviceSelection: true,
+            usesBluetoothTransport: true,
+            selectedInputTransport: kAudioDeviceTransportTypeBluetooth
+        ))
+    }
+
+    func testAirPodsInputPreparationRequiresExplicitOptInAndAirPodsBluetoothRoute() {
+        let airPodsID = AudioDeviceID(5)
+
+        XCTAssertTrue(AirPodsRecordingInputPreparationPolicy.isEligible(
+            hasMicrophonePermission: true,
+            isEnabled: true,
+            selectedDeviceID: airPodsID,
+            selectedDeviceName: "AirPods Pro von Marco - Find My",
+            usesBluetoothTransport: true
+        ))
+        XCTAssertFalse(AirPodsRecordingInputPreparationPolicy.isEligible(
+            hasMicrophonePermission: true,
+            isEnabled: false,
+            selectedDeviceID: airPodsID,
+            selectedDeviceName: "AirPods Pro",
+            usesBluetoothTransport: true
+        ))
+        XCTAssertFalse(AirPodsRecordingInputPreparationPolicy.isEligible(
+            hasMicrophonePermission: true,
+            isEnabled: true,
+            selectedDeviceID: airPodsID,
+            selectedDeviceName: "Jabra PRO 930",
+            usesBluetoothTransport: true
+        ))
+        XCTAssertFalse(AirPodsRecordingInputPreparationPolicy.isEligible(
+            hasMicrophonePermission: true,
+            isEnabled: true,
+            selectedDeviceID: airPodsID,
+            selectedDeviceName: "AirPods Pro",
+            usesBluetoothTransport: false
+        ))
+    }
+
+    func testChangingSelectedDeviceIDClearsTheStoredInputDeviceName() {
+        let service = AudioRecordingService()
+        service.hasMicrophonePermissionOverride = false
+        service.configureInputSelection(
+            deviceID: AudioDeviceID(5),
+            hasExplicitDeviceSelection: true,
+            usesBluetoothTransport: true,
+            deviceName: "AirPods Pro"
+        )
+
+        XCTAssertEqual(service.testingSelectedInputDeviceName(), "AirPods Pro")
+
+        service.selectedDeviceID = AudioDeviceID(6)
+
+        XCTAssertNil(service.testingSelectedInputDeviceName())
+    }
+
     func testAudioInputBufferNormalizerSelectsStrongestNonInterleavedChannel() throws {
         let stereoFormat = try XCTUnwrap(AVAudioFormat(
             commonFormat: .pcmFormatFloat32,
@@ -2517,6 +2647,89 @@ final class AudioRecordingServiceSelectedDeviceTests: XCTestCase {
         XCTAssertEqual(inputCaptureFactory.createdSessions.first?.stopCalls, 1)
     }
 
+    func testPreparedUSBInputStartsExistingHALSessionWithoutColdCaptureSetup() async throws {
+        let usbDeviceID = AudioDeviceID(733)
+        let inputCaptureFactory = FakeAudioInputCaptureFactory()
+        let prepared = expectation(description: "USB input prepared")
+        inputCaptureFactory.prepareHook = { prepared.fulfill() }
+        let service = AudioRecordingService(
+            inputCaptureFactory: inputCaptureFactory,
+            inputTransportResolver: FakeAudioDeviceTransportResolver(
+                transports: [usbDeviceID: kAudioDeviceTransportTypeUSB]
+            )
+        )
+        service.hasMicrophonePermissionOverride = true
+        service.inputAvailabilityOverride = { $0 == usbDeviceID }
+
+        service.configureInputSelection(
+            deviceID: usbDeviceID,
+            hasExplicitDeviceSelection: true,
+            usesBluetoothTransport: false
+        )
+        await fulfillment(of: [prepared], timeout: 1.0)
+        inputCaptureFactory.prepareHook = nil
+        let didStorePreparedInput = await waitUntil(timeout: 1.0) {
+            service.testingHasPreparedUSBInput(deviceID: usbDeviceID)
+        }
+        XCTAssertTrue(didStorePreparedInput)
+
+        let preparedSession = try XCTUnwrap(inputCaptureFactory.createdSessions.first)
+        XCTAssertEqual(preparedSession.startCalls, 0)
+        XCTAssertTrue(inputCaptureFactory.startCalls.isEmpty)
+
+        try service.startRecording()
+
+        XCTAssertTrue(service.isRecording)
+        XCTAssertEqual(preparedSession.startCalls, 1)
+        XCTAssertTrue(inputCaptureFactory.startCalls.isEmpty)
+
+        _ = await service.stopRecording(policy: .immediate)
+        XCTAssertEqual(preparedSession.stopCalls, 1)
+    }
+
+    func testStalePreparedUSBInputFallsBackToFreshColdCapture() async throws {
+        let usbDeviceID = AudioDeviceID(734)
+        let inputCaptureFactory = FakeAudioInputCaptureFactory()
+        inputCaptureFactory.preparedSessionStartError = CoreAudioHALInputOperationError(
+            operation: "test prepared USB start",
+            status: -50
+        )
+        let prepared = expectation(description: "USB input prepared")
+        inputCaptureFactory.prepareHook = { prepared.fulfill() }
+        let service = AudioRecordingService(
+            inputCaptureFactory: inputCaptureFactory,
+            inputTransportResolver: FakeAudioDeviceTransportResolver(
+                transports: [usbDeviceID: kAudioDeviceTransportTypeUSB]
+            )
+        )
+        service.hasMicrophonePermissionOverride = true
+        service.inputAvailabilityOverride = { $0 == usbDeviceID }
+
+        service.configureInputSelection(
+            deviceID: usbDeviceID,
+            hasExplicitDeviceSelection: true,
+            usesBluetoothTransport: false
+        )
+        await fulfillment(of: [prepared], timeout: 1.0)
+        inputCaptureFactory.prepareHook = nil
+        let didStorePreparedInput = await waitUntil(timeout: 1.0) {
+            service.testingHasPreparedUSBInput(deviceID: usbDeviceID)
+        }
+        XCTAssertTrue(didStorePreparedInput)
+
+        try service.startRecording()
+
+        XCTAssertTrue(service.isRecording)
+        XCTAssertEqual(inputCaptureFactory.createdSessions.first?.startCalls, 1)
+        XCTAssertEqual(inputCaptureFactory.createdSessions.first?.stopCalls, 1)
+        XCTAssertEqual(inputCaptureFactory.startCalls, [
+            .init(deviceID: usbDeviceID, label: "recording-usb-cold-fallback", bufferSize: 256)
+        ])
+
+        _ = await service.stopRecording(policy: .immediate)
+        XCTAssertEqual(inputCaptureFactory.createdSessions.last?.stopCalls, 1)
+    }
+
     func testStartRecordingUsesInputOnlyCaptureForExplicitVirtualInput() async throws {
         let virtualDeviceID = AudioDeviceID(731)
         let inputCaptureFactory = FakeAudioInputCaptureFactory()
@@ -2655,6 +2868,38 @@ final class CoreAudioHALInputCaptureSessionTests: XCTestCase {
         XCTAssertEqual(CoreAudioHALInputCaptureSession.testingInputOnlyCaptureChannelCount(for: 1), 1)
         XCTAssertEqual(CoreAudioHALInputCaptureSession.testingInputOnlyCaptureChannelCount(for: 2), 2)
         XCTAssertEqual(CoreAudioHALInputCaptureSession.testingInputOnlyCaptureChannelCount(for: 14), 2)
+    }
+
+    func testPreparedSessionInitializesHALWithoutStartingCaptureUntilClaimed() throws {
+        let operations = FakeCoreAudioHALInputOperations()
+        let format = try XCTUnwrap(AVAudioFormat(
+            commonFormat: .pcmFormatFloat32,
+            sampleRate: 48_000,
+            channels: 2,
+            interleaved: false
+        ))
+        let session = try CoreAudioHALInputCaptureSession(
+            deviceID: AudioDeviceID(910),
+            format: format,
+            bufferSize: 256,
+            label: "test-hal-prepared",
+            operations: operations,
+            startsImmediately: false,
+            onBuffer: { _ in }
+        )
+
+        XCTAssertEqual(operations.initializeCalls, 1)
+        XCTAssertEqual(operations.startCalls, 0)
+        XCTAssertEqual(operations.invokeStoredCallback(), noErr)
+        XCTAssertTrue(operations.renderCalls.isEmpty)
+
+        try session.start()
+
+        XCTAssertEqual(operations.startCalls, 1)
+        let disposed = expectation(description: "prepared HAL session finalizes")
+        operations.disposeHook = { disposed.fulfill() }
+        session.stop()
+        wait(for: [disposed], timeout: 1.0)
     }
 
     func testSessionConfiguresInputOnlyHALUnitAndPullsInputFromRenderCallback() throws {
@@ -3330,15 +3575,43 @@ private final class FakeAudioInputSelectionEngineValidator: AudioInputSelectionE
     }
 }
 
-private final class FakeAudioInputCaptureSession: AudioInputCaptureSession {
-    private(set) var stopCalls = 0
+private func waitUntil(
+    timeout: TimeInterval,
+    pollInterval: Duration = .milliseconds(5),
+    condition: () -> Bool
+) async -> Bool {
+    let deadline = Date().addingTimeInterval(timeout)
+    while !condition() {
+        guard Date() < deadline else { return false }
+        try? await Task.sleep(for: pollInterval)
+    }
+    return true
+}
+
+private final class FakeAudioInputCaptureSession: AudioInputCaptureSession, @unchecked Sendable {
+    private let startError: Error?
+    private let lock = NSLock()
+    private var _startCalls = 0
+    private var _stopCalls = 0
+
+    var startCalls: Int { lock.withLock { _startCalls } }
+    var stopCalls: Int { lock.withLock { _stopCalls } }
+
+    init(startError: Error? = nil) {
+        self.startError = startError
+    }
+
+    func start() throws {
+        lock.withLock { _startCalls += 1 }
+        if let startError { throw startError }
+    }
 
     func stop() {
-        stopCalls += 1
+        lock.withLock { _stopCalls += 1 }
     }
 }
 
-private final class FakeAudioInputCaptureFactory: AudioInputCaptureFactory {
+private final class FakeAudioInputCaptureFactory: AudioInputCaptureFactory, @unchecked Sendable {
     struct ValidateCall: Equatable {
         let deviceID: AudioDeviceID
         let label: String
@@ -3351,13 +3624,43 @@ private final class FakeAudioInputCaptureFactory: AudioInputCaptureFactory {
     }
 
     private let format: AVAudioFormat
-    var inputFormatError: Error?
-    var validateError: Error?
-    var startError: Error?
-    private(set) var inputFormatCalls: [AudioDeviceID] = []
-    private(set) var validateCalls: [ValidateCall] = []
-    private(set) var startCalls: [StartCall] = []
-    private(set) var createdSessions: [FakeAudioInputCaptureSession] = []
+    private let lock = NSLock()
+    private var _inputFormatError: Error?
+    private var _validateError: Error?
+    private var _startError: Error?
+    private var _preparedSessionStartError: Error?
+    private var _prepareHook: (() -> Void)?
+    private var _inputFormatCalls: [AudioDeviceID] = []
+    private var _validateCalls: [ValidateCall] = []
+    private var _prepareCalls: [StartCall] = []
+    private var _startCalls: [StartCall] = []
+    private var _createdSessions: [FakeAudioInputCaptureSession] = []
+
+    var inputFormatError: Error? {
+        get { lock.withLock { _inputFormatError } }
+        set { lock.withLock { _inputFormatError = newValue } }
+    }
+    var validateError: Error? {
+        get { lock.withLock { _validateError } }
+        set { lock.withLock { _validateError = newValue } }
+    }
+    var startError: Error? {
+        get { lock.withLock { _startError } }
+        set { lock.withLock { _startError = newValue } }
+    }
+    var preparedSessionStartError: Error? {
+        get { lock.withLock { _preparedSessionStartError } }
+        set { lock.withLock { _preparedSessionStartError = newValue } }
+    }
+    var prepareHook: (() -> Void)? {
+        get { lock.withLock { _prepareHook } }
+        set { lock.withLock { _prepareHook = newValue } }
+    }
+    var inputFormatCalls: [AudioDeviceID] { lock.withLock { _inputFormatCalls } }
+    var validateCalls: [ValidateCall] { lock.withLock { _validateCalls } }
+    var prepareCalls: [StartCall] { lock.withLock { _prepareCalls } }
+    var startCalls: [StartCall] { lock.withLock { _startCalls } }
+    var createdSessions: [FakeAudioInputCaptureSession] { lock.withLock { _createdSessions } }
 
     init(format: AVAudioFormat? = nil) {
         self.format = format ?? AVAudioFormat(
@@ -3369,14 +3672,37 @@ private final class FakeAudioInputCaptureFactory: AudioInputCaptureFactory {
     }
 
     func inputOnlyCaptureFormat(deviceID: AudioDeviceID) throws -> AVAudioFormat {
-        inputFormatCalls.append(deviceID)
-        if let inputFormatError { throw inputFormatError }
+        let error = lock.withLock { () -> Error? in
+            _inputFormatCalls.append(deviceID)
+            return _inputFormatError
+        }
+        if let error { throw error }
         return format
     }
 
     func validateInputOnlyDevice(deviceID: AudioDeviceID, label: String) throws {
-        validateCalls.append(.init(deviceID: deviceID, label: label))
-        if let validateError { throw validateError }
+        let error = lock.withLock { () -> Error? in
+            _validateCalls.append(.init(deviceID: deviceID, label: label))
+            return _validateError
+        }
+        if let error { throw error }
+    }
+
+    func prepareInputOnlyCapture(
+        deviceID: AudioDeviceID,
+        label: String,
+        bufferSize: AVAudioFrameCount,
+        onBuffer: @escaping (AVAudioPCMBuffer) -> Void
+    ) throws -> AudioInputCaptureSession {
+        let configuration = lock.withLock { () -> (Error?, Error?, (() -> Void)?) in
+            _prepareCalls.append(.init(deviceID: deviceID, label: label, bufferSize: bufferSize))
+            return (_startError, _preparedSessionStartError, _prepareHook)
+        }
+        if let error = configuration.0 { throw error }
+        let session = FakeAudioInputCaptureSession(startError: configuration.1)
+        lock.withLock { _createdSessions.append(session) }
+        configuration.2?()
+        return session
     }
 
     func startInputOnlyCapture(
@@ -3385,10 +3711,13 @@ private final class FakeAudioInputCaptureFactory: AudioInputCaptureFactory {
         bufferSize: AVAudioFrameCount,
         onBuffer: @escaping (AVAudioPCMBuffer) -> Void
     ) throws -> AudioInputCaptureSession {
-        startCalls.append(.init(deviceID: deviceID, label: label, bufferSize: bufferSize))
-        if let startError { throw startError }
+        let error = lock.withLock { () -> Error? in
+            _startCalls.append(.init(deviceID: deviceID, label: label, bufferSize: bufferSize))
+            return _startError
+        }
+        if let error { throw error }
         let session = FakeAudioInputCaptureSession()
-        createdSessions.append(session)
+        lock.withLock { _createdSessions.append(session) }
         return session
     }
 }
