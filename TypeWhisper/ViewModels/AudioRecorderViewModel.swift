@@ -75,6 +75,7 @@ final class AudioRecorderViewModel: ObservableObject {
         let prompt: String?
         let dictionaryTermHints: [PluginDictionaryTermHint]
         let liveSessionResult: TranscriptionResult?
+        let calendarEvent: CalendarMeetingTranscriptMetadata?
     }
 
     struct RecordingTranscriptionFailure: Codable, Equatable, Sendable {
@@ -126,7 +127,26 @@ final class AudioRecorderViewModel: ObservableObject {
         let fileSize: Int64
         let transcript: String?
         let transcriptionFailure: RecordingTranscriptionFailure?
+        let calendarEvent: CalendarMeetingTranscriptMetadata?
         var fileName: String { url.lastPathComponent }
+
+        init(
+            url: URL,
+            date: Date,
+            duration: TimeInterval,
+            fileSize: Int64,
+            transcript: String?,
+            transcriptionFailure: RecordingTranscriptionFailure?,
+            calendarEvent: CalendarMeetingTranscriptMetadata? = nil
+        ) {
+            self.url = url
+            self.date = date
+            self.duration = duration
+            self.fileSize = fileSize
+            self.transcript = transcript
+            self.transcriptionFailure = transcriptionFailure
+            self.calendarEvent = calendarEvent
+        }
     }
 
     @Published var state: RecorderState = .idle
@@ -231,6 +251,7 @@ final class AudioRecorderViewModel: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var currentOutputURL: URL?
     private var activeCalendarMeetingHandle: CalendarMeetingRecordingHandle?
+    private var activeCalendarMeetingTranscriptMetadata: CalendarMeetingTranscriptMetadata?
     private var activeRecorderAPISessionID: UUID?
     private var recorderAPISessions: [UUID: RecorderAPISessionSnapshot] = [:]
     private var transientTranscriptionFailures: [String: RecordingTranscriptionFailure] = [:]
@@ -455,7 +476,8 @@ final class AudioRecorderViewModel: ObservableObject {
                     micEnabled: micEnabled,
                     systemAudioEnabled: systemAudioEnabled,
                     apiSessionID: nil,
-                    preferredBaseName: nil
+                    preferredBaseName: nil,
+                    transcriptMetadata: nil
                 )
             } catch {
                 errorMessage = error.localizedDescription
@@ -472,7 +494,8 @@ final class AudioRecorderViewModel: ObservableObject {
         micEnabled requestedMicEnabled: Bool,
         systemAudioEnabled requestedSystemAudioEnabled: Bool,
         apiSessionID: UUID?,
-        preferredBaseName: String?
+        preferredBaseName: String?,
+        transcriptMetadata: CalendarMeetingTranscriptMetadata?
     ) async throws -> URL {
         guard retranscribingRecordingURL == nil else {
             throw RecorderAPIError.retranscribing
@@ -494,6 +517,7 @@ final class AudioRecorderViewModel: ObservableObject {
         errorMessage = nil
         systemAudioWarningMessage = nil
         partialText = ""
+        activeCalendarMeetingTranscriptMetadata = transcriptMetadata
         reconcileSelectionWithAvailablePlugins()
         state = .recording
         let microphoneSelection = requestedMicEnabled
@@ -519,6 +543,7 @@ final class AudioRecorderViewModel: ObservableObject {
             }
             state = .idle
             currentOutputURL = nil
+            activeCalendarMeetingTranscriptMetadata = nil
             if let apiSessionID {
                 activeRecorderAPISessionID = nil
                 recorderAPISessions.removeValue(forKey: apiSessionID)
@@ -551,6 +576,8 @@ final class AudioRecorderViewModel: ObservableObject {
 
     private func stopRecording(apiSessionID: UUID?) {
         activeCalendarMeetingHandle = nil
+        let calendarEvent = activeCalendarMeetingTranscriptMetadata
+        activeCalendarMeetingTranscriptMetadata = nil
         let recordingDuration = duration
         let shouldTranscribe = transcriptionEnabled
 
@@ -568,6 +595,20 @@ final class AudioRecorderViewModel: ObservableObject {
             )
             async let finalizedURLTask = recorderService.finalizeRecording(stoppedRecording)
             let (liveSessionResult, url) = await (liveSessionResultTask, finalizedURLTask)
+
+            if let url, let calendarEvent {
+                do {
+                    try saveTranscriptDocument(
+                        text: nil,
+                        calendarEvent: calendarEvent,
+                        for: url
+                    )
+                } catch {
+                    logger.error(
+                        "Failed to save calendar transcript metadata: \(error.localizedDescription, privacy: .public)"
+                    )
+                }
+            }
 
             let finalTranscriptionRequest: FinalTranscriptionRequest?
             if shouldTranscribe, let url {
@@ -592,7 +633,8 @@ final class AudioRecorderViewModel: ObservableObject {
                     modelOverrideId: selectedModel,
                     prompt: dictionaryPrompt,
                     dictionaryTermHints: dictionaryTermHints,
-                    liveSessionResult: liveSessionResult
+                    liveSessionResult: liveSessionResult,
+                    calendarEvent: calendarEvent
                 )
                 if let apiSessionID {
                     markRecorderAPISessionFinalizing(id: apiSessionID, outputURL: url)
@@ -677,7 +719,8 @@ final class AudioRecorderViewModel: ObservableObject {
             micEnabled: resolvedMicEnabled,
             systemAudioEnabled: resolvedSystemAudioEnabled,
             apiSessionID: sessionID,
-            preferredBaseName: nil
+            preferredBaseName: nil,
+            transcriptMetadata: nil
         )
         return sessionID
     }
@@ -704,13 +747,15 @@ final class AudioRecorderViewModel: ObservableObject {
     // MARK: - Calendar Meeting Automation
 
     func startCalendarMeetingRecording(
-        preferredBaseName: String
+        preferredBaseName: String,
+        transcriptMetadata: CalendarMeetingTranscriptMetadata? = nil
     ) async throws -> CalendarMeetingRecordingHandle {
         let outputURL = try await beginRecording(
             micEnabled: micEnabled,
             systemAudioEnabled: systemAudioEnabled,
             apiSessionID: nil,
-            preferredBaseName: preferredBaseName
+            preferredBaseName: preferredBaseName,
+            transcriptMetadata: transcriptMetadata
         )
         guard state == .recording else {
             activeCalendarMeetingHandle = nil
@@ -780,14 +825,24 @@ final class AudioRecorderViewModel: ObservableObject {
         guard !isRetranscribing(item) else { return }
 
         do {
-            try FileManager.default.removeItem(at: item.url)
-            // Also delete sidecar transcript
-            let txtURL = item.url.deletingPathExtension().appendingPathExtension("txt")
-            try? FileManager.default.removeItem(at: txtURL)
-            clearTranscriptionFailure(for: item.url)
+            try removeRecordingFileIfPresent(at: transcriptURL(for: item.url))
+            try removeRecordingFileIfPresent(at: transcriptDocumentURL(for: item.url))
+            try removeRecordingFileIfPresent(at: transcriptionFailureURL(for: item.url))
+            try removeRecordingFileIfPresent(at: item.url)
+            transientTranscriptionFailures.removeValue(
+                forKey: transcriptionFailureKey(for: item.url)
+            )
             recordings.removeAll { $0.id == item.id }
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    private func removeRecordingFileIfPresent(at url: URL) throws {
+        do {
+            try FileManager.default.removeItem(at: url)
+        } catch let error as CocoaError where error.code == .fileNoSuchFile {
+            return
         }
     }
 
@@ -832,7 +887,8 @@ final class AudioRecorderViewModel: ObservableObject {
                 modelOverrideId: self.selectedModel,
                 prompt: self.dictionaryService.getTermsForPrompt(providerId: providerId),
                 dictionaryTermHints: self.dictionaryService.getTermHints(providerId: providerId),
-                liveSessionResult: nil
+                liveSessionResult: nil,
+                calendarEvent: item.calendarEvent
             )
 
             _ = await self.runRetranscription(request)
@@ -902,7 +958,17 @@ final class AudioRecorderViewModel: ObservableObject {
                 let size = (attrs[.size] as? Int64) ?? 0
                 let duration = audioDuration(for: url)
                 let transcriptURL = url.deletingPathExtension().appendingPathExtension("txt")
-                let transcript = try? String(contentsOf: transcriptURL, encoding: .utf8)
+                let transcriptDocumentURL = url
+                    .deletingPathExtension()
+                    .appendingPathExtension("transcript.json")
+                let transcriptDocument = (try? Data(contentsOf: transcriptDocumentURL))
+                    .flatMap { data -> RecordingTranscriptDocument? in
+                        let decoder = JSONDecoder()
+                        decoder.dateDecodingStrategy = .iso8601
+                        return try? decoder.decode(RecordingTranscriptDocument.self, from: data)
+                    }
+                let transcript = (try? String(contentsOf: transcriptURL, encoding: .utf8))
+                    ?? transcriptDocument?.text
                 let failureURL = url.appendingPathExtension("transcription-failure.json")
                 let persistedFailure = (try? Data(contentsOf: failureURL))
                     .flatMap { try? JSONDecoder().decode(RecordingTranscriptionFailure.self, from: $0) }
@@ -913,7 +979,8 @@ final class AudioRecorderViewModel: ObservableObject {
                     duration: duration,
                     fileSize: size,
                     transcript: transcript,
-                    transcriptionFailure: persistedFailure ?? transientFailures[failureKey]
+                    transcriptionFailure: persistedFailure ?? transientFailures[failureKey],
+                    calendarEvent: transcriptDocument?.calendarEvent
                 )
             }
             .sorted { $0.date > $1.date }
@@ -1117,7 +1184,8 @@ final class AudioRecorderViewModel: ObservableObject {
             modelOverrideId: selectedModel,
             prompt: nil,
             dictionaryTermHints: [],
-            liveSessionResult: nil
+            liveSessionResult: nil,
+            calendarEvent: nil
         )
         let failure = makeTranscriptionFailure(
             phase: phase,
@@ -1134,10 +1202,41 @@ final class AudioRecorderViewModel: ObservableObject {
         audioURL.deletingPathExtension().appendingPathExtension("txt")
     }
 
-    private func saveTranscript(_ text: String, for audioURL: URL) throws {
+    private func saveTranscript(
+        _ text: String,
+        for audioURL: URL,
+        calendarEvent: CalendarMeetingTranscriptMetadata?
+    ) throws {
         let txtURL = transcriptURL(for: audioURL)
         try text.write(to: txtURL, atomically: true, encoding: .utf8)
+        if let calendarEvent {
+            try saveTranscriptDocument(
+                text: text,
+                calendarEvent: calendarEvent,
+                for: audioURL
+            )
+        }
         clearTranscriptionFailure(for: audioURL)
+    }
+
+    private func transcriptDocumentURL(for audioURL: URL) -> URL {
+        audioURL.deletingPathExtension().appendingPathExtension("transcript.json")
+    }
+
+    private func saveTranscriptDocument(
+        text: String?,
+        calendarEvent: CalendarMeetingTranscriptMetadata,
+        for audioURL: URL
+    ) throws {
+        let document = RecordingTranscriptDocument(
+            text: text,
+            calendarEvent: calendarEvent
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(document)
+        try data.write(to: transcriptDocumentURL(for: audioURL), options: .atomic)
     }
 
     private func loadTranscript(for audioURL: URL) -> String? {
@@ -1151,7 +1250,11 @@ final class AudioRecorderViewModel: ObservableObject {
         request: FinalTranscriptionRequest
     ) -> FinalTranscriptionOutcome {
         do {
-            try saveTranscript(text, for: audioURL)
+            try saveTranscript(
+                text,
+                for: audioURL,
+                calendarEvent: request.calendarEvent
+            )
             return .transcriptSaved
         } catch {
             logger.error("Failed to save transcript: \(error.localizedDescription)")
