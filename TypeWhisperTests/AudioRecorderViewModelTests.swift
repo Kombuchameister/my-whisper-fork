@@ -540,6 +540,14 @@ final class AudioRecorderViewModelTests: XCTestCase {
         XCTAssertEqual(document.schemaVersion, 1)
         XCTAssertEqual(document.text, "complete meeting transcript")
         XCTAssertEqual(document.calendarEvent, metadata)
+
+        let markdownURL = handle.outputURL
+            .deletingPathExtension()
+            .appendingPathExtension("transcript.md")
+        let markdown = try String(contentsOf: markdownURL, encoding: .utf8)
+        XCTAssertTrue(markdown.hasPrefix("---\n"))
+        XCTAssertTrue(markdown.contains("title: \"RC2 Meeting\""))
+        XCTAssertTrue(markdown.contains("# RC2 Meeting\n\ncomplete meeting transcript"))
     }
 
     func testCalendarMetadataPersistsWhenFinalTranscriptionFails() async throws {
@@ -571,6 +579,9 @@ final class AudioRecorderViewModelTests: XCTestCase {
         let documentURL = handle.outputURL
             .deletingPathExtension()
             .appendingPathExtension("transcript.json")
+        let markdownURL = handle.outputURL
+            .deletingPathExtension()
+            .appendingPathExtension("transcript.md")
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         let document = try decoder.decode(
@@ -580,6 +591,9 @@ final class AudioRecorderViewModelTests: XCTestCase {
         XCTAssertEqual(document.schemaVersion, 1)
         XCTAssertNil(document.text)
         XCTAssertEqual(document.calendarEvent, metadata)
+        let markdown = try String(contentsOf: markdownURL, encoding: .utf8)
+        XCTAssertTrue(markdown.contains("title: \"Failed meeting\""))
+        XCTAssertTrue(markdown.hasSuffix("# Failed meeting\n"))
     }
 
     func testManualStopDuringCalendarStartupPersistsMetadata() async throws {
@@ -658,6 +672,9 @@ final class AudioRecorderViewModelTests: XCTestCase {
         let documentURL = handle.outputURL
             .deletingPathExtension()
             .appendingPathExtension("transcript.json")
+        let markdownURL = handle.outputURL
+            .deletingPathExtension()
+            .appendingPathExtension("transcript.md")
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         let document = try decoder.decode(
@@ -667,10 +684,14 @@ final class AudioRecorderViewModelTests: XCTestCase {
         XCTAssertEqual(document.schemaVersion, 1)
         XCTAssertNil(document.text)
         XCTAssertEqual(document.calendarEvent, metadata)
+        let markdown = try String(contentsOf: markdownURL, encoding: .utf8)
+        XCTAssertTrue(markdown.contains("title: \"Planning\""))
+        XCTAssertTrue(markdown.hasSuffix("# Planning\n"))
 
         viewModel.deleteRecording(recording)
         XCTAssertFalse(FileManager.default.fileExists(atPath: handle.outputURL.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: documentURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: markdownURL.path))
     }
 
     func testDeleteRecordingRetainsAudioWhenCalendarMetadataCannotBeDeleted() async throws {
@@ -695,6 +716,10 @@ final class AudioRecorderViewModelTests: XCTestCase {
         let documentURL = handle.outputURL
             .deletingPathExtension()
             .appendingPathExtension("transcript.json")
+        let markdownURL = handle.outputURL
+            .deletingPathExtension()
+            .appendingPathExtension("transcript.md")
+        let markdownBeforeDeletion = try Data(contentsOf: markdownURL)
         try FileManager.default.setAttributes(
             [.immutable: true],
             ofItemAtPath: documentURL.path
@@ -710,6 +735,7 @@ final class AudioRecorderViewModelTests: XCTestCase {
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: handle.outputURL.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: documentURL.path))
+        XCTAssertEqual(try Data(contentsOf: markdownURL), markdownBeforeDeletion)
         XCTAssertEqual(viewModel.recordings.map(\.id), [recording.id])
         XCTAssertNotNil(viewModel.errorMessage)
     }
@@ -864,6 +890,9 @@ final class AudioRecorderViewModelTests: XCTestCase {
         XCTAssertEqual(document.schemaVersion, 1)
         XCTAssertEqual(document.text, "fresh retranscription")
         XCTAssertEqual(document.calendarEvent, metadata)
+        let markdownURL = audioURL.deletingPathExtension().appendingPathExtension("transcript.md")
+        let markdown = try String(contentsOf: markdownURL, encoding: .utf8)
+        XCTAssertTrue(markdown.contains("# Meeting\n\nfresh retranscription"))
 
         let plugin = try XCTUnwrap(
             PluginManager.shared.transcriptionEngine(for: "assemblyai") as? AudioRecorderMockTranscriptionPlugin
@@ -1043,6 +1072,54 @@ final class AudioRecorderViewModelTests: XCTestCase {
 
         XCTAssertEqual(viewModel.recordings.first?.transcriptionFailure?.phase, .savingTranscript)
         XCTAssertEqual(try String(contentsOf: transcriptURL, encoding: .utf8), "keep me")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: failureURL.path))
+    }
+
+    func testRetranscriptionMarkdownWriteFailureRestoresAllTranscriptFiles() async throws {
+        try preserveStandardDefaults()
+        setupPluginManager(groqBehavior: .success("replacement"))
+        let defaults = try makeDefaults()
+        let modelManager = ModelManagerService()
+        modelManager.selectProvider("groq")
+        let recordingsDirectory = makeTemporaryDirectory()
+        let audioURL = recordingsDirectory.appendingPathComponent("Meeting.wav")
+        let transcriptURL = audioURL.deletingPathExtension().appendingPathExtension("txt")
+        let documentURL = audioURL.deletingPathExtension().appendingPathExtension("transcript.json")
+        let markdownURL = audioURL.deletingPathExtension().appendingPathExtension("transcript.md")
+        let failureURL = failureSidecarURL(for: audioURL)
+        let metadata = makeCalendarMeetingTranscriptMetadata(title: "Meeting")
+        let originalDocument = RecordingTranscriptDocument(
+            text: "keep me",
+            calendarEvent: metadata
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let originalDocumentData = try encoder.encode(originalDocument)
+        let originalMarkdown = RecordingTranscriptMarkdownRenderer.render(originalDocument)
+        try Data("audio".utf8).write(to: audioURL)
+        try "keep me".write(to: transcriptURL, atomically: true, encoding: .utf8)
+        try originalDocumentData.write(to: documentURL, options: .atomic)
+        try originalMarkdown.write(to: markdownURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.immutable: true], ofItemAtPath: markdownURL.path)
+        defer {
+            try? FileManager.default.setAttributes([.immutable: false], ofItemAtPath: markdownURL.path)
+        }
+        let viewModel = makeViewModel(
+            defaults: defaults,
+            modelManager: modelManager,
+            recorderService: makeRecorderService(recordingsDirectory: recordingsDirectory),
+            audioSamplesLoader: { _ in [0.25, -0.25] }
+        )
+        viewModel.loadRecordings()
+        try await waitForRecordingsToLoad(viewModel, count: 1)
+
+        viewModel.transcribeRecording(try XCTUnwrap(viewModel.recordings.first))
+        try await waitForRetranscriptionToFinish(viewModel)
+
+        XCTAssertEqual(viewModel.recordings.first?.transcriptionFailure?.phase, .savingTranscript)
+        XCTAssertEqual(try String(contentsOf: transcriptURL, encoding: .utf8), "keep me")
+        XCTAssertEqual(try Data(contentsOf: documentURL), originalDocumentData)
+        XCTAssertEqual(try String(contentsOf: markdownURL, encoding: .utf8), originalMarkdown)
         XCTAssertTrue(FileManager.default.fileExists(atPath: failureURL.path))
     }
 
