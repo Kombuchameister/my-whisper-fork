@@ -724,11 +724,13 @@ final class DictationViewModel: ObservableObject {
     }
 
     var needsMicPermission: Bool {
-        !audioRecordingService.hasMicrophonePermission
+        if AppConstants.isScreenshotAutomation { return false }
+        return !audioRecordingService.hasMicrophonePermission
     }
 
     var needsAccessibilityPermission: Bool {
-        !textInsertionService.isAccessibilityGranted
+        if AppConstants.isScreenshotAutomation { return false }
+        return !textInsertionService.isAccessibilityGranted
     }
 
     // MARK: - HTTP API
@@ -789,6 +791,24 @@ final class DictationViewModel: ObservableObject {
     func testingWaitForRecordingStart() async {
         let startTask = recordingStartTask
         await startTask?.value
+    }
+
+    func prepareScreenshotIndicatorFixture(partialText: String = "") {
+        guard AppConstants.isScreenshotAutomation else { return }
+
+        indicatorStyle = .overlay
+        indicatorTranscriptPreviewEnabled = true
+        indicatorVisibleInScreenCaptures = true
+        notchIndicatorVisibility = .duringActivity
+        notchIndicatorLeftContent = .timer
+        notchIndicatorRightContent = .waveform
+        overlayPosition = .bottom
+        recordingDuration = 83
+        audioLevel = 0.46
+        activeRuleName = localizedAppText("Polish Dictation", de: "Diktat glätten")
+        isRecordingInputReady = true
+        state = .recording
+        self.partialText = partialText
     }
 #endif
 

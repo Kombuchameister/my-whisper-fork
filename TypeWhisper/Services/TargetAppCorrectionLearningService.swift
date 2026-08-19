@@ -258,6 +258,20 @@ final class TargetAppCorrectionLearningService: ObservableObject {
         self.latestAttempt = Self.loadLatestAttempt(from: defaults)
     }
 
+    #if DEBUG
+    func prepareScreenshotFixture(hasPremiumAccess: Bool) {
+        activeAttemptID = nil
+        latestAttempt = hasPremiumAccess
+            ? TargetAppCorrectionLearningAttemptSnapshot(
+                outcome: .learned,
+                timestamp: AppConstants.screenshotFixtureReferenceDate,
+                commitSignal: .returnKey,
+                learnedCorrectionCount: 1
+            )
+            : nil
+    }
+    #endif
+
     func trackInsertion(
         insertedText: String,
         baseline: TextInsertionService.FocusedTextObservation
