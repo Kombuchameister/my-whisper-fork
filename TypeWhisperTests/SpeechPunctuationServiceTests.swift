@@ -445,18 +445,19 @@ final class SpeechPunctuationServiceTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: appSupportDirectory) }
 
         let pipeline = makePipeline(appSupportDirectory: appSupportDirectory)
-        let rawText = "ciao aperta parentesi mondo chiusa parentesi"
+        let rawText = "twenty three"
 
         let result = try await pipeline.process(
             text: rawText,
-            context: PostProcessingContext(language: "it"),
+            context: PostProcessingContext(language: "en"),
             dictationContext: DictationRuntimeContext(
-                engineId: "parakeet",
-                modelId: "parakeet-v3",
-                configuredLanguage: "it",
+                engineId: "mock",
+                modelId: "tiny",
+                configuredLanguage: "en",
                 detectedLanguage: nil
             ),
-            llmHandler: { _ in
+            llmHandler: { intermediateText in
+                XCTAssertEqual(intermediateText, "23")
                 throw NSError(
                     domain: "PostProcessingPipelineTests",
                     code: 1,
@@ -464,6 +465,7 @@ final class SpeechPunctuationServiceTests: XCTestCase {
                 )
             },
             llmStepName: "Workflow",
+            normalizeNumbers: true,
             llmFailureFallbackText: rawText
         )
 
@@ -495,6 +497,29 @@ final class SpeechPunctuationServiceTests: XCTestCase {
             XCTFail("Expected cancellation to propagate")
         } catch is CancellationError {
             // Expected: cancellation must not continue into text insertion.
+        }
+    }
+
+    @MainActor
+    func testPipelineDoesNotTreatCancelledURLErrorAsRawFallback() async throws {
+        let appSupportDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: appSupportDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: appSupportDirectory) }
+
+        let pipeline = makePipeline(appSupportDirectory: appSupportDirectory)
+
+        do {
+            _ = try await pipeline.process(
+                text: "Keep this text",
+                context: PostProcessingContext(language: "en"),
+                llmHandler: { _ in throw URLError(.cancelled) },
+                llmStepName: "Workflow",
+                llmFailureFallbackText: "Keep this text"
+            )
+            XCTFail("Expected URL cancellation to propagate")
+        } catch is CancellationError {
+            // Expected: provider cancellation must not continue into text insertion.
         }
     }
 

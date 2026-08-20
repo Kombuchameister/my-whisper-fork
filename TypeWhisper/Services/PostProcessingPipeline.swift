@@ -4,6 +4,13 @@ import os.log
 
 private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "TypeWhisper", category: "PostProcessingPipeline")
 
+private func isPostProcessingCancellation(_ error: Error) -> Bool {
+    if error is CancellationError { return true }
+    if let urlError = error as? URLError, urlError.code == .cancelled { return true }
+    let nsError = error as NSError
+    return nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled
+}
+
 struct PostProcessingResult {
     let text: String
     let appliedSteps: [String]
@@ -155,7 +162,7 @@ final class PostProcessingPipeline {
             } catch {
                 logger.error("Post-processing step '\(name)' failed after \(ContinuousClock.now - stepStart): \(error.localizedDescription)")
                 if step.id == -1 {
-                    if error is CancellationError || Task.isCancelled {
+                    if Task.isCancelled || isPostProcessingCancellation(error) {
                         throw CancellationError()
                     }
 
