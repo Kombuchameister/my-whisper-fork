@@ -1903,9 +1903,20 @@ final class DictationViewModel: ObservableObject {
                     text: text, context: ppContext, dictationContext: dictationContext, llmHandler: llmHandler,
                     outputFormat: resolvedOutputFormat,
                     llmStepName: llmStepName,
-                    normalizeNumbers: self.effectiveNumberNormalizationOverride
+                    normalizeNumbers: self.effectiveNumberNormalizationOverride,
+                    llmFailureFallbackText: actionPluginId == nil ? text : nil
                 )
                 text = ppResult.text
+                let postProcessingFallback = ppResult.fallback
+                if let postProcessingFallback {
+                    errorLogService.addEntry(
+                        message: localizedAppText(
+                            "\(postProcessingFallback.failedStep) post-processing failed. Raw transcription fallback selected. \(postProcessingFallback.reason)",
+                            de: "\(postProcessingFallback.failedStep)-Nachbearbeitung fehlgeschlagen. Rohtext-Fallback ausgewählt. \(postProcessingFallback.reason)"
+                        ),
+                        category: "prompt"
+                    )
+                }
                 let shouldAutoEnterAfterInsertion = actionPluginId == nil
                     && (autoEnterMode == .always
                         || (autoEnterResolution.shouldPressEnter
@@ -1926,6 +1937,9 @@ final class DictationViewModel: ObservableObject {
                 var targetAppCorrectionBaseline: TextInsertionService.FocusedTextObservation?
                 let modelDisplayName = transcription.modelDisplayName
                 var pipelineSteps = ppResult.appliedSteps
+                if postProcessingFallback != nil {
+                    pipelineSteps.append(localizedAppText("Raw transcription fallback", de: "Rohtext-Fallback"))
+                }
                 if transcription.usedRecoveryFallback {
                     pipelineSteps.append(localizedAppText("Recovery fallback", de: "Recovery-Fallback"))
                 }
@@ -2095,6 +2109,18 @@ final class DictationViewModel: ObservableObject {
                 speechFeedbackService.speakAutomaticTranscription(text: text, language: detectedLang)
                 lastTranscribedText = text
                 lastTranscriptionLanguage = detectedLang
+
+                if postProcessingFallback != nil {
+                    showNotchFeedback(
+                        message: localizedAppText(
+                            "AI post-processing failed — raw transcription inserted",
+                            de: "KI-Nachbearbeitung fehlgeschlagen – Rohtext eingefügt",
+                            ja: "AI後処理に失敗しました — 未処理の文字起こしを挿入しました"
+                        ),
+                        icon: "exclamationmark.triangle.fill",
+                        duration: 4.0
+                    )
+                }
 
                 state = .inserting
                 if actionFeedbackMessage != nil {
