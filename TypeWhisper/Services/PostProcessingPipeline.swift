@@ -7,6 +7,12 @@ private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "TypeWhis
 struct PostProcessingResult {
     let text: String
     let appliedSteps: [String]
+    let fallback: PostProcessingFallback?
+}
+
+struct PostProcessingFallback: Equatable, Sendable {
+    let failedStep: String
+    let reason: String
 }
 
 @MainActor
@@ -38,7 +44,8 @@ final class PostProcessingPipeline {
         llmHandler: ((String) async throws -> String)? = nil,
         outputFormat: String? = nil,
         llmStepName: String? = nil,
-        normalizeNumbers: Bool? = nil
+        normalizeNumbers: Bool? = nil,
+        llmFailureFallbackText: String? = nil
     ) async throws -> PostProcessingResult {
         // Collect plugin processors with their priorities
         let plugins = PluginManager.shared.postProcessors
@@ -147,13 +154,28 @@ final class PostProcessingPipeline {
                 }
             } catch {
                 logger.error("Post-processing step '\(name)' failed after \(ContinuousClock.now - stepStart): \(error.localizedDescription)")
-                // Only re-throw for LLM step
                 if step.id == -1 {
+                    if error is CancellationError || Task.isCancelled {
+                        throw CancellationError()
+                    }
+
+                    if let llmFailureFallbackText {
+                        logger.warning("Using raw transcription fallback after post-processing step '\(name)' failed")
+                        return PostProcessingResult(
+                            text: llmFailureFallbackText,
+                            appliedSteps: [],
+                            fallback: PostProcessingFallback(
+                                failedStep: name,
+                                reason: error.localizedDescription
+                            )
+                        )
+                    }
+
                     throw error
                 }
             }
         }
 
-        return PostProcessingResult(text: result, appliedSteps: appliedSteps)
+        return PostProcessingResult(text: result, appliedSteps: appliedSteps, fallback: nil)
     }
 }

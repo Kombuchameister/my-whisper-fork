@@ -438,6 +438,67 @@ final class SpeechPunctuationServiceTests: XCTestCase {
     }
 
     @MainActor
+    func testPipelineReturnsRawFallbackWhenLLMProcessingFails() async throws {
+        let appSupportDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: appSupportDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: appSupportDirectory) }
+
+        let pipeline = makePipeline(appSupportDirectory: appSupportDirectory)
+        let rawText = "ciao aperta parentesi mondo chiusa parentesi"
+
+        let result = try await pipeline.process(
+            text: rawText,
+            context: PostProcessingContext(language: "it"),
+            dictationContext: DictationRuntimeContext(
+                engineId: "parakeet",
+                modelId: "parakeet-v3",
+                configuredLanguage: "it",
+                detectedLanguage: nil
+            ),
+            llmHandler: { _ in
+                throw NSError(
+                    domain: "PostProcessingPipelineTests",
+                    code: 1,
+                    userInfo: [NSLocalizedDescriptionKey: "Provider unavailable"]
+                )
+            },
+            llmStepName: "Workflow",
+            llmFailureFallbackText: rawText
+        )
+
+        XCTAssertEqual(result.text, rawText)
+        XCTAssertEqual(result.appliedSteps, [])
+        XCTAssertEqual(
+            result.fallback,
+            PostProcessingFallback(failedStep: "Workflow", reason: "Provider unavailable")
+        )
+    }
+
+    @MainActor
+    func testPipelineDoesNotTreatCancellationAsRawFallback() async throws {
+        let appSupportDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: appSupportDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: appSupportDirectory) }
+
+        let pipeline = makePipeline(appSupportDirectory: appSupportDirectory)
+
+        do {
+            _ = try await pipeline.process(
+                text: "Keep this text",
+                context: PostProcessingContext(language: "en"),
+                llmHandler: { _ in throw CancellationError() },
+                llmStepName: "Workflow",
+                llmFailureFallbackText: "Keep this text"
+            )
+            XCTFail("Expected cancellation to propagate")
+        } catch is CancellationError {
+            // Expected: cancellation must not continue into text insertion.
+        }
+    }
+
+    @MainActor
     private func makePipeline(appSupportDirectory: URL) -> PostProcessingPipeline {
         PluginManager.shared = PluginManager(appSupportDirectory: appSupportDirectory)
         let profileStore = DictationPunctuationProfileStore(defaults: UserDefaults(suiteName: #function)!, storageKey: #function)
