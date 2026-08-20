@@ -9480,6 +9480,172 @@ final class TypeWhisperIntegrationTests: XCTestCase {
         XCTAssertEqual(observedLoadedModel, "legacy-loaded-model")
     }
 
+    func testScreenshotPluginFixtureScopesDummyCredentialsToSelectedPlugin() {
+        XCTAssertEqual(
+            ScreenshotPluginFixture.secret(
+                selectedPluginId: "com.typewhisper.groq",
+                pluginId: "com.typewhisper.groq",
+                key: "api-key"
+            ),
+            "tw-screenshot-api-key"
+        )
+        XCTAssertNil(
+            ScreenshotPluginFixture.secret(
+                selectedPluginId: "com.typewhisper.groq",
+                pluginId: "com.typewhisper.openai",
+                key: "api-key"
+            )
+        )
+        XCTAssertNil(
+            ScreenshotPluginFixture.secret(
+                selectedPluginId: nil,
+                pluginId: "com.typewhisper.groq",
+                key: "api-key"
+            )
+        )
+    }
+
+    func testScreenshotPluginFixtureProvidesSupportedCredentialShapes() throws {
+        XCTAssertEqual(
+            ScreenshotPluginFixture.secret(
+                selectedPluginId: "plugin",
+                pluginId: "plugin",
+                key: "api-key.profile-id"
+            ),
+            "tw-screenshot-api-key"
+        )
+        XCTAssertEqual(
+            ScreenshotPluginFixture.secret(
+                selectedPluginId: "plugin",
+                pluginId: "plugin",
+                key: "hf-token"
+            ),
+            "hf_tw_screenshot_fixture"
+        )
+
+        let serviceAccount = try XCTUnwrap(
+            ScreenshotPluginFixture.secret(
+                selectedPluginId: "plugin",
+                pluginId: "plugin",
+                key: "service-account-json"
+            )
+        )
+        let decoded = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(serviceAccount.utf8)) as? [String: Any]
+        )
+        XCTAssertEqual(decoded["project_id"] as? String, "typewhisper-screenshot")
+
+        XCTAssertEqual(
+            ScreenshotPluginFixture.secret(
+                selectedPluginId: "com.typewhisper.improve",
+                pluginId: "com.typewhisper.improve",
+                key: "contributor-token"
+            ),
+            "tw-screenshot-contributor-token"
+        )
+
+        for oauthKey in ["oauth-access-token", "oauth-refresh-token", "oauth-id-token"] {
+            XCTAssertNil(
+                ScreenshotPluginFixture.secret(
+                    selectedPluginId: "com.typewhisper.openai",
+                    pluginId: "com.typewhisper.openai",
+                    key: oauthKey
+                ),
+                "Screenshot fixtures should keep OpenAI in API-key mode"
+            )
+        }
+    }
+
+    func testScreenshotAppSupportOverrideMustStayInsideTemporaryDirectory() {
+        let temporaryDirectory = URL(fileURLWithPath: "/tmp/typewhisper-screenshot-root", isDirectory: true)
+        let fallback = temporaryDirectory.appendingPathComponent(
+            "TypeWhisper-Screenshots-42",
+            isDirectory: true
+        )
+        let validOverride = temporaryDirectory.appendingPathComponent("capture", isDirectory: true)
+
+        XCTAssertEqual(
+            AppConstants.resolveScreenshotAppSupportDirectory(
+                override: validOverride.path,
+                temporaryDirectory: temporaryDirectory,
+                processIdentifier: 42
+            ).standardizedFileURL.path,
+            validOverride.resolvingSymlinksInPath().standardizedFileURL.path
+        )
+        XCTAssertEqual(
+            AppConstants.resolveScreenshotAppSupportDirectory(
+                override: "/tmp/typewhisper-screenshot-root-escape",
+                temporaryDirectory: temporaryDirectory,
+                processIdentifier: 42
+            ),
+            fallback
+        )
+        XCTAssertEqual(
+            AppConstants.resolveScreenshotAppSupportDirectory(
+                override: "/Users/shared/typewhisper-screenshots",
+                temporaryDirectory: temporaryDirectory,
+                processIdentifier: 42
+            ),
+            fallback
+        )
+    }
+
+    func testScreenshotPluginSourcePolicyRejectsSelectedExternalCandidate() {
+        XCTAssertFalse(
+            ScreenshotPluginSourcePolicy.allowsCandidate(
+                isScreenshotAutomation: true,
+                selectedPluginId: "com.typewhisper.groq",
+                manifestId: "com.typewhisper.groq",
+                isBundledSource: false,
+                isIsolatedScreenshotSource: false
+            )
+        )
+        XCTAssertTrue(
+            ScreenshotPluginSourcePolicy.allowsCandidate(
+                isScreenshotAutomation: true,
+                selectedPluginId: "com.typewhisper.groq",
+                manifestId: "com.typewhisper.groq",
+                isBundledSource: true,
+                isIsolatedScreenshotSource: false
+            )
+        )
+        XCTAssertTrue(
+            ScreenshotPluginSourcePolicy.allowsCandidate(
+                isScreenshotAutomation: true,
+                selectedPluginId: "com.typewhisper.groq",
+                manifestId: "com.typewhisper.groq",
+                isBundledSource: false,
+                isIsolatedScreenshotSource: true
+            )
+        )
+        XCTAssertTrue(
+            ScreenshotPluginSourcePolicy.allowsCandidate(
+                isScreenshotAutomation: false,
+                selectedPluginId: "com.typewhisper.groq",
+                manifestId: "com.typewhisper.groq",
+                isBundledSource: false,
+                isIsolatedScreenshotSource: false
+            )
+        )
+    }
+
+    func testPluginScreenshotPaginationUsesOnePageWhenContentFits() {
+        XCTAssertEqual(
+            PluginScreenshotPagination.pageOffsets(contentHeight: 440, viewportHeight: 440),
+            [0]
+        )
+    }
+
+    func testPluginScreenshotPaginationEndsAtMaximumScrollOffset() {
+        let offsets = PluginScreenshotPagination.pageOffsets(
+            contentHeight: 3_000,
+            viewportHeight: 800
+        )
+
+        XCTAssertEqual(offsets, [0, 752, 1_504, 2_200])
+        XCTAssertEqual(offsets.last, 3_000 - 800)
+    }
+
     @MainActor
     func testModelManagerAutoUnloadsAvailableLocalLLMWithoutPromptProcessing() async throws {
         let appSupportDirectory = try TestSupport.makeTemporaryDirectory()

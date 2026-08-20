@@ -554,6 +554,7 @@ final class WhisperKitPlugin: NSObject, SourceProgressTranscriptionEnginePlugin,
                 downloadProgress = 0.05
 
                 var lastProgress = 0.0
+                try PluginHTTPClient.ensureNetworkAccessIsAllowed()
                 modelFolder = try await WhisperKit.download(
                     variant: modelDef.id,
                     downloadBase: downloadBase,
@@ -893,6 +894,7 @@ final class WhisperKitPlugin: NSObject, SourceProgressTranscriptionEnginePlugin,
         relativePath: String,
         destination: URL
     ) async throws {
+        try PluginHTTPClient.ensureNetworkAccessIsAllowed()
         var url = URL(string: Self.modelEndpoint)!
         for component in Self.modelRepo.split(separator: "/") {
             url.append(path: String(component))
