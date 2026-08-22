@@ -278,6 +278,25 @@ final class AudioRecorderViewModelTests: XCTestCase {
         XCTAssertTrue(defaults.bool(forKey: UserDefaultsKeys.recorderLivePreviewEnabled))
     }
 
+    func testRecorderLanguageSelectionPersistsSeparatelyFromFileTranscription() throws {
+        let defaults = try makeDefaults()
+        defaults.set("fr", forKey: UserDefaultsKeys.fileTranscriptionLanguage)
+
+        let viewModel = makeViewModel(defaults: defaults)
+        XCTAssertEqual(viewModel.languageSelection, .auto)
+
+        viewModel.languageSelection = .hints(["nl", "en"])
+
+        XCTAssertEqual(
+            defaults.string(forKey: UserDefaultsKeys.recorderTranscriptionLanguage),
+            "[\"nl\",\"en\"]"
+        )
+        XCTAssertEqual(defaults.string(forKey: UserDefaultsKeys.fileTranscriptionLanguage), "fr")
+
+        let restoredViewModel = makeViewModel(defaults: defaults)
+        XCTAssertEqual(restoredViewModel.languageSelection, .hints(["nl", "en"]))
+    }
+
     func testLivePreviewStartsOnlyWhenTranscriptAndPreviewAreEnabled() async throws {
         try preserveStandardDefaults()
         setupPluginManager()
@@ -409,6 +428,32 @@ final class AudioRecorderViewModelTests: XCTestCase {
         XCTAssertTrue(summary.contains(viewModel.formattedFileSize(recording.fileSize)))
         XCTAssertTrue(summary.contains(failure.phase.displayName))
         XCTAssertTrue(summary.contains("HTTP 413"))
+    }
+
+    func testCancelledFinalTranscriptionDoesNotPersistRecorderFailure() async throws {
+        try preserveStandardDefaults()
+        setupPluginManager(groqBehavior: .cancellation)
+        let defaults = try makeDefaults()
+        let modelManager = ModelManagerService()
+        modelManager.selectProvider("groq")
+        let viewModel = makeFinalTranscriptionViewModel(defaults: defaults, modelManager: modelManager)
+
+        let sessionID = try await viewModel.apiStartRecording(micEnabled: true, systemAudioEnabled: false)
+        _ = try viewModel.apiStopRecording()
+
+        let session = try await waitForRecorderSession(viewModel, id: sessionID, status: .completed)
+        let outputFile = try XCTUnwrap(session.outputFile)
+        XCTAssertNil(session.text)
+        XCTAssertNil(session.error)
+        XCTAssertNil(viewModel.errorMessage)
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: failureSidecarURL(for: URL(fileURLWithPath: outputFile)).path
+            )
+        )
+
+        try await waitForRecordingsToLoad(viewModel, count: 1)
+        XCTAssertNil(viewModel.recordings.first?.transcriptionFailure)
     }
 
     func testEmptyFinalTranscriptionPersistsRecorderFailure() async throws {
@@ -782,6 +827,176 @@ final class AudioRecorderViewModelTests: XCTestCase {
         XCTAssertEqual(plugin.selectedModelOverrides, [])
     }
 
+    func testWhisperKitFinalTranscriptionRetriesWithLivePreviewEnabledForAudibleTail() async throws {
+        try preserveStandardDefaults()
+        let plugin = setupWhisperPluginManager(
+            behavior: .conditionedShortFallbackComplete(
+                shortText: "short conditioned transcript",
+                completeText: "complete unconditioned transcript"
+            )
+        )
+        let defaults = try makeDefaults()
+        let modelManager = ModelManagerService()
+        modelManager.selectProvider("whisper")
+        let recordingsDirectory = makeTemporaryDirectory()
+        let samples = Array(
+            repeating: Float(0.1),
+            count: Int(AudioRecorderService.transcriptionSampleRate * 90)
+        )
+        let dictionaryService = DictionaryService(appSupportDirectory: makeTemporaryDirectory())
+        dictionaryService.addEntry(type: .term, original: "TypeWhisper")
+        var livePreviewStartCount = 0
+        let viewModel = makeViewModel(
+            defaults: defaults,
+            modelManager: modelManager,
+            recorderService: makeRecorderService(
+                recordingsDirectory: recordingsDirectory,
+                samples: samples
+            ),
+            dictionaryService: dictionaryService,
+            audioSamplesLoader: { _ in samples },
+            livePreviewStartObserver: { livePreviewStartCount += 1 }
+        )
+        viewModel.transcriptionEnabled = true
+        viewModel.livePreviewEnabled = true
+
+        let sessionID = try await viewModel.apiStartRecording(
+            micEnabled: true,
+            systemAudioEnabled: false
+        )
+        _ = try viewModel.apiStopRecording()
+
+        let session = try await waitForRecorderSession(viewModel, id: sessionID, status: .completed)
+        XCTAssertEqual(session.text, "complete unconditioned transcript")
+        XCTAssertEqual(livePreviewStartCount, 1)
+        XCTAssertEqual(plugin.requests.count, 2)
+        XCTAssertTrue(plugin.requests[0].prompt?.contains("TypeWhisper") == true)
+        XCTAssertNil(plugin.requests[1].prompt)
+    }
+
+    func testWhisperKitFinalTranscriptionKeepsConditionedResultWhenRemainingTailIsSilent() async throws {
+        try preserveStandardDefaults()
+        let plugin = setupWhisperPluginManager(
+            behavior: .conditionedShortFallbackComplete(
+                shortText: "complete speech before silence",
+                completeText: "unexpected retry"
+            )
+        )
+        let defaults = try makeDefaults()
+        let modelManager = ModelManagerService()
+        modelManager.selectProvider("whisper")
+        let recordingsDirectory = makeTemporaryDirectory()
+        let sampleRate = Int(AudioRecorderService.transcriptionSampleRate)
+        let samples = Array(repeating: Float(0.1), count: sampleRate * 18)
+            + Array(repeating: Float.zero, count: sampleRate * 72)
+        let dictionaryService = DictionaryService(appSupportDirectory: makeTemporaryDirectory())
+        dictionaryService.addEntry(type: .term, original: "TypeWhisper")
+        let viewModel = makeViewModel(
+            defaults: defaults,
+            modelManager: modelManager,
+            recorderService: makeRecorderService(
+                recordingsDirectory: recordingsDirectory,
+                samples: samples
+            ),
+            dictionaryService: dictionaryService,
+            audioSamplesLoader: { _ in samples }
+        )
+        viewModel.transcriptionEnabled = true
+        viewModel.livePreviewEnabled = false
+
+        let sessionID = try await viewModel.apiStartRecording(
+            micEnabled: true,
+            systemAudioEnabled: false
+        )
+        _ = try viewModel.apiStopRecording()
+
+        let session = try await waitForRecorderSession(viewModel, id: sessionID, status: .completed)
+        XCTAssertEqual(session.text, "complete speech before silence")
+        XCTAssertEqual(plugin.requests.count, 1)
+        XCTAssertTrue(plugin.requests[0].prompt?.contains("TypeWhisper") == true)
+    }
+
+    func testWhisperKitEmptyFinalTranscriptionDoesNotRetrySilentAudio() async throws {
+        try preserveStandardDefaults()
+        let plugin = setupWhisperPluginManager(behavior: .empty)
+        let defaults = try makeDefaults()
+        let modelManager = ModelManagerService()
+        modelManager.selectProvider("whisper")
+        let recordingsDirectory = makeTemporaryDirectory()
+        let samples = Array(
+            repeating: Float.zero,
+            count: Int(AudioRecorderService.transcriptionSampleRate * 90)
+        )
+        let dictionaryService = DictionaryService(appSupportDirectory: makeTemporaryDirectory())
+        dictionaryService.addEntry(type: .term, original: "TypeWhisper")
+        let viewModel = makeViewModel(
+            defaults: defaults,
+            modelManager: modelManager,
+            recorderService: makeRecorderService(
+                recordingsDirectory: recordingsDirectory,
+                samples: samples
+            ),
+            dictionaryService: dictionaryService,
+            audioSamplesLoader: { _ in samples }
+        )
+        viewModel.transcriptionEnabled = true
+        viewModel.livePreviewEnabled = false
+
+        let sessionID = try await viewModel.apiStartRecording(
+            micEnabled: true,
+            systemAudioEnabled: false
+        )
+        _ = try viewModel.apiStopRecording()
+
+        let session = try await waitForRecorderSession(viewModel, id: sessionID, status: .failed)
+        XCTAssertNil(session.text)
+        XCTAssertEqual(plugin.requests.count, 1)
+        XCTAssertTrue(plugin.requests[0].prompt?.contains("TypeWhisper") == true)
+    }
+
+    func testWhisperKitEmptyFinalTranscriptionRetriesForAudibleRecordingStart() async throws {
+        try preserveStandardDefaults()
+        let plugin = setupWhisperPluginManager(
+            behavior: .conditionedShortFallbackComplete(
+                shortText: "",
+                completeText: "recovered transcript"
+            )
+        )
+        let defaults = try makeDefaults()
+        let modelManager = ModelManagerService()
+        modelManager.selectProvider("whisper")
+        let recordingsDirectory = makeTemporaryDirectory()
+        let sampleRate = Int(AudioRecorderService.transcriptionSampleRate)
+        let samples = Array(repeating: Float(0.1), count: sampleRate)
+            + Array(repeating: Float.zero, count: sampleRate * 89)
+        let dictionaryService = DictionaryService(appSupportDirectory: makeTemporaryDirectory())
+        dictionaryService.addEntry(type: .term, original: "TypeWhisper")
+        let viewModel = makeViewModel(
+            defaults: defaults,
+            modelManager: modelManager,
+            recorderService: makeRecorderService(
+                recordingsDirectory: recordingsDirectory,
+                samples: samples
+            ),
+            dictionaryService: dictionaryService,
+            audioSamplesLoader: { _ in samples }
+        )
+        viewModel.transcriptionEnabled = true
+        viewModel.livePreviewEnabled = false
+
+        let sessionID = try await viewModel.apiStartRecording(
+            micEnabled: true,
+            systemAudioEnabled: false
+        )
+        _ = try viewModel.apiStopRecording()
+
+        let session = try await waitForRecorderSession(viewModel, id: sessionID, status: .completed)
+        XCTAssertEqual(session.text, "recovered transcript")
+        XCTAssertEqual(plugin.requests.count, 2)
+        XCTAssertTrue(plugin.requests[0].prompt?.contains("TypeWhisper") == true)
+        XCTAssertNil(plugin.requests[1].prompt)
+    }
+
     func testFailureSidecarWriteErrorStillShowsRecorderFailure() async throws {
         try preserveStandardDefaults()
         setupPluginManager(groqBehavior: .failure("HTTP 500: provider unavailable"))
@@ -1000,6 +1215,35 @@ final class AudioRecorderViewModelTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: transcriptURL, encoding: .utf8), "keep me")
         XCTAssertEqual(viewModel.recordings.first?.transcriptionFailure?.phase, .preparingFinalAudio)
         XCTAssertNil(viewModel.retranscribingRecordingURL)
+    }
+
+    func testCancelledRetranscriptionPreservesExistingTranscriptWithoutFailure() async throws {
+        try preserveStandardDefaults()
+        setupPluginManager(groqBehavior: .cancellation)
+        let defaults = try makeDefaults()
+        let modelManager = ModelManagerService()
+        modelManager.selectProvider("groq")
+        let recordingsDirectory = makeTemporaryDirectory()
+        let audioURL = recordingsDirectory.appendingPathComponent("Meeting.wav")
+        let transcriptURL = audioURL.deletingPathExtension().appendingPathExtension("txt")
+        try Data("audio".utf8).write(to: audioURL)
+        try "keep me".write(to: transcriptURL, atomically: true, encoding: .utf8)
+        let viewModel = makeViewModel(
+            defaults: defaults,
+            modelManager: modelManager,
+            recorderService: makeRecorderService(recordingsDirectory: recordingsDirectory),
+            audioSamplesLoader: { _ in [0.25, -0.25] }
+        )
+        viewModel.loadRecordings()
+        try await waitForRecordingsToLoad(viewModel, count: 1)
+
+        viewModel.transcribeRecording(try XCTUnwrap(viewModel.recordings.first))
+        try await waitForRetranscriptionToFinish(viewModel)
+
+        XCTAssertEqual(try String(contentsOf: transcriptURL, encoding: .utf8), "keep me")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: failureSidecarURL(for: audioURL).path))
+        XCTAssertNil(viewModel.retranscribingRecordingURL)
+        XCTAssertNil(viewModel.recordings.first?.transcriptionFailure)
     }
 
     func testRetranscriptionEngineFailurePreservesExistingTranscript() async throws {
@@ -1685,6 +1929,46 @@ final class AudioRecorderViewModelTests: XCTestCase {
         return plugin
     }
 
+    private func setupWhisperPluginManager(
+        behavior: AudioRecorderMockTranscriptionPlugin.TranscriptionBehavior
+    ) -> AudioRecorderMockTranscriptionPlugin {
+        let previousPluginManager = PluginManager.shared
+        addTeardownBlock {
+            PluginManager.shared = previousPluginManager
+        }
+
+        let appSupportDirectory = makeTemporaryDirectory()
+        let plugin = AudioRecorderMockTranscriptionPlugin(
+            providerId: "whisper",
+            displayName: "WhisperKit",
+            models: [
+                PluginModelInfo(
+                    id: "openai_whisper-large-v3",
+                    displayName: "Whisper Large V3"
+                )
+            ],
+            selectedModelId: "openai_whisper-large-v3",
+            behavior: behavior
+        )
+        let pluginManager = PluginManager(appSupportDirectory: appSupportDirectory)
+        pluginManager.loadedPlugins = [
+            LoadedPlugin(
+                manifest: PluginManifest(
+                    id: "com.typewhisper.mock.whisperkit",
+                    name: "WhisperKit",
+                    version: "1.0.0",
+                    principalClass: "AudioRecorderMockTranscriptionPlugin"
+                ),
+                instance: plugin,
+                bundle: Bundle.main,
+                sourceURL: appSupportDirectory,
+                isEnabled: true
+            )
+        ]
+        PluginManager.shared = pluginManager
+        return plugin
+    }
+
     private func preserveStandardDefaults(additionalKeys: [String] = []) throws {
         let keys = Array(Set([
             UserDefaultsKeys.selectedEngine,
@@ -1813,6 +2097,8 @@ private final class AudioRecorderMockTranscriptionPlugin: NSObject, SourceProgre
         case success(String)
         case empty
         case failure(String)
+        case cancellation
+        case conditionedShortFallbackComplete(shortText: String, completeText: String)
     }
 
     static let pluginId = "com.typewhisper.mock.audio-recorder"
@@ -1826,6 +2112,7 @@ private final class AudioRecorderMockTranscriptionPlugin: NSObject, SourceProgre
     var supportsTranslation = true
     private let behavior: TranscriptionBehavior
     private(set) var lastRequest: Request?
+    private(set) var requests: [Request] = []
     private(set) var selectedModelOverrides: [String] = []
 
     required override init() {
@@ -1891,8 +2178,12 @@ private final class AudioRecorderMockTranscriptionPlugin: NSObject, SourceProgre
             usedFileTranscriptionPipeline: true
         )
         _ = onProgress(result.text)
+        let processedDuration = result.segments
+            .map(\.end)
+            .filter(\.isFinite)
+            .max() ?? audio.duration
         _ = onSourceProgress(PluginTranscriptionSourceProgress(
-            processedDuration: audio.duration,
+            processedDuration: processedDuration,
             totalDuration: audio.duration
         ))
         return result
@@ -1905,7 +2196,7 @@ private final class AudioRecorderMockTranscriptionPlugin: NSObject, SourceProgre
         prompt: String?,
         usedFileTranscriptionPipeline: Bool
     ) throws -> PluginTranscriptionResult {
-        lastRequest = Request(
+        let request = Request(
             language: language,
             translate: translate,
             prompt: prompt,
@@ -1913,6 +2204,8 @@ private final class AudioRecorderMockTranscriptionPlugin: NSObject, SourceProgre
             firstAudioSample: audio.samples.first,
             usedFileTranscriptionPipeline: usedFileTranscriptionPipeline
         )
+        lastRequest = request
+        requests.append(request)
         return switch behavior {
         case .success(let text):
             PluginTranscriptionResult(text: text)
@@ -1920,6 +2213,32 @@ private final class AudioRecorderMockTranscriptionPlugin: NSObject, SourceProgre
             PluginTranscriptionResult(text: "")
         case .failure(let message):
             throw PluginTranscriptionError.apiError(message)
+        case .cancellation:
+            throw CancellationError()
+        case .conditionedShortFallbackComplete(let shortText, let completeText):
+            if let prompt, !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                PluginTranscriptionResult(
+                    text: shortText,
+                    segments: [
+                        PluginTranscriptionSegment(
+                            text: shortText,
+                            start: 0,
+                            end: audio.duration * 0.2
+                        )
+                    ]
+                )
+            } else {
+                PluginTranscriptionResult(
+                    text: completeText,
+                    segments: [
+                        PluginTranscriptionSegment(
+                            text: completeText,
+                            start: 0,
+                            end: audio.duration
+                        )
+                    ]
+                )
+            }
         }
     }
 }
