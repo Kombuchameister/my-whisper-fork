@@ -1783,8 +1783,10 @@ final class DictationViewModel: ObservableObject {
 
         // Resolve browser URL asynchronously after recording has already started.
         // If a more specific URL workflow matches, update the active rule on the fly.
-        // Skip URL resolution when a forced workflow is set (manual shortcut overrides app matching).
-        guard resolveURL, forcedWorkflowId == nil, let bundleId = activeApp.bundleId else { return }
+        // Forced Speak to Window workflows need the URL as context, but must not
+        // replace the explicitly selected workflow with an automatic URL match.
+        let resolvesForcedURL = forcedWorkflow(for: forcedWorkflowId)?.template == .speakToWindow
+        guard resolveURL, (forcedWorkflowId == nil || resolvesForcedURL), let bundleId = activeApp.bundleId else { return }
         urlResolutionTask = Task { [weak self] in
             guard let self else { return }
             logger.info("URL resolution: starting for bundleId=\(bundleId)")
@@ -1800,6 +1802,8 @@ final class DictationViewModel: ObservableObject {
             }
 
             capturedActiveApp = (name: currentApp.name, bundleId: currentApp.bundleId, url: resolvedURL)
+
+            guard forcedWorkflowId == nil else { return }
 
             guard let resolvedURL else {
                 logger.info("URL resolution: no URL resolved")
@@ -3544,6 +3548,11 @@ final class DictationViewModel: ObservableObject {
             return try await workflowProcessor.process(
                 workflow: workflow,
                 text: text,
+                windowContext: WorkflowWindowContext(
+                    appName: self.capturedActiveApp?.name,
+                    url: self.capturedActiveApp?.url,
+                    selectedText: self.capturedSelectedText
+                ),
                 fallbackTranslationTarget: translationTarget,
                 detectedLanguage: detectedLanguage,
                 configuredLanguage: configuredLanguage,

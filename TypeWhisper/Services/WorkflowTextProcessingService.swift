@@ -7,6 +7,12 @@ private let workflowTextProcessingLogger = Logger(
     category: "WorkflowTextProcessingService"
 )
 
+struct WorkflowWindowContext: Equatable, Sendable {
+    let appName: String?
+    let url: String?
+    let selectedText: String?
+}
+
 @MainActor
 struct WorkflowTextProcessingService {
     typealias PromptProcessor = (
@@ -87,6 +93,7 @@ struct WorkflowTextProcessingService {
     func process(
         workflow: Workflow,
         text: String,
+        windowContext: WorkflowWindowContext? = nil,
         fallbackTranslationTarget: String? = nil,
         detectedLanguage: String? = nil,
         configuredLanguage: String? = nil,
@@ -137,10 +144,13 @@ struct WorkflowTextProcessingService {
         }
 
         let behavior = workflow.behavior
+        let processorInput = workflow.template == .speakToWindow
+            ? Self.speakToWindowInput(request: text, context: windowContext)
+            : text
         if let effortPromptProcessor {
             return try await effortPromptProcessor(
                 systemPrompt,
-                text,
+                processorInput,
                 Self.trimmedOrNil(behavior.providerId),
                 Self.trimmedOrNil(behavior.cloudModel),
                 behavior.temperatureDirective,
@@ -149,7 +159,7 @@ struct WorkflowTextProcessingService {
         }
         return try await promptProcessor(
             systemPrompt,
-            text,
+            processorInput,
             Self.trimmedOrNil(behavior.providerId),
             Self.trimmedOrNil(behavior.cloudModel),
             behavior.temperatureDirective
@@ -226,6 +236,20 @@ struct WorkflowTextProcessingService {
         }
         prompt += outputInstruction
         return prompt
+    }
+
+    private static func speakToWindowInput(request: String, context: WorkflowWindowContext?) -> String {
+        var sections = ["SPOKEN REQUEST:\n\(request)"]
+        if let appName = trimmedOrNil(context?.appName) {
+            sections.append("ACTIVE APP:\n\(appName)")
+        }
+        if let url = trimmedOrNil(context?.url) {
+            sections.append("ACTIVE URL:\n\(url)")
+        }
+        if let selectedText = trimmedOrNil(context?.selectedText) {
+            sections.append("SELECTED CONTENT:\n\(selectedText)")
+        }
+        return sections.joined(separator: "\n\n")
     }
 }
 
