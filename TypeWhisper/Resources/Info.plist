@@ -58,6 +58,8 @@
 	<string>$(TYPEWHISPER_RELEASE_CHANNEL)</string>
 	<key>TypeWhisperReleaseTag</key>
 	<string>$(TYPEWHISPER_RELEASE_TAG)</string>
+	<key>TypeWhisperFeatureSlug</key>
+	<string>$(TYPEWHISPER_FEATURE_SLUG)</string>
 	<key>TypeWhisperDiscordClaimBaseURL</key>
 	<string>https://community.typewhisper.com</string>
 	<key>AppGroupIdentifier</key>

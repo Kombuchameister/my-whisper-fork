@@ -232,7 +232,7 @@ private struct MenuBarExtraLabel: View {
     @ObservedObject private var recorder = AudioRecorderViewModel.shared
 
     private var title: String {
-        AppConstants.isDevelopment ? "TypeWhisper Dev" : "TypeWhisper"
+        AppConstants.displayName
     }
 
     private var isRecordingActive: Bool {

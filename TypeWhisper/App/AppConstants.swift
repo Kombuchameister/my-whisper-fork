@@ -126,8 +126,20 @@ enum AppConstants {
 
     nonisolated(unsafe) static var testAppSupportDirectoryOverride: URL?
 
+    static let featureBuildSlug: String? = {
+        let value = Bundle.main.object(forInfoDictionaryKey: "TypeWhisperFeatureSlug") as? String
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
+    }()
+
+    static let displayName: String =
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "TypeWhisper"
+
     static let appSupportDirectoryName: String = {
         #if DEBUG
+        if let featureBuildSlug {
+            return "TypeWhisper-Dev-\(featureBuildSlug)"
+        }
         return "TypeWhisper-Dev"
         #else
         return "TypeWhisper"
@@ -139,17 +151,22 @@ enum AppConstants {
             return "com.typewhisper.mac.screenshots.apikey."
         }
         #if DEBUG
-        return "com.typewhisper.mac.dev.apikey."
+        return "\(Bundle.main.bundleIdentifier ?? "com.typewhisper.mac.dev").apikey."
         #else
         return "com.typewhisper.mac.apikey."
         #endif
     }()
 
-    static let premiumAccountKeychainService = resolvePremiumAccountKeychainService(
-        isScreenshotAutomation: isScreenshotAutomation,
-        isRunningTests: isRunningTests,
-        isDevelopment: isDevelopment
-    )
+    static let premiumAccountKeychainService: String = {
+        if featureBuildSlug != nil {
+            return "\(Bundle.main.bundleIdentifier ?? "com.typewhisper.mac.dev").premium-account"
+        }
+        return resolvePremiumAccountKeychainService(
+            isScreenshotAutomation: isScreenshotAutomation,
+            isRunningTests: isRunningTests,
+            isDevelopment: isDevelopment
+        )
+    }()
 
     static func resolvePremiumAccountKeychainService(
         isScreenshotAutomation: Bool,
