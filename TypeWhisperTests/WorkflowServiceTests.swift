@@ -285,6 +285,29 @@ final class WorkflowServiceTests: XCTestCase {
         let trigger = try JSONDecoder().decode(WorkflowTrigger.self, from: data)
 
         XCTAssertEqual(trigger.hotkeyBehavior, .startDictation)
+        XCTAssertTrue(trigger.excludedAppBundleIdentifiers.isEmpty)
+        XCTAssertTrue(trigger.excludedWebsitePatterns.isEmpty)
+    }
+
+    func testWorkflowServicePersistsAlwaysTriggerExclusions() throws {
+        let appSupportDirectory = try TestSupport.makeTemporaryDirectory(prefix: "WorkflowServiceTests")
+        defer { TestSupport.remove(appSupportDirectory) }
+
+        let service = WorkflowService(appSupportDirectory: appSupportDirectory)
+        service.addWorkflow(
+            name: "Always Except Mail",
+            template: .cleanedText,
+            trigger: .global(
+                excludingApps: ["com.apple.mail"],
+                websites: ["github.com"]
+            )
+        )
+
+        let trigger = try XCTUnwrap(
+            WorkflowService(appSupportDirectory: appSupportDirectory).workflows.first?.trigger
+        )
+        XCTAssertEqual(trigger.excludedAppBundleIdentifiers, ["com.apple.mail"])
+        XCTAssertEqual(trigger.excludedWebsitePatterns, ["github.com"])
     }
 
     func testWorkflowServicePersistsHotkeyTextProcessingBehavior() throws {
@@ -391,6 +414,22 @@ final class WorkflowServiceTests: XCTestCase {
         XCTAssertEqual(trigger.websitePatterns, ["claude.ai"])
         XCTAssertEqual(trigger.hotkeys, [hotkey])
         XCTAssertEqual(trigger.hotkeyBehavior, .processSelectedText)
+    }
+
+    func testWorkflowDraftPreservesAlwaysTriggerExclusionsWhenSaving() throws {
+        let workflow = Workflow(
+            name: "Always Except Mail",
+            template: .cleanedText,
+            trigger: .global(
+                excludingApps: ["com.apple.mail"],
+                websites: ["github.com"]
+            )
+        )
+
+        let trigger = try XCTUnwrap(WorkflowDraft(workflow).resolvedTrigger())
+
+        XCTAssertEqual(trigger.excludedAppBundleIdentifiers, ["com.apple.mail"])
+        XCTAssertEqual(trigger.excludedWebsitePatterns, ["github.com"])
     }
 
     func testWorkflowDraftPersistsEditedActionTargetForNonDictationWorkflow() throws {
@@ -1829,6 +1868,25 @@ final class WorkflowServiceTests: XCTestCase {
         XCTAssertNil(match.matchedDomain)
         XCTAssertEqual(match.competingWorkflowCount, 0)
         XCTAssertFalse(match.wonBySortOrder)
+    }
+
+    func testMatchWorkflowSkipsGlobalFallbackForExcludedAppsAndWebsites() throws {
+        let appSupportDirectory = try TestSupport.makeTemporaryDirectory(prefix: "WorkflowServiceTests")
+        defer { TestSupport.remove(appSupportDirectory) }
+
+        let service = WorkflowService(appSupportDirectory: appSupportDirectory)
+        _ = service.addWorkflow(
+            name: "Always Except Mail and GitHub",
+            template: .cleanedText,
+            trigger: .global(
+                excludingApps: ["com.apple.mail"],
+                websites: ["github.com"]
+            )
+        )
+
+        XCTAssertNil(service.matchWorkflow(bundleIdentifier: "com.apple.mail", url: "https://example.com"))
+        XCTAssertNil(service.matchWorkflow(bundleIdentifier: "com.apple.Safari", url: "https://docs.github.com/issues"))
+        XCTAssertNotNil(service.matchWorkflow(bundleIdentifier: "com.apple.TextEdit", url: "https://example.com"))
     }
 
     func testMatchWorkflowPrefersWebsiteAndAppBeforeGlobalFallback() throws {

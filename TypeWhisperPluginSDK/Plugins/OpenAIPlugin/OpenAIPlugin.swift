@@ -1750,7 +1750,7 @@ final class OpenAIPlugin: NSObject,
     LanguageHintDictionaryTermHintTranscriptionEnginePlugin,
     LiveLanguageHintDictionaryTermHintTranscriptionCapablePlugin,
     DictionaryTermsCapabilityProviding,
-    LLMProviderPlugin,
+    LLMTemperatureAndEffortControllableProvider,
     TTSProviderPlugin,
     PluginAuthRoleStatusProviding,
     @unchecked Sendable
@@ -2384,8 +2384,37 @@ final class OpenAIPlugin: NSObject,
         model: String?,
         temperatureDirective: PluginLLMTemperatureDirective
     ) async throws -> String {
+        try await process(
+            systemPrompt: systemPrompt,
+            userText: userText,
+            model: model,
+            temperatureDirective: temperatureDirective,
+            effort: nil
+        )
+    }
+
+    func supportedEfforts(for model: String?) -> [PluginLLMEffortInfo] {
+        guard let model else { return [] }
+        return Self.supportedReasoningEfforts(for: model).map {
+            PluginLLMEffortInfo(id: $0.rawValue, displayName: $0.localizedKey)
+        }
+    }
+
+    func defaultEffortId(for model: String?) -> String? {
+        guard let model else { return nil }
+        return Self.effectiveReasoningEffort(_reasoningEffort, for: model)?.rawValue
+    }
+
+    func process(
+        systemPrompt: String,
+        userText: String,
+        model: String?,
+        temperatureDirective: PluginLLMTemperatureDirective,
+        effort: String?
+    ) async throws -> String {
         let modelId = model ?? _selectedLLMModelId ?? supportedModels.first!.id
-        let reasoningEffort = Self.effectiveReasoningEffort(_reasoningEffort, for: modelId)?.rawValue
+        let preferredEffort = effort.flatMap(OpenAIReasoningEffort.init(rawValue:)) ?? _reasoningEffort
+        let reasoningEffort = Self.effectiveReasoningEffort(preferredEffort, for: modelId)?.rawValue
 
         switch _authMode {
         case .apiKey:
@@ -2419,7 +2448,12 @@ final class OpenAIPlugin: NSObject,
                 )
             )
         case .chatGPT:
-            return try await processWithChatGPT(systemPrompt: systemPrompt, userText: userText, model: modelId)
+            return try await processWithChatGPT(
+                systemPrompt: systemPrompt,
+                userText: userText,
+                model: modelId,
+                reasoningEffort: reasoningEffort
+            )
         }
     }
 
@@ -2969,7 +3003,12 @@ final class OpenAIPlugin: NSObject,
         return refreshed.access_token
     }
 
-    private func processWithChatGPT(systemPrompt: String, userText: String, model: String) async throws -> String {
+    private func processWithChatGPT(
+        systemPrompt: String,
+        userText: String,
+        model: String,
+        reasoningEffort: String?
+    ) async throws -> String {
         let accessToken = try await validOAuthAccessToken()
         let endpoint = URL(string: OpenAIOAuthConfig.codexAPIEndpoint)!
 
@@ -2996,8 +3035,8 @@ final class OpenAIPlugin: NSObject,
         ]
 
         var mutableRequestBody = requestBody
-        if let reasoningEffort = Self.effectiveReasoningEffort(_reasoningEffort, for: model) {
-            mutableRequestBody["reasoning"] = ["effort": reasoningEffort.rawValue]
+        if let reasoningEffort {
+            mutableRequestBody["reasoning"] = ["effort": reasoningEffort]
         }
 
         var request = URLRequest(url: endpoint)
