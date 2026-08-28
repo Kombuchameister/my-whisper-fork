@@ -53,7 +53,7 @@ jobs:
 
           xcodebuild build \
             -project TypeWhisper.xcodeproj \
-            -target OpenAIPlugin \
+            -scheme OpenAIPlugin \
             -configuration Debug \
             -derivedDataPath build-feature \
             -destination 'generic/platform=macOS' \
