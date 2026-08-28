@@ -325,6 +325,7 @@ final class DictationViewModel: ObservableObject {
     private var activeWorkflowMatch: WorkflowMatchResult?
     private var forcedWorkflowId: UUID?
     private var capturedActiveApp: (name: String?, bundleId: String?, url: String?)?
+    private var capturedWindowText: String?
     private var capturedSelectedText: String?
 
     private var cancellables = Set<AnyCancellable>()
@@ -1414,6 +1415,7 @@ final class DictationViewModel: ObservableObject {
         // not delay capture of the user's first spoken words.
         let activeApp = textInsertionService.captureActiveApp()
         capturedActiveApp = activeApp
+        capturedWindowText = nil
         capturedSelectedText = nil
         activeAppIcon = nil
 
@@ -1490,8 +1492,10 @@ final class DictationViewModel: ObservableObject {
         metadataCaptureTask = Task { @MainActor [weak self] in
             guard let self else { return }
 
-            let selectedText = textInsertionService.getSelectedText()
+            let insertionContext = textInsertionService.captureInsertionContext()
+            let selectedText = insertionContext?.selectedText ?? textInsertionService.getSelectedText()
             guard !Task.isCancelled else { return }
+            capturedWindowText = insertionContext?.value
             capturedSelectedText = selectedText
             if let selectedText {
                 logger.info("Captured selected text (\(selectedText.count) chars)")
@@ -2358,6 +2362,7 @@ final class DictationViewModel: ObservableObject {
         recordingStartTime = nil
         clearActiveRuleState()
         capturedActiveApp = nil
+        capturedWindowText = nil
         capturedSelectedText = nil
         activeAppIcon = nil
         processingPhase = nil
@@ -2768,7 +2773,10 @@ final class DictationViewModel: ObservableObject {
         }
 
         return { text in
-            if workflowService.shouldSkipAIProcessingForShortDictation(text: text) {
+            if workflowService.shouldSkipAIProcessingForShortDictation(
+                text: text,
+                template: workflow.template
+            ) {
                 logger.info("Skipping workflow AI processing for short dictation")
                 return text
             }
@@ -2779,6 +2787,7 @@ final class DictationViewModel: ObservableObject {
                 windowContext: WorkflowWindowContext(
                     appName: self.capturedActiveApp?.name,
                     url: self.capturedActiveApp?.url,
+                    windowText: self.capturedWindowText,
                     selectedText: self.capturedSelectedText
                 ),
                 fallbackTranslationTarget: translationTarget,

@@ -10,7 +10,15 @@ private let workflowTextProcessingLogger = Logger(
 struct WorkflowWindowContext: Equatable, Sendable {
     let appName: String?
     let url: String?
+    let windowText: String?
     let selectedText: String?
+
+    init(appName: String?, url: String?, windowText: String?, selectedText: String?) {
+        self.appName = appName
+        self.url = url
+        self.windowText = selectedText?.isEmpty == false ? nil : windowText
+        self.selectedText = selectedText
+    }
 }
 
 @MainActor
@@ -196,6 +204,9 @@ struct WorkflowTextProcessingService {
         }
         if let url = trimmedOrNil(context?.url) {
             sections.append("ACTIVE URL:\n\(url)")
+        }
+        if let windowText = trimmedOrNil(context?.windowText) {
+            sections.append("ACTIVE WINDOW CONTENT:\n\(windowText)")
         }
         if let selectedText = trimmedOrNil(context?.selectedText) {
             sections.append("SELECTED CONTENT:\n\(selectedText)")
