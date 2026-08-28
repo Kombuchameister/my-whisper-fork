@@ -90,8 +90,11 @@ final class WorkflowService: ObservableObject {
         min(max(value, shortTranscriptionMinimumWordsRange.lowerBound), shortTranscriptionMinimumWordsRange.upperBound)
     }
 
-    func shouldSkipAIProcessingForShortDictation(text: String) -> Bool {
-        guard shortTranscriptionMinimumWords > 0 else { return false }
+    func shouldSkipAIProcessingForShortDictation(
+        text: String,
+        template: WorkflowTemplate? = nil
+    ) -> Bool {
+        guard template != .speakToWindow, shortTranscriptionMinimumWords > 0 else { return false }
 
         let wordCount = text
             .trimmingCharacters(in: .whitespacesAndNewlines)
