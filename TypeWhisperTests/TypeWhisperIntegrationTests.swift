@@ -11439,7 +11439,6 @@ final class TypeWhisperIntegrationTests: XCTestCase {
         let service = PromptProcessingService(userDefaults: isolatedDefaults.defaults)
         service.addLLMFallback(
             providerId: plugin.providerId,
-            modelId: "reasoning-model",
             effortId: "high"
         )
 
@@ -11448,6 +11447,35 @@ final class TypeWhisperIntegrationTests: XCTestCase {
         XCTAssertEqual(result, "effort-aware")
         XCTAssertEqual(plugin.lastModel, "reasoning-model")
         XCTAssertEqual(plugin.lastEffort, "high")
+
+        XCTAssertEqual(
+            service.effortsForWorkflow(providerId: nil, modelId: nil).map(\.id),
+            ["low", "high"]
+        )
+
+        let fallbackWorkflowResult = try await service.processWorkflow(
+            prompt: "Fix grammar",
+            text: "hello world",
+            behavior: WorkflowBehavior(effortId: "low")
+        )
+
+        XCTAssertEqual(fallbackWorkflowResult, "effort-aware")
+        XCTAssertEqual(plugin.lastModel, "reasoning-model")
+        XCTAssertEqual(plugin.lastEffort, "low")
+
+        let fallback = try XCTUnwrap(service.fallbackPriorityList.first)
+        service.updateLLMFallback(
+            fallback,
+            providerId: plugin.providerId,
+            modelId: "reasoning-model",
+            effortId: nil
+        )
+        _ = try await service.processWorkflow(
+            prompt: "Fix grammar",
+            text: "hello world",
+            behavior: WorkflowBehavior()
+        )
+        XCTAssertNil(plugin.lastEffort)
 
         let workflowResult = try await service.processWorkflow(
             prompt: "Fix grammar",
@@ -11463,7 +11491,18 @@ final class TypeWhisperIntegrationTests: XCTestCase {
         XCTAssertEqual(plugin.lastModel, "reasoning-model")
         XCTAssertEqual(plugin.lastEffort, "low")
 
-        let fallback = try XCTUnwrap(service.fallbackPriorityList.first)
+        _ = try await service.processWorkflow(
+            prompt: "Fix grammar",
+            text: "hello world",
+            behavior: WorkflowBehavior(
+                providerId: plugin.providerId,
+                effortId: "high"
+            )
+        )
+
+        XCTAssertEqual(plugin.lastModel, "reasoning-model")
+        XCTAssertEqual(plugin.lastEffort, "high")
+
         service.updateLLMFallback(
             fallback,
             providerId: plugin.providerId,

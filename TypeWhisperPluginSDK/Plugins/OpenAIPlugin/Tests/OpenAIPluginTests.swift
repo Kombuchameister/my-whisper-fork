@@ -696,6 +696,49 @@ final class OpenAIPluginTests: XCTestCase {
         XCTAssertEqual((requestBody["reasoning"] as? [String: Any])?["effort"] as? String, "medium")
     }
 
+    func testOpenAIEffortCapabilityOverridesProviderSetting() async throws {
+        let host = try PluginTestHostServices(
+            defaults: [
+                "selectedLLMModel": "gpt-5.5",
+                "reasoningEffort": "medium",
+            ],
+            secrets: ["api-key": "sk-live"]
+        )
+        let plugin = OpenAIPlugin()
+        plugin.activate(host: host)
+        let capability = try XCTUnwrap(plugin as? any LLMTemperatureAndEffortControllableProvider)
+
+        XCTAssertEqual(capability.supportedEfforts(for: "gpt-5.5").map(\.id), ["none", "low", "medium", "high", "xhigh"])
+        XCTAssertEqual(capability.defaultEffortId(for: "gpt-5.5"), "medium")
+
+        let store = PluginHTTPClientSessionStore()
+        PluginHTTPClientTestHarness.configure { _ in
+            store.makeSession(outcomes: [
+                .success(
+                    Data(
+                        #"{"output":[{"type":"message","content":[{"type":"output_text","text":"Done"}]}]}"#.utf8
+                    ),
+                    Self.httpResponse(url: "https://api.openai.com/v1/responses", statusCode: 200)
+                ),
+            ])
+        }
+
+        _ = try await capability.process(
+            systemPrompt: "Fix grammar",
+            userText: "hello",
+            model: "gpt-5.5",
+            temperatureDirective: .inheritProviderSetting,
+            effort: "high"
+        )
+
+        let request = try XCTUnwrap(store.sessions.first?.requestedRequests.first)
+        let requestData = try XCTUnwrap(request.httpBody)
+        let requestBody = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: requestData) as? [String: Any]
+        )
+        XCTAssertEqual((requestBody["reasoning"] as? [String: Any])?["effort"] as? String, "high")
+    }
+
     func testOpenAIRealtimeRequestUsesRealtimeWhisperEndpointAndAuth() throws {
         let request = try OpenAIRealtimeTranscriptionSession.makeRequest(apiKey: "sk-test")
 

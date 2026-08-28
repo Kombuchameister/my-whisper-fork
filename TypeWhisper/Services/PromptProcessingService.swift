@@ -220,6 +220,17 @@ class PromptProcessingService: ObservableObject {
         return effortProvider.defaultEffortId(for: resolvedModel)
     }
 
+    func effortsForWorkflow(providerId: String?, modelId: String?) -> [PluginLLMEffortInfo] {
+        if let providerId {
+            return effortsForProvider(providerId, modelId: modelId)
+        }
+
+        var seen: Set<String> = []
+        return fallbackPriorityList
+            .flatMap { effortsForProvider($0.providerId, modelId: $0.modelId) }
+            .filter { seen.insert($0.id).inserted }
+    }
+
     /// Returns display name for a provider ID, retaining an unknown saved ID so
     /// the user can repair it rather than silently losing that fallback entry.
     func displayName(for providerId: String) -> String {
@@ -464,7 +475,15 @@ class PromptProcessingService: ObservableObject {
                 )
             ]
         } else {
-            candidates = fallbackPriorityList
+            let normalizedWorkflowEffort = Self.normalizedEffortId(effortOverride)
+            candidates = fallbackPriorityList.map { candidate in
+                LLMFallbackPriorityItem(
+                    id: candidate.id,
+                    providerId: candidate.providerId,
+                    modelId: candidate.modelId,
+                    effortId: normalizedWorkflowEffort ?? candidate.effortId
+                )
+            }
         }
 
         guard !candidates.isEmpty else {

@@ -255,7 +255,16 @@ final class WorkflowService: ObservableObject {
         }
 
         let globalMatches = enabled.filter { workflow in
-            workflow.trigger?.kind == .global
+            guard let trigger = workflow.trigger,
+                  trigger.kind == .global,
+                  !trigger.excludedAppBundleIdentifiers.contains(bundleId) else {
+                return false
+            }
+            return domain.map { domain in
+                !trigger.excludedWebsitePatterns.contains { pattern in
+                    !pattern.isEmpty && domainMatches(domain, pattern: pattern)
+                }
+            } ?? true
         }
         if let result = bestMatch(from: globalMatches, kind: .globalFallback, matchedDomain: nil) {
             return result
