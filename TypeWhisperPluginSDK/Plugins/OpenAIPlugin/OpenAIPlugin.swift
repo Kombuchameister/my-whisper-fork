@@ -2409,6 +2409,21 @@ final class OpenAIPlugin: NSObject,
         systemPrompt: String,
         userText: String,
         model: String?,
+        effort: String?
+    ) async throws -> String {
+        try await process(
+            systemPrompt: systemPrompt,
+            userText: userText,
+            model: model,
+            temperatureDirective: .inheritProviderSetting,
+            effort: effort
+        )
+    }
+
+    func process(
+        systemPrompt: String,
+        userText: String,
+        model: String?,
         temperatureDirective: PluginLLMTemperatureDirective,
         effort: String?
     ) async throws -> String {
