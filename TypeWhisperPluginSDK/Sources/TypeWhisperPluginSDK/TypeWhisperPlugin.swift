@@ -736,6 +736,17 @@ public protocol LiveTranscriptionSession: AnyObject, Sendable {
     func cancel() async
 }
 
+/// Describes whether live progress text covers all audio so far or only a recent window.
+public enum LiveTranscriptionProgressMode: Sendable, Equatable {
+    case rollingWindow
+    case completeSnapshot
+}
+
+/// Optional provider capability for declaring how live progress callbacks should be interpreted.
+public protocol LiveTranscriptionProgressModeProviding: Sendable {
+    var liveTranscriptionProgressMode: LiveTranscriptionProgressMode { get }
+}
+
 public enum PluginDictionaryTerms {
     public static func normalizedTermHints(from hints: [PluginDictionaryTermHint]) -> [PluginDictionaryTermHint] {
         var seen = Set<String>()
