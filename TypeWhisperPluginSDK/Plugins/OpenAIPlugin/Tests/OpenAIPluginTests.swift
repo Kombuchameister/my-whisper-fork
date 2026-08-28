@@ -706,7 +706,7 @@ final class OpenAIPluginTests: XCTestCase {
         )
         let plugin = OpenAIPlugin()
         plugin.activate(host: host)
-        let capability = try XCTUnwrap(plugin as? any LLMTemperatureAndEffortControllableProvider)
+        let capability = try XCTUnwrap(plugin as? any LLMEffortControllableProvider)
 
         XCTAssertEqual(capability.supportedEfforts(for: "gpt-5.5").map(\.id), ["none", "low", "medium", "high", "xhigh"])
         XCTAssertEqual(capability.defaultEffortId(for: "gpt-5.5"), "medium")
@@ -727,7 +727,6 @@ final class OpenAIPluginTests: XCTestCase {
             systemPrompt: "Fix grammar",
             userText: "hello",
             model: "gpt-5.5",
-            temperatureDirective: .inheritProviderSetting,
             effort: "high"
         )
 
