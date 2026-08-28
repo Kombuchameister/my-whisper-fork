@@ -5349,6 +5349,8 @@
 				SWIFT_STRICT_CONCURRENCY = targeted;
 				SWIFT_VERSION = 6.0;
 				TYPEWHISPER_ICLOUD_ENABLED = YES;
+				TYPEWHISPER_DISPLAY_NAME = "TypeWhisper Dev";
+				TYPEWHISPER_FEATURE_SLUG = "";
 				TYPEWHISPER_MAIN_ENTITLEMENTS = TypeWhisper/Resources/TypeWhisper.entitlements;
 			};
 			name = Debug;
@@ -5382,6 +5384,8 @@
 				SWIFT_STRICT_CONCURRENCY = targeted;
 				SWIFT_VERSION = 6.0;
 				TYPEWHISPER_ICLOUD_ENABLED = YES;
+				TYPEWHISPER_DISPLAY_NAME = TypeWhisper;
+				TYPEWHISPER_FEATURE_SLUG = "";
 				TYPEWHISPER_MAIN_ENTITLEMENTS = TypeWhisper/Resources/TypeWhisper.entitlements;
 			};
 			name = Release;
