@@ -23,6 +23,8 @@
 	</array>
 	<key>CFBundleName</key>
 	<string>TypeWhisper</string>
+	<key>CFBundleDisplayName</key>
+	<string>$(TYPEWHISPER_DISPLAY_NAME)</string>
 	<key>CFBundleShortVersionString</key>
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
