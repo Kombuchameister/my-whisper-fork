@@ -16,7 +16,6 @@ struct NotchIndicatorView: View {
     private let contentPadding: CGFloat = 28
     private let sizing: IndicatorSizing = .notch
     private let processingBodyHeight: CGFloat = 28
-    private let feedbackBodyHeight = IndicatorFeedbackPanelLayout.feedbackBodyHeight
 
     init(
         geometry: NotchGeometry,
@@ -110,6 +109,15 @@ struct NotchIndicatorView: View {
     }
 
     private var currentWidth: CGFloat {
+        if hasActionFeedback {
+            return max(
+                closedWidth,
+                IndicatorFeedbackPanelLayout.feedbackWidth(
+                    message: presentation.actionFeedbackMessage,
+                    expanded: viewModel.actionFeedbackExpanded
+                )
+            )
+        }
         NotchIndicatorLayout.containerWidth(closedWidth: closedWidth, mode: expansionMode)
     }
 
@@ -134,10 +142,10 @@ struct NotchIndicatorView: View {
 
     private var expandedBodyHeight: CGFloat {
         if countdownPresentation != nil {
-            return feedbackBodyHeight
+            return IndicatorFeedbackPanelLayout.feedbackBodyHeight
         }
         if hasCancelWarning {
-            return feedbackBodyHeight
+            return IndicatorFeedbackPanelLayout.feedbackBodyHeight
         }
         if hasTranscriptSection {
             return transcriptBodyHeight
@@ -146,7 +154,10 @@ struct NotchIndicatorView: View {
             return processingBodyHeight
         }
         if hasActionFeedback {
-            return feedbackBodyHeight
+            return IndicatorFeedbackPanelLayout.feedbackBodyHeight(
+                message: presentation.actionFeedbackMessage,
+                expanded: viewModel.actionFeedbackExpanded
+            )
         }
         return 0
     }
@@ -317,7 +328,8 @@ struct NotchIndicatorView: View {
                 onAction: presentation.actionFeedbackUndoTitle == nil ? nil : {
                     viewModel.undoActionFeedback()
                 },
-                remainingFraction: presentation.actionFeedbackRemainingFraction
+                remainingFraction: presentation.actionFeedbackRemainingFraction,
+                expanded: viewModel.actionFeedbackExpanded
             )
         } else {
             Color.clear

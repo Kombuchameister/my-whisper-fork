@@ -53,8 +53,14 @@ enum IndicatorFeedbackPanelLayout {
         switch style {
         case .notch:
             return CGSize(
-                width: max(notchClosedWidth, feedbackWidth),
-                height: notchClosedHeight + feedbackBodyHeight
+                width: max(
+                    notchClosedWidth,
+                    feedbackWidth(message: feedbackMessage, expanded: feedbackExpanded)
+                ),
+                height: notchClosedHeight + feedbackBodyHeight(
+                    message: feedbackMessage,
+                    expanded: feedbackExpanded
+                )
             )
         case .overlay:
             if countdownKind?.isStart == true {

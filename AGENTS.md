@@ -16,3 +16,14 @@ A feature-app build is not complete when the app is merely built and installed. 
 - treat a request to build or install a developer feature app as authorization to perform this initialization without asking the user to repeat the convention
 - launch once to verify the copied workflows and configured providers are available without Keychain prompts, then close the app to avoid hotkey conflicts
 - on routine rebuilds of the same feature app, preserve its existing isolated state and credentials; do not reclone or overwrite them
+
+## CI Monitoring
+
+Keep GitHub Actions monitoring token-efficient in every session:
+
+- never use continuously streaming commands such as `gh run watch` as the default waiting strategy, because repeated status output consumes conversation context and model tokens without adding useful information
+- query only compact status fields, for example with `gh run view <run-id> --json status,conclusion`, and poll sparingly (normally every 3-5 minutes)
+- prefer a quiet background waiter or product wait/automation mechanism that reports only a state change or final result when available
+- fetch job details or logs only after the run completes, when it fails, or when the user explicitly asks for them
+- do not narrate unchanged polls; report meaningful transitions, failures, or completion
+- use webhooks only when an authenticated persistent listener already exists; do not introduce webhook infrastructure merely to wait for a single CI run

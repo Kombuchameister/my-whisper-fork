@@ -921,6 +921,50 @@ final class WorkflowServiceTests: XCTestCase {
         XCTAssertEqual(actions[0].command, "ls -la")
     }
 
+    func testCommandModeRequiresSeparatelyReviewableSequenceItems() {
+        XCTAssertTrue(CommandModeService.containsCommandSequenceForTesting(
+            "mkdir -p ~/Desktop/demo && printf 'hello' > ~/Desktop/demo/hello.txt"
+        ))
+        XCTAssertTrue(CommandModeService.containsCommandSequenceForTesting(
+            "touch first; touch second"
+        ))
+        XCTAssertTrue(CommandModeService.containsCommandSequenceForTesting(
+            "test -f input || exit 1"
+        ))
+        XCTAssertFalse(CommandModeService.containsCommandSequenceForTesting(
+            "printf '%s' 'text containing && and ; characters'"
+        ))
+        XCTAssertFalse(CommandModeService.containsCommandSequenceForTesting(
+            "cat input.txt | head -n 1"
+        ))
+    }
+
+    func testCommandModeApprovalSequenceSeparatesPurposeAndCommand() {
+        let actions = [
+            CommandModeShellAction(
+                command: "mkdir -p ~/Desktop/demo",
+                workingDirectory: nil,
+                purpose: "Create the demo folder."
+            ),
+            CommandModeShellAction(
+                command: "cat hello.txt",
+                workingDirectory: "~/Desktop/demo",
+                purpose: "Verify the file contents."
+            ),
+        ]
+
+        XCTAssertEqual(
+            CommandModeService.approvalSequenceTextForTesting(actions),
+            """
+            1. Create the demo folder.
+            $ mkdir -p ~/Desktop/demo
+
+            2. Verify the file contents. — Folder: ~/Desktop/demo
+            $ cat hello.txt
+            """
+        )
+    }
+
     func testCommandModeConfirmsAnythingBeyondSimpleInspection() {
         XCTAssertFalse(CommandModeService.requiresConfirmation("ls -la ~/Downloads"))
         XCTAssertFalse(CommandModeService.requiresConfirmation("git status"))

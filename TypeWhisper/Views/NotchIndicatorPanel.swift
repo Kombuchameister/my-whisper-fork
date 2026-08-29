@@ -46,6 +46,7 @@ class NotchIndicatorPanel: NSPanel {
     private var showTask: Task<Void, Never>?
     private var dismissTask: Task<Void, Never>?
     private var isActionFeedbackInteractive = false
+    private var isActionFeedbackExpanded = false
     private var isMeetingCountdownPresented = false
 
     private var isFeedbackInteractive: Bool {
@@ -174,6 +175,17 @@ class NotchIndicatorPanel: NSPanel {
             }
             .store(in: &cancellables)
 
+        vm.$actionFeedbackExpanded
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] expanded in
+                guard let self else { return }
+                self.isActionFeedbackExpanded = expanded
+                guard self.isVisible else { return }
+                self.show()
+            }
+            .store(in: &cancellables)
+
         countdownModel.$presentation
             .removeDuplicates()
             .receive(on: DispatchQueue.main)
@@ -262,6 +274,8 @@ class NotchIndicatorPanel: NSPanel {
         let panelSize = IndicatorFeedbackPanelLayout.panelSize(
             for: .notch,
             isFeedbackInteractive: isFeedbackInteractive,
+            feedbackMessage: DictationViewModel.shared.actionFeedbackMessage,
+            feedbackExpanded: isActionFeedbackExpanded,
             notchClosedWidth: closedWidth,
             notchClosedHeight: notchGeometry.notchHeight
         )
