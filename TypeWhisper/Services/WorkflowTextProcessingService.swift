@@ -403,7 +403,7 @@ struct CommandModeService {
     }
 
     private static func confirm(_ actions: [CommandModeShellAction]) -> Bool {
-        NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+        NSRunningApplication.current.activate(options: [.activateAllWindows])
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = actions.count == 1
