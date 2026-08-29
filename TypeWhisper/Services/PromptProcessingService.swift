@@ -1162,7 +1162,9 @@ class PromptProcessingService: ObservableObject {
                     id: identifier,
                     providerId: item.providerId,
                     modelId: item.modelId,
-                    effortId: item.effortId
+                    effortId: item.effortId,
+                    temperatureModeRaw: item.temperatureDirective.mode.rawValue,
+                    temperatureValue: item.temperatureDirective.customValue
                 )
             )
         }
