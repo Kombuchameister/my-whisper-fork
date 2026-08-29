@@ -333,7 +333,7 @@ final class CommandModeService {
         request: String,
         workflow: Workflow,
         selectedText: String? = nil,
-        progress: @MainActor (String) -> Void
+        progress: @escaping @MainActor (String) -> Void
     ) async throws -> CommandModeOutcome {
         lastWorkflow = workflow
         let boundedRequest = CommandModeHistorySanitizer.sanitize(request, maximum: 4_000)
