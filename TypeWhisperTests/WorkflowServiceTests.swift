@@ -894,6 +894,33 @@ final class WorkflowServiceTests: XCTestCase {
         XCTAssertNil(decision.message)
     }
 
+    func testCommandModeParsesASequentialCommandBatchInOrder() throws {
+        let actions = try CommandModeService.actionsForTesting("""
+        {"type":"run","commands":[
+          {"command":"mkdir -p ~/Desktop/demo","workingDirectory":null,"purpose":"Create folder"},
+          {"command":"printf 'hello' > hello.txt","workingDirectory":"~/Desktop/demo","purpose":"Write file"},
+          {"command":"cat hello.txt","workingDirectory":"~/Desktop/demo","purpose":"Verify file"}
+        ]}
+        """)
+
+        XCTAssertEqual(actions.map(\.command), [
+            "mkdir -p ~/Desktop/demo",
+            "printf 'hello' > hello.txt",
+            "cat hello.txt"
+        ])
+        XCTAssertEqual(actions.map(\.purpose), ["Create folder", "Write file", "Verify file"])
+        XCTAssertEqual(actions[1].workingDirectory, "~/Desktop/demo")
+    }
+
+    func testCommandModeStillAcceptsLegacySingleCommandResponses() throws {
+        let actions = try CommandModeService.actionsForTesting("""
+        {"type":"run","command":"ls -la","workingDirectory":null,"purpose":"Inspect files"}
+        """)
+
+        XCTAssertEqual(actions.count, 1)
+        XCTAssertEqual(actions[0].command, "ls -la")
+    }
+
     func testCommandModeConfirmsAnythingBeyondSimpleInspection() {
         XCTAssertFalse(CommandModeService.requiresConfirmation("ls -la ~/Downloads"))
         XCTAssertFalse(CommandModeService.requiresConfirmation("git status"))

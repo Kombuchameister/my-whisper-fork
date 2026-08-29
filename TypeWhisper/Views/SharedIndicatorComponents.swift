@@ -298,6 +298,7 @@ struct IndicatorActionFeedback: View {
     var actionTitle: String? = nil
     var onAction: (() -> Void)? = nil
     var remainingFraction: Double? = nil
+    var expanded: Bool = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -314,10 +315,19 @@ struct IndicatorActionFeedback: View {
                     .foregroundStyle(iconColor ?? (isError ? .red : .green))
                     .font(.system(size: 16))
                     .accessibilityHidden(true)
-                Text(message)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.9))
-                    .lineLimit(2)
+                Group {
+                    if expanded {
+                        ScrollView(.vertical) {
+                            Text(message)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    } else {
+                        Text(message)
+                            .lineLimit(IndicatorFeedbackPanelLayout.feedbackIsLong(message) ? 4 : 2)
+                    }
+                }
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.white.opacity(0.9))
 
                 if let actionTitle, let onAction {
                     Spacer(minLength: 8)
@@ -335,7 +345,7 @@ struct IndicatorActionFeedback: View {
             .padding(.horizontal, contentPadding)
         }
         .frame(maxWidth: .infinity)
-        .frame(height: IndicatorFeedbackPanelLayout.feedbackBodyHeight)
+        .frame(height: IndicatorFeedbackPanelLayout.feedbackBodyHeight(message: message, expanded: expanded))
         .accessibilityElement(children: actionTitle == nil ? .combine : .contain)
         .accessibilityLabel(message)
     }

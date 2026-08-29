@@ -260,6 +260,7 @@ final class DictationViewModel: ObservableObject {
     @Published var processingPhase: String?
     @Published private(set) var isRecordingInputReady = false
     @Published var actionFeedbackMessage: String?
+    @Published private(set) var actionFeedbackExpanded = false
     @Published var actionFeedbackIcon: String?
     @Published var actionFeedbackIsError: Bool = false
     @Published var actionFeedbackUndoTitle: String?
@@ -2386,6 +2387,7 @@ final class DictationViewModel: ObservableObject {
         activeAppIcon = nil
         processingPhase = nil
         actionFeedbackMessage = nil
+        actionFeedbackExpanded = false
         actionFeedbackIcon = nil
         actionFeedbackIsError = false
         clearPendingUndoActionFeedback()
@@ -3088,9 +3090,11 @@ final class DictationViewModel: ObservableObject {
 
     func setActionFeedbackHovered(_ hovered: Bool) {
         guard state == .inserting, actionFeedbackMessage != nil else {
+            actionFeedbackExpanded = false
             indicatorFeedbackLifetime.setHovered(false)
             return
         }
+        actionFeedbackExpanded = hovered
         indicatorFeedbackLifetime.setHovered(hovered)
     }
 

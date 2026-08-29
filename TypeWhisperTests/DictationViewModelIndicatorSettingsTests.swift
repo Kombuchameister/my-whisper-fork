@@ -1409,6 +1409,28 @@ final class IndicatorPanelInteractionTests: XCTestCase {
         )
     }
 
+    func testLongOverlayFeedbackGrowsAndExpandsFurtherOnHover() {
+        let message = String(repeating: "Readable command result ", count: 8)
+
+        XCTAssertEqual(
+            IndicatorFeedbackPanelLayout.panelSize(
+                for: .overlay,
+                isFeedbackInteractive: true,
+                feedbackMessage: message
+            ),
+            CGSize(width: 540, height: 136)
+        )
+        XCTAssertEqual(
+            IndicatorFeedbackPanelLayout.panelSize(
+                for: .overlay,
+                isFeedbackInteractive: true,
+                feedbackMessage: message,
+                feedbackExpanded: true
+            ),
+            CGSize(width: 620, height: 208)
+        )
+    }
+
     func testOverlaySurfaceClipsFeedbackProgressToRoundedWindow() throws {
         let width = Int(IndicatorFeedbackPanelLayout.feedbackWidth)
         let height = Int(

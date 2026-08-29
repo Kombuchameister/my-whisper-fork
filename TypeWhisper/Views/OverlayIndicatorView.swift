@@ -115,7 +115,15 @@ struct OverlayIndicatorView: View {
         }
         if hasCancelWarning { return max(closedWidth, IndicatorFeedbackPanelLayout.feedbackWidth) }
         if transcriptBodyVisible { return max(closedWidth, 400) }
-        if hasActionFeedback { return max(closedWidth, IndicatorFeedbackPanelLayout.feedbackWidth) }
+        if hasActionFeedback {
+            return max(
+                closedWidth,
+                IndicatorFeedbackPanelLayout.feedbackWidth(
+                    message: presentation.actionFeedbackMessage,
+                    expanded: viewModel.actionFeedbackExpanded
+                )
+            )
+        }
         return closedWidth
     }
 
@@ -280,7 +288,8 @@ struct OverlayIndicatorView: View {
                     onAction: presentation.actionFeedbackUndoTitle == nil ? nil : {
                         viewModel.undoActionFeedback()
                     },
-                    remainingFraction: presentation.actionFeedbackRemainingFraction
+                    remainingFraction: presentation.actionFeedbackRemainingFraction,
+                    expanded: viewModel.actionFeedbackExpanded
                 )
                 .overlay(alignment: .top) {
                     Divider().background(Color.white.opacity(0.1))
@@ -299,7 +308,8 @@ struct OverlayIndicatorView: View {
                     onAction: presentation.actionFeedbackUndoTitle == nil ? nil : {
                         viewModel.undoActionFeedback()
                     },
-                    remainingFraction: presentation.actionFeedbackRemainingFraction
+                    remainingFraction: presentation.actionFeedbackRemainingFraction,
+                    expanded: viewModel.actionFeedbackExpanded
                 )
                 .overlay(alignment: .bottom) {
                     Divider().background(Color.white.opacity(0.1))

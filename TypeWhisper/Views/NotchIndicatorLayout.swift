@@ -8,6 +8,21 @@ enum IndicatorFeedbackPanelLayout {
     static let overlayStatusHeight: CGFloat = 48
     static let screenEdgeInset: CGFloat = 20
 
+    static func feedbackIsLong(_ message: String?) -> Bool {
+        guard let message else { return false }
+        return message.count > 78 || message.contains("\n")
+    }
+
+    static func feedbackWidth(message: String?, expanded: Bool) -> CGFloat {
+        if expanded { return 620 }
+        return feedbackIsLong(message) ? 540 : feedbackWidth
+    }
+
+    static func feedbackBodyHeight(message: String?, expanded: Bool) -> CGFloat {
+        if expanded { return 160 }
+        return feedbackIsLong(message) ? 88 : feedbackBodyHeight
+    }
+
     static func isInteractive(
         state: DictationViewModel.State,
         message: String?
@@ -18,6 +33,8 @@ enum IndicatorFeedbackPanelLayout {
     static func panelSize(
         for style: IndicatorStyle,
         isFeedbackInteractive: Bool,
+        feedbackMessage: String? = nil,
+        feedbackExpanded: Bool = false,
         countdownKind: CalendarMeetingCountdownKind? = nil,
         notchClosedWidth: CGFloat = 0,
         notchClosedHeight: CGFloat = NotchIndicatorLayout.notchedClosedHeight
@@ -44,8 +61,8 @@ enum IndicatorFeedbackPanelLayout {
                 return CGSize(width: feedbackWidth, height: feedbackBodyHeight)
             }
             return CGSize(
-                width: feedbackWidth,
-                height: overlayStatusHeight + feedbackBodyHeight
+                width: feedbackWidth(message: feedbackMessage, expanded: feedbackExpanded),
+                height: overlayStatusHeight + feedbackBodyHeight(message: feedbackMessage, expanded: feedbackExpanded)
             )
         case .minimal:
             return CGSize(width: minimalFeedbackWidth, height: feedbackBodyHeight)
