@@ -689,21 +689,38 @@ final class CommandModeConversationStore: ObservableObject {
     private static func sanitized(_ item: CommandModeTranscriptItem) -> CommandModeTranscriptItem {
         var copy = item
         copy.text = CommandModeHistorySanitizer.sanitize(copy.text)
-        if var sequence = copy.sequence {
-            sequence.commands = sequence.commands.map { command in
-                var command = command
-                if let result = command.result {
-                    command.result = CommandModeStoredResult(
-                        success: result.success,
-                        output: CommandModeHistorySanitizer.sanitize(result.output),
-                        error: result.error.map { CommandModeHistorySanitizer.sanitize($0) },
-                        exitCode: result.exitCode,
-                        timedOut: result.timedOut
+        if let sequence = copy.sequence {
+            let commands = sequence.commands.map { command in
+                var result: CommandModeStoredResult?
+                if let originalResult = command.result {
+                    let sanitizedResult = CommandModeStoredResult(
+                        success: originalResult.success,
+                        output: CommandModeHistorySanitizer.sanitize(originalResult.output),
+                        error: originalResult.error.map { CommandModeHistorySanitizer.sanitize($0) },
+                        exitCode: originalResult.exitCode,
+                        timedOut: originalResult.timedOut
                     )
+                    result = sanitizedResult
                 }
-                return command
+                return CommandModeStoredCommand(
+                    id: command.id,
+                    command: CommandModeHistorySanitizer.sanitize(command.command, maximum: 4_096),
+                    purpose: CommandModeHistorySanitizer.sanitize(command.purpose, maximum: 500),
+                    workingDirectory: CommandModeHistorySanitizer.sanitize(command.workingDirectory, maximum: 4_096),
+                    resolvedTargetPaths: command.resolvedTargetPaths.map {
+                        CommandModeHistorySanitizer.sanitize($0, maximum: 4_096)
+                    },
+                    requiresApproval: command.requiresApproval,
+                    state: command.state,
+                    result: result
+                )
             }
-            copy.sequence = sequence
+            copy.sequence = CommandModeStoredSequence(
+                id: sequence.id,
+                explanation: CommandModeHistorySanitizer.sanitize(sequence.explanation, maximum: 1_000),
+                commands: commands,
+                approvalState: sequence.approvalState
+            )
         }
         return copy
     }

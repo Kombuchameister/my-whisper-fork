@@ -640,6 +640,7 @@ final class CommandModeService {
             let purpose = action.purpose.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !command.isEmpty, command.count <= 4_096,
                   !purpose.isEmpty, purpose.count <= 500,
+                  CommandModeHistorySanitizer.sanitize(command, maximum: 4_096) == command,
                   !isInteractiveOrPrivileged(command) else {
                 throw CommandModeError.invalidResponse
             }
