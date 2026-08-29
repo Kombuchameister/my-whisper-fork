@@ -158,15 +158,15 @@ class PromptProcessingService: ObservableObject {
         return false
     }
 
-    /// Returns (id, displayName) pairs for all available providers.
+    /// Returns (id, displayName) pairs for configured, enabled providers.
     var availableProviders: [(id: String, displayName: String)] {
         var result: [(id: String, displayName: String)] = []
 
-        if #available(macOS 26, *) {
+        if #available(macOS 26, *), isAppleIntelligenceAvailable {
             result.append((id: Self.appleIntelligenceId, displayName: "Apple Intelligence"))
         }
 
-        for plugin in PluginManager.shared?.llmProviders ?? [] {
+        for plugin in PluginManager.shared?.llmProviders.filter(\.isAvailable) ?? [] {
             result.append((id: plugin.llmProviderId, displayName: plugin.llmProviderDisplayName))
         }
 
@@ -195,6 +195,7 @@ class PromptProcessingService: ObservableObject {
     func effortsForProvider(_ providerId: String, modelId: String?) -> [PluginLLMEffortInfo] {
         guard providerId != Self.appleIntelligenceId,
               let provider = PluginManager.shared?.llmProvider(for: providerId),
+              provider.isAvailable,
               let effortProvider = provider as? any LLMEffortControllableProvider
         else { return [] }
 
@@ -209,6 +210,7 @@ class PromptProcessingService: ObservableObject {
     func defaultEffortId(for providerId: String, modelId: String?) -> String? {
         guard providerId != Self.appleIntelligenceId,
               let provider = PluginManager.shared?.llmProvider(for: providerId),
+              provider.isAvailable,
               let effortProvider = provider as? any LLMEffortControllableProvider
         else { return nil }
 
