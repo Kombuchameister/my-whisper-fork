@@ -274,7 +274,7 @@ class NotchIndicatorPanel: NSPanel {
         let panelSize = IndicatorFeedbackPanelLayout.panelSize(
             for: .notch,
             isFeedbackInteractive: isFeedbackInteractive,
-            feedbackMessage: DictationViewModel.shared.actionFeedbackMessage,
+            feedbackMessage: DictationViewModel.shared.actionFeedbackLayoutText,
             feedbackExpanded: isActionFeedbackExpanded,
             notchClosedWidth: closedWidth,
             notchClosedHeight: notchGeometry.notchHeight

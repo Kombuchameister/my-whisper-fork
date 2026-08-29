@@ -239,6 +239,21 @@ public protocol LLMProviderPlugin: TypeWhisperPlugin {
     func process(systemPrompt: String, userText: String, model: String?) async throws -> String
 }
 
+/// Optional provider capability for displaying partial LLM output.
+///
+/// Partial text is presentation-only. Hosts must wait for this method's complete
+/// return value before parsing structured output or taking any action.
+public protocol LLMResponseStreamingProvider: LLMProviderPlugin {
+    func processStreaming(
+        systemPrompt: String,
+        userText: String,
+        model: String?,
+        temperatureDirective: PluginLLMTemperatureDirective,
+        effort: String?,
+        onPartialResult: @Sendable @escaping (String) -> Void
+    ) async throws -> String
+}
+
 /// Optional identity extension for LLM providers that need a stable storage ID
 /// separate from their display name.
 public protocol LLMProviderIdentityProviding: LLMProviderPlugin {

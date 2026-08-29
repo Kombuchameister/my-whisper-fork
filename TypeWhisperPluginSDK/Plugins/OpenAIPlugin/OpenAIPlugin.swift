@@ -546,6 +546,66 @@ struct OpenAIResponsesClient: Sendable {
         }
     }
 
+    func processStreaming(
+        systemPrompt: String,
+        userText: String,
+        model: String,
+        reasoningEffort: String?,
+        temperature: Double?,
+        onPartialResult: @Sendable @escaping (String) -> Void
+    ) async throws -> String {
+        guard let url = URL(string: "https://api.openai.com/v1/responses") else {
+            throw OpenAIPluginError.invalidURL("https://api.openai.com/v1/responses")
+        }
+        var body = Self.requestBody(
+            model: model,
+            systemPrompt: systemPrompt,
+            userText: userText,
+            reasoningEffort: reasoningEffort,
+            temperature: temperature
+        )
+        body["stream"] = true
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 120
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (bytes, response) = try await URLSession.shared.bytes(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw PluginChatError.networkError("Invalid response")
+        }
+        guard httpResponse.statusCode == 200 else {
+            switch httpResponse.statusCode {
+            case 401: throw PluginChatError.invalidApiKey
+            case 429: throw PluginChatError.rateLimited
+            default: throw PluginChatError.apiError("HTTP \(httpResponse.statusCode)")
+            }
+        }
+
+        var completeText = ""
+        for try await line in bytes.lines {
+            try Task.checkCancellation()
+            guard line.hasPrefix("data:") else { continue }
+            let payload = line.dropFirst(5).trimmingCharacters(in: .whitespaces)
+            guard payload != "[DONE]", let data = payload.data(using: .utf8),
+                  let event = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            else { continue }
+            if event["type"] as? String == "response.output_text.delta",
+               let delta = event["delta"] as? String {
+                completeText += delta
+                onPartialResult(completeText)
+            }
+        }
+        let trimmed = completeText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw PluginChatError.apiError("Failed to parse streamed response text")
+        }
+        return trimmed
+    }
+
     static func requestBody(
         model: String,
         systemPrompt: String,
@@ -1751,6 +1811,7 @@ final class OpenAIPlugin: NSObject,
     LiveLanguageHintDictionaryTermHintTranscriptionCapablePlugin,
     DictionaryTermsCapabilityProviding,
     LLMTemperatureAndEffortControllableProvider,
+    LLMResponseStreamingProvider,
     TTSProviderPlugin,
     PluginAuthRoleStatusProviding,
     @unchecked Sendable
@@ -2390,6 +2451,44 @@ final class OpenAIPlugin: NSObject,
             model: model,
             temperatureDirective: temperatureDirective,
             effort: nil
+        )
+    }
+
+    func processStreaming(
+        systemPrompt: String,
+        userText: String,
+        model: String?,
+        temperatureDirective: PluginLLMTemperatureDirective,
+        effort: String?,
+        onPartialResult: @Sendable @escaping (String) -> Void
+    ) async throws -> String {
+        let modelId = model ?? _selectedLLMModelId ?? supportedModels.first!.id
+        let preferredEffort = effort.flatMap(OpenAIReasoningEffort.init(rawValue:)) ?? _reasoningEffort
+        let reasoningEffort = Self.effectiveReasoningEffort(preferredEffort, for: modelId)?.rawValue
+        guard _authMode == .apiKey,
+              Self.usesResponsesAPI(for: modelId),
+              let apiKey = _apiKey, !apiKey.isEmpty else {
+            let result = try await process(
+                systemPrompt: systemPrompt,
+                userText: userText,
+                model: modelId,
+                temperatureDirective: temperatureDirective,
+                effort: effort
+            )
+            onPartialResult(result)
+            return result
+        }
+        return try await OpenAIResponsesClient(apiKey: apiKey).processStreaming(
+            systemPrompt: systemPrompt,
+            userText: userText,
+            model: modelId,
+            reasoningEffort: reasoningEffort,
+            temperature: resolvedTemperature(
+                for: modelId,
+                reasoningEffort: reasoningEffort,
+                temperatureDirective: temperatureDirective
+            ),
+            onPartialResult: onPartialResult
         )
     }
 

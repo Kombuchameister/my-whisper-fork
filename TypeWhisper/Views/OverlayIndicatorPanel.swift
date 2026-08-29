@@ -234,7 +234,7 @@ class OverlayIndicatorPanel: NSPanel {
         let panelSize = IndicatorFeedbackPanelLayout.panelSize(
             for: .overlay,
             isFeedbackInteractive: isFeedbackInteractive,
-            feedbackMessage: DictationViewModel.shared.actionFeedbackMessage,
+            feedbackMessage: DictationViewModel.shared.actionFeedbackLayoutText,
             feedbackExpanded: isActionFeedbackExpanded,
             countdownKind: meetingCountdownKind
         )

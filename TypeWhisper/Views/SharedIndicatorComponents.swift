@@ -299,6 +299,9 @@ struct IndicatorActionFeedback: View {
     var onAction: (() -> Void)? = nil
     var remainingFraction: Double? = nil
     var expanded: Bool = false
+    var expandedContext: String? = nil
+    var detailsTitle: String? = nil
+    var onDetails: (() -> Void)? = nil
 
     var body: some View {
         VStack(spacing: 0) {
@@ -318,8 +321,15 @@ struct IndicatorActionFeedback: View {
                 Group {
                     if expanded {
                         ScrollView(.vertical) {
-                            Text(message)
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                            VStack(alignment: .leading, spacing: 8) {
+                                if let expandedContext, !expandedContext.isEmpty {
+                                    Text(expandedContext)
+                                        .font(.system(size: 11, weight: .regular))
+                                        .foregroundStyle(.white.opacity(0.62))
+                                }
+                                Text(message)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     } else {
                         Text(message)
@@ -329,9 +339,27 @@ struct IndicatorActionFeedback: View {
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(.white.opacity(0.9))
 
+                if !expanded,
+                   detailsTitle != nil || IndicatorFeedbackPanelLayout.feedbackIsLong(message) {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.55))
+                        .accessibilityLabel("More details available")
+                }
+
                 if let actionTitle, let onAction {
                     Spacer(minLength: 8)
                     Button(actionTitle, action: onAction)
+                        .buttonStyle(.borderless)
+                        .controlSize(.small)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.white.opacity(0.12), in: Capsule())
+                }
+                if expanded, let detailsTitle, let onDetails {
+                    Button(detailsTitle, action: onDetails)
                         .buttonStyle(.borderless)
                         .controlSize(.small)
                         .font(.system(size: 12, weight: .semibold))
@@ -345,8 +373,11 @@ struct IndicatorActionFeedback: View {
             .padding(.horizontal, contentPadding)
         }
         .frame(maxWidth: .infinity)
-        .frame(height: IndicatorFeedbackPanelLayout.feedbackBodyHeight(message: message, expanded: expanded))
-        .accessibilityElement(children: actionTitle == nil ? .combine : .contain)
+        .frame(height: IndicatorFeedbackPanelLayout.feedbackBodyHeight(
+            message: expandedContext.map { $0 + "\n" + message } ?? message,
+            expanded: expanded
+        ))
+        .accessibilityElement(children: actionTitle == nil && detailsTitle == nil ? .combine : .contain)
         .accessibilityLabel(message)
     }
 }

@@ -44,7 +44,7 @@
 	<key>NSMicrophoneUsageDescription</key>
 	<string>TypeWhisper Local needs microphone access for speech-to-text transcription.</string>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>TypeWhisper detects the current browser URL to apply language profiles automatically.</string>
+	<string>TypeWhisper reads the current browser URL for workflow matching and, only in Command Mode, the front Finder folder and selection for read-only command context.</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>
 	<string>TypeWhisper uses your selected calendars to remind you about meetings and, when enabled, start recordings after a matching live join signal.</string>
 	<key>NSAppTransportSecurity</key>

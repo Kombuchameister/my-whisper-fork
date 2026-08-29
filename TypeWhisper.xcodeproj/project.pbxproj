@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		C0DE00000000000000000001 /* CommandModeSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000002 /* CommandModeSession.swift */; };
 		1C1000000000000000000001 /* PremiumICloudBridgeClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C1000000000000000000011 /* PremiumICloudBridgeClient.swift */; };
 		1C1000000000000000000002 /* PremiumICloudBridgeShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C1000000000000000000012 /* PremiumICloudBridgeShared.swift */; };
 		1C1000000000000000000003 /* PremiumICloudBridgeShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C1000000000000000000012 /* PremiumICloudBridgeShared.swift */; };
@@ -646,6 +647,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		C0DE00000000000000000002 /* CommandModeSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandModeSession.swift; sourceTree = "<group>"; };
 		1C1000000000000000000011 /* PremiumICloudBridgeClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PremiumICloudBridgeClient.swift; sourceTree = "<group>"; };
 		1C1000000000000000000012 /* PremiumICloudBridgeShared.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PremiumICloudBridgeShared.swift; sourceTree = "<group>"; };
 		1C1000000000000000000013 /* PremiumICloudBridgeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PremiumICloudBridgeService.swift; sourceTree = "<group>"; };
@@ -1771,6 +1773,7 @@
 				BB7080000000000000000001 /* TargetAppCorrectionLearningService.swift */,
 				BB00000000000000000066 /* ProfileService.swift */,
 				BB00000000000000000357 /* WorkflowService.swift */,
+				C0DE00000000000000000002 /* CommandModeSession.swift */,
 				BB00000000000000000360 /* WorkflowTextProcessingService.swift */,
 				BB00000000000000000073 /* TranslationService.swift */,
 				BB00000000000000000074 /* AudioDuckingService.swift */,
@@ -4543,6 +4546,7 @@
 				AA00000000000000000356 /* Workflow.swift in Sources */,
 				AA00000000000000000066 /* ProfileService.swift in Sources */,
 				AA00000000000000000357 /* WorkflowService.swift in Sources */,
+				C0DE00000000000000000001 /* CommandModeSession.swift in Sources */,
 				AA00000000000000000360 /* WorkflowTextProcessingService.swift in Sources */,
 				AA00000000000000000067 /* ProfilesViewModel.swift in Sources */,
 				AA00000000000000000068 /* ProfilesSettingsView.swift in Sources */,
