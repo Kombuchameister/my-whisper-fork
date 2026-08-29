@@ -9,7 +9,7 @@ final class OpenRouterPlugin: NSObject,
     TranscriptionEnginePlugin,
     DictionaryTermsCapabilityProviding,
     LLMProviderPlugin,
-    LLMTemperatureControllableProvider,
+    LLMTemperatureAndEffortControllableProvider,
     LLMModelSelectable,
     @unchecked Sendable
 {
@@ -22,6 +22,7 @@ final class OpenRouterPlugin: NSObject,
     fileprivate var _selectedLLMModelId: String?
     fileprivate var _llmTemperatureModeRaw: String = PluginLLMTemperatureMode.providerDefault.rawValue
     fileprivate var _llmTemperatureValue: Double = 0.3
+    fileprivate var _reasoningEffortId: String?
     fileprivate var _fetchedLLMModels: [OpenRouterFetchedModel] = []
     fileprivate var _fetchedTranscriptionModels: [OpenRouterFetchedModel] = []
 
@@ -34,6 +35,7 @@ final class OpenRouterPlugin: NSObject,
         static let selectedLLMModel = "selectedLLMModel"
         static let llmTemperatureMode = "llmTemperatureMode"
         static let llmTemperatureValue = "llmTemperatureValue"
+        static let reasoningEffort = "reasoningEffort"
         static let fetchedModels = "fetchedModels"
         static let fetchedTranscriptionModels = "fetchedTranscriptionModels"
     }
@@ -69,6 +71,7 @@ final class OpenRouterPlugin: NSObject,
             ?? PluginLLMTemperatureMode.providerDefault.rawValue
         _llmTemperatureValue = host.userDefault(forKey: Self.StorageKeys.llmTemperatureValue) as? Double
             ?? 0.3
+        _reasoningEffortId = host.userDefault(forKey: Self.StorageKeys.reasoningEffort) as? String
     }
 
     private static func resolvedStoredModelId(
@@ -311,16 +314,60 @@ final class OpenRouterPlugin: NSObject,
         model: String?,
         temperatureDirective: PluginLLMTemperatureDirective
     ) async throws -> String {
+        try await process(
+            systemPrompt: systemPrompt,
+            userText: userText,
+            model: model,
+            temperatureDirective: temperatureDirective,
+            effort: nil
+        )
+    }
+
+    func supportedEfforts(for model: String?) -> [PluginLLMEffortInfo] {
+        let modelId = model ?? _selectedLLMModelId
+        guard let modelInfo = _fetchedLLMModels.first(where: { $0.id == modelId }),
+              let supported = modelInfo.supportedEfforts, !supported.isEmpty else { return [] }
+        return PluginLLMStandardEffortCatalog.options(supported)
+    }
+
+    func defaultEffortId(for model: String?) -> String? {
+        let modelId = model ?? _selectedLLMModelId
+        guard let modelInfo = _fetchedLLMModels.first(where: { $0.id == modelId }) else { return nil }
+        if let configured = _reasoningEffortId,
+           modelInfo.supportedEfforts?.contains(configured) == true { return configured }
+        return modelInfo.defaultEffort
+    }
+
+    func process(systemPrompt: String, userText: String, model: String?, effort: String?) async throws -> String {
+        try await process(
+            systemPrompt: systemPrompt,
+            userText: userText,
+            model: model,
+            temperatureDirective: .inheritProviderSetting,
+            effort: effort
+        )
+    }
+
+    func process(
+        systemPrompt: String,
+        userText: String,
+        model: String?,
+        temperatureDirective: PluginLLMTemperatureDirective,
+        effort: String?
+    ) async throws -> String {
         guard let apiKey = _apiKey, !apiKey.isEmpty else {
             throw PluginChatError.notConfigured
         }
         let modelId = model ?? _selectedLLMModelId ?? supportedModels.first!.id
+        let supportedIds = Set(supportedEfforts(for: modelId).map(\.id))
+        let preferredEffort = effort ?? _reasoningEffortId
         let request = try Self.makeChatRequest(
             apiKey: apiKey,
             model: modelId,
             systemPrompt: systemPrompt,
             userText: userText,
             temperature: providerTemperatureDirective.resolvedTemperature(applying: temperatureDirective),
+            reasoningEffort: preferredEffort.flatMap { supportedIds.contains($0) ? $0 : nil },
             timeout: Self.chatRequestTimeout
         )
         let (data, response) = try await PluginHTTPClient.data(for: request)
@@ -354,12 +401,18 @@ final class OpenRouterPlugin: NSObject,
         host?.setUserDefault(clamped, forKey: Self.StorageKeys.llmTemperatureValue)
     }
 
+    func setReasoningEffort(_ effortId: String?) {
+        _reasoningEffortId = effortId
+        host?.setUserDefault(effortId, forKey: Self.StorageKeys.reasoningEffort)
+    }
+
     static func makeChatRequest(
         apiKey: String,
         model: String,
         systemPrompt: String,
         userText: String,
         temperature: Double?,
+        reasoningEffort: String? = nil,
         timeout: TimeInterval
     ) throws -> URLRequest {
         guard let url = URL(string: "https://openrouter.ai/api/v1/chat/completions") else {
@@ -376,6 +429,9 @@ final class OpenRouterPlugin: NSObject,
         ]
         if let temperature {
             body["temperature"] = temperature
+        }
+        if let reasoningEffort {
+            body["reasoning"] = ["effort": reasoningEffort]
         }
 
         var request = URLRequest(url: url)
@@ -505,7 +561,9 @@ final class OpenRouterPlugin: NSObject,
                         id: model.id,
                         name: model.name,
                         promptPrice: model.pricing?.prompt ?? "0",
-                        completionPrice: model.pricing?.completion ?? "0"
+                        completionPrice: model.pricing?.completion ?? "0",
+                        supportedEfforts: model.reasoning?.supportedEfforts,
+                        defaultEffort: model.reasoning?.defaultEffort
                     )
                 }
                 .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
@@ -598,6 +656,17 @@ private struct OpenRouterAPIModel: Decodable {
     let name: String
     let pricing: OpenRouterPricing?
     let architecture: OpenRouterArchitecture?
+    let reasoning: OpenRouterReasoning?
+}
+
+private struct OpenRouterReasoning: Decodable {
+    let supportedEfforts: [String]?
+    let defaultEffort: String?
+
+    enum CodingKeys: String, CodingKey {
+        case supportedEfforts = "supported_efforts"
+        case defaultEffort = "default_effort"
+    }
 }
 
 private struct OpenRouterPricing: Decodable {
@@ -616,6 +685,24 @@ struct OpenRouterFetchedModel: Codable, Sendable {
     let name: String
     let promptPrice: String
     let completionPrice: String
+    let supportedEfforts: [String]?
+    let defaultEffort: String?
+
+    init(
+        id: String,
+        name: String,
+        promptPrice: String,
+        completionPrice: String,
+        supportedEfforts: [String]? = nil,
+        defaultEffort: String? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.promptPrice = promptPrice
+        self.completionPrice = completionPrice
+        self.supportedEfforts = supportedEfforts
+        self.defaultEffort = defaultEffort
+    }
 
     var formattedPricing: String {
         let promptPer1M = (Double(promptPrice) ?? 0) * 1_000_000
@@ -639,6 +726,7 @@ private struct OpenRouterSettingsView: View {
     @State private var selectedTranscriptionModel = ""
     @State private var llmTemperatureMode: PluginLLMTemperatureMode = .providerDefault
     @State private var llmTemperatureValue: Double = 0.3
+    @State private var reasoningEffortId = ""
     @State private var fetchedLLMModels: [OpenRouterFetchedModel] = []
     @State private var fetchedTranscriptionModels: [OpenRouterFetchedModel] = []
     @State private var llmSearchText = ""
@@ -751,6 +839,29 @@ private struct OpenRouterSettingsView: View {
             if plugin.isAvailable {
                 Divider()
 
+                if !plugin.supportedEfforts(for: selectedLLMModel).isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Reasoning Effort", bundle: bundle)
+                            .font(.headline)
+
+                        Picker("Reasoning Effort", selection: $reasoningEffortId) {
+                            Text("Provider API Default", bundle: bundle).tag("")
+                            ForEach(plugin.supportedEfforts(for: selectedLLMModel), id: \.id) { effort in
+                                Text(effort.displayName).tag(effort.id)
+                            }
+                        }
+                        .onChange(of: reasoningEffortId) {
+                            plugin.setReasoningEffort(reasoningEffortId.isEmpty ? nil : reasoningEffortId)
+                        }
+
+                        Text("This is the provider default. Workflow and fallback-entry effort settings override it.", bundle: bundle)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Divider()
+                }
+
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
                         Text("Transcription Model", bundle: bundle)
@@ -820,6 +931,7 @@ private struct OpenRouterSettingsView: View {
                     .onChange(of: selectedLLMModel) {
                         guard !selectedLLMModel.isEmpty else { return }
                         plugin.selectLLMModel(selectedLLMModel)
+                        reasoningEffortId = plugin.defaultEffortId(for: selectedLLMModel) ?? ""
                     }
 
                     if fetchedLLMModels.isEmpty {
@@ -877,6 +989,7 @@ private struct OpenRouterSettingsView: View {
             selectedTranscriptionModel = plugin.selectedModelId ?? plugin.transcriptionModels.first?.id ?? ""
             llmTemperatureMode = plugin.llmTemperatureMode
             llmTemperatureValue = plugin.llmTemperatureValue
+            reasoningEffortId = plugin._reasoningEffortId ?? ""
 
             if plugin.isAvailable {
                 Task {

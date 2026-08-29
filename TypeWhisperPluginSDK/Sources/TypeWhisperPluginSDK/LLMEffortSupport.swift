@@ -17,6 +17,49 @@ public final class PluginLLMEffortInfo: @unchecked Sendable {
     }
 }
 
+/// Common effort metadata used by providers whose APIs use the conventional
+/// `none` through `max` vocabulary. Providers remain responsible for returning
+/// only the levels supported by the selected model.
+public enum PluginLLMStandardEffortCatalog {
+    public static func options(_ ids: [String]) -> [PluginLLMEffortInfo] {
+        ids.map { id in
+            PluginLLMEffortInfo(
+                id: id,
+                displayName: displayName(for: id),
+                detail: detail(for: id)
+            )
+        }
+    }
+
+    public static func displayName(for id: String) -> String {
+        switch id {
+        case "none": "None"
+        case "minimal": "Minimal"
+        case "low": "Low"
+        case "medium": "Medium"
+        case "high": "High"
+        case "xhigh": "Extra High"
+        case "max": "Maximum"
+        case "default": "Enabled (API Default)"
+        default: id
+        }
+    }
+
+    private static func detail(for id: String) -> String? {
+        switch id {
+        case "none": "Disable reasoning for this request"
+        case "minimal": "Fastest response with minimal reasoning"
+        case "low": "Faster response with lighter reasoning"
+        case "medium": "Balanced reasoning and latency"
+        case "high": "Deeper reasoning"
+        case "xhigh": "Very deep reasoning"
+        case "max": "Maximum available reasoning"
+        case "default": "Enable reasoning at the API's default level"
+        default: nil
+        }
+    }
+}
+
 /// Optional extension for LLM providers that support an explicit reasoning or
 /// inference effort. Kept separate from `LLMProviderPlugin` so existing plugin
 /// binaries continue to work unchanged.

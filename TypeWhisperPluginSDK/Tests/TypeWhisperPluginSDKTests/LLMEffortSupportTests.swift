@@ -49,6 +49,13 @@ private final class MockEffortAwareLLMProvider: NSObject,
 }
 
 final class LLMEffortSupportTests: XCTestCase {
+    func testStandardEffortCatalogPreservesProviderOrderAndLabels() {
+        let efforts = PluginLLMStandardEffortCatalog.options(["none", "medium", "xhigh", "max"])
+
+        XCTAssertEqual(efforts.map(\.id), ["none", "medium", "xhigh", "max"])
+        XCTAssertEqual(efforts.map(\.displayName), ["None", "Medium", "Extra High", "Maximum"])
+    }
+
     func testEffortCapabilityIsOptionalAndModelSpecific() async throws {
         let provider = MockEffortAwareLLMProvider()
         let capability: any LLMEffortControllableProvider = provider

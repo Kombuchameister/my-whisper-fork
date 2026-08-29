@@ -125,6 +125,87 @@ final class GroqPluginTests: XCTestCase {
         XCTAssertEqual(preferred, target)
     }
 
+    func testReasoningEffortCapabilityIsModelSpecific() throws {
+        let plugin = GroqPlugin()
+        let capability = try XCTUnwrap(plugin as? any LLMEffortControllableProvider)
+
+        XCTAssertEqual(
+            capability.supportedEfforts(for: "openai/gpt-oss-120b").map(\.id),
+            ["low", "medium", "high"]
+        )
+        XCTAssertEqual(capability.defaultEffortId(for: "openai/gpt-oss-120b"), "medium")
+        XCTAssertTrue(capability.supportedEfforts(for: "llama-3.3-70b-versatile").isEmpty)
+    }
+
+    func testWorkflowEffortOverridesGroqIntegrationDefaultInRequest() async throws {
+        let host = try PluginTestHostServices(
+            defaults: [
+                "selectedLLMModel": "openai/gpt-oss-120b",
+                "reasoningEffort": "low",
+            ],
+            secrets: ["api-key": "groq-key"]
+        )
+        let plugin = GroqPlugin()
+        plugin.activate(host: host)
+
+        let store = PluginHTTPClientSessionStore()
+        PluginHTTPClientTestHarness.configure { _ in
+            store.makeSession(outcomes: [
+                .success(
+                    Data(#"{"choices":[{"message":{"content":"done"}}]}"#.utf8),
+                    Self.httpResponse(url: "https://api.groq.com/openai/v1/chat/completions", statusCode: 200)
+                ),
+            ])
+        }
+
+        let capability = try XCTUnwrap(plugin as? any LLMEffortControllableProvider)
+        _ = try await capability.process(
+            systemPrompt: "System",
+            userText: "Text",
+            model: "openai/gpt-oss-120b",
+            effort: "high"
+        )
+
+        let body = try XCTUnwrap(store.sessions.first?.requestedRequests.first?.httpBody)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        XCTAssertEqual(json["reasoning_effort"] as? String, "high")
+    }
+
+    func testNilEffortUsesGroqIntegrationDefaultInRequest() async throws {
+        let host = try PluginTestHostServices(
+            defaults: [
+                "selectedLLMModel": "openai/gpt-oss-120b",
+                "reasoningEffort": "low",
+            ],
+            secrets: ["api-key": "groq-key"]
+        )
+        let plugin = GroqPlugin()
+        plugin.activate(host: host)
+
+        let store = PluginHTTPClientSessionStore()
+        PluginHTTPClientTestHarness.configure { _ in
+            store.makeSession(outcomes: [
+                .success(
+                    Data(#"{"choices":[{"message":{"content":"done"}}]}"#.utf8),
+                    Self.httpResponse(url: "https://api.groq.com/openai/v1/chat/completions", statusCode: 200)
+                ),
+            ])
+        }
+
+        let capability = try XCTUnwrap(plugin as? any LLMEffortControllableProvider)
+        _ = try await capability.process(
+            systemPrompt: "System",
+            userText: "Text",
+            model: nil,
+            effort: nil
+        )
+
+        let body = try XCTUnwrap(store.sessions.first?.requestedRequests.first?.httpBody)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        XCTAssertEqual(json["model"] as? String, "openai/gpt-oss-120b")
+        XCTAssertEqual(json["reasoning_effort"] as? String, "low")
+    }
+
     private static func httpResponse(url: String, statusCode: Int) -> HTTPURLResponse {
         HTTPURLResponse(
             url: URL(string: url)!,

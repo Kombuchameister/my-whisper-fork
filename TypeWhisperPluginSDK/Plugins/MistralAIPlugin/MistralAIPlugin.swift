@@ -3,7 +3,7 @@ import TypeWhisperPluginSDK
 import SwiftUI
 
 @objc(MistralAIPlugin)
-public final class MistralAIPlugin: NSObject, LLMProviderPlugin, LLMProviderIdentityProviding, LLMModelSelectable, LLMTemperatureControllableProvider, TranscriptionEnginePlugin, @unchecked Sendable {
+public final class MistralAIPlugin: NSObject, LLMProviderPlugin, LLMProviderIdentityProviding, LLMModelSelectable, LLMTemperatureAndEffortControllableProvider, TranscriptionEnginePlugin, @unchecked Sendable {
     
     public static var pluginId: String { "com.minerale.mistralai" }
     public static var pluginName: String { "Mistral AI" }
@@ -32,6 +32,7 @@ public final class MistralAIPlugin: NSObject, LLMProviderPlugin, LLMProviderIden
             self._llmTemperatureModeRaw = host.userDefault(forKey: "llmTemperatureMode") as? String
                 ?? PluginLLMTemperatureMode.providerDefault.rawValue
             self._llmTemperatureValue = host.userDefault(forKey: "llmTemperatureValue") as? Double ?? 0.3
+            self._reasoningEffortId = host.userDefault(forKey: "reasoningEffort") as? String ?? "high"
         }
         print("Mistral AI Plugin activated")
     }
@@ -80,6 +81,7 @@ public final class MistralAIPlugin: NSObject, LLMProviderPlugin, LLMProviderIden
         guard !apiKey.isEmpty else { return [] }
         return [
             PluginModelInfo(id: "mistral-large-latest", displayName: "Mistral Large"),
+            PluginModelInfo(id: "mistral-medium-3-5", displayName: "Mistral Medium 3.5"),
             PluginModelInfo(id: "pixtral-12b-2409", displayName: "Pixtral 12B"),
             PluginModelInfo(id: "ministral-8b-latest", displayName: "Ministral 8B"),
             PluginModelInfo(id: "ministral-3b-latest", displayName: "Ministral 3B"),
@@ -102,15 +104,40 @@ public final class MistralAIPlugin: NSObject, LLMProviderPlugin, LLMProviderIden
         model: String?,
         temperatureDirective: PluginLLMTemperatureDirective
     ) async throws -> String {
+        try await process(systemPrompt: systemPrompt, userText: userText, model: model, temperatureDirective: temperatureDirective, effort: nil)
+    }
+
+    public func supportedEfforts(for model: String?) -> [PluginLLMEffortInfo] {
+        let id = (model ?? selectedLLMModelId ?? defaultModelId ?? "").lowercased()
+        guard id == "mistral-small-latest" || id == "mistral-medium-3-5" else { return [] }
+        return PluginLLMStandardEffortCatalog.options(["none", "high"])
+    }
+
+    public func defaultEffortId(for model: String?) -> String? {
+        let options = supportedEfforts(for: model)
+        guard !options.isEmpty else { return nil }
+        let configured = lock.withLock { _reasoningEffortId }
+        return options.contains(where: { $0.id == configured }) ? configured : "high"
+    }
+
+    public func process(systemPrompt: String, userText: String, model: String?, effort: String?) async throws -> String {
+        try await process(systemPrompt: systemPrompt, userText: userText, model: model, temperatureDirective: .inheritProviderSetting, effort: effort)
+    }
+
+    public func process(systemPrompt: String, userText: String, model: String?, temperatureDirective: PluginLLMTemperatureDirective, effort: String?) async throws -> String {
         let llmModelId = lock.withLock { _selectedLLMModelId }
         let selectedModel = model ?? ((llmModelId?.isEmpty == false) ? llmModelId! : "mistral-small-latest")
         let temperature = providerTemperatureDirective.resolvedTemperature(applying: temperatureDirective)
+        let configuredEffort = lock.withLock { _reasoningEffortId }
+        let supportedIds = Set(supportedEfforts(for: selectedModel).map(\.id))
+        let preferredEffort = effort ?? configuredEffort
         let client = MistralAPIClient(apiKey: apiKey)
         return try await client.processChat(
             systemPrompt: systemPrompt,
             userText: userText,
             model: selectedModel,
-            temperature: temperature
+            temperature: temperature,
+            reasoningEffort: supportedIds.contains(preferredEffort) ? preferredEffort : nil
         )
     }
 
@@ -118,6 +145,7 @@ public final class MistralAIPlugin: NSObject, LLMProviderPlugin, LLMProviderIden
 
     private var _llmTemperatureModeRaw: String = PluginLLMTemperatureMode.providerDefault.rawValue
     private var _llmTemperatureValue: Double = 0.3
+    private var _reasoningEffortId: String = "high"
 
     public var llmTemperatureMode: PluginLLMTemperatureMode {
         lock.withLock { PluginLLMTemperatureMode(rawValue: _llmTemperatureModeRaw) ?? .providerDefault }
@@ -138,6 +166,11 @@ public final class MistralAIPlugin: NSObject, LLMProviderPlugin, LLMProviderIden
         let clamped = min(max(value, 0.0), 2.0)
         lock.withLock { _llmTemperatureValue = clamped }
         host?.setUserDefault(clamped, forKey: "llmTemperatureValue")
+    }
+
+    public func setReasoningEffort(_ effortId: String) {
+        lock.withLock { _reasoningEffortId = effortId }
+        host?.setUserDefault(effortId, forKey: "reasoningEffort")
     }
     
     // MARK: - LLMModelSelectable
@@ -236,7 +269,7 @@ struct MistralAPIClient {
     
     // MARK: - Chat Completions (LLM)
     
-    func processChat(systemPrompt: String, userText: String, model: String, temperature: Double? = nil) async throws -> String {
+    func processChat(systemPrompt: String, userText: String, model: String, temperature: Double? = nil, reasoningEffort: String? = nil) async throws -> String {
         guard let url = URL(string: "https://api.mistral.ai/v1/chat/completions") else {
             throw MistralAPIError.invalidURL
         }
@@ -250,6 +283,9 @@ struct MistralAPIClient {
         ]
         if let temperature {
             body["temperature"] = temperature
+        }
+        if let reasoningEffort {
+            body["reasoning_effort"] = reasoningEffort
         }
 
         var request = URLRequest(url: url)
@@ -276,11 +312,20 @@ struct MistralAPIClient {
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let choices = json["choices"] as? [[String: Any]],
               let firstChoice = choices.first,
-              let message = firstChoice["message"] as? [String: Any],
-              let content = message["content"] as? String else {
+              let message = firstChoice["message"] as? [String: Any] else {
             throw MistralAPIError.apiError("Failed to parse response text")
         }
-        return content.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+        if let content = message["content"] as? String {
+            return content.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+        }
+        if let chunks = message["content"] as? [[String: Any]] {
+            let text = chunks.compactMap { chunk -> String? in
+                guard (chunk["type"] as? String) == "text" else { return nil }
+                return chunk["text"] as? String
+            }.joined()
+            if !text.isEmpty { return text.trimmingCharacters(in: .whitespacesAndNewlines) }
+        }
+        throw MistralAPIError.apiError("Failed to parse response text")
     }
     
     // MARK: - Transcriptions (STT)
@@ -460,6 +505,7 @@ struct MistralSettingsView: View {
     @State private var selectedLLMModel: String = ""
     @State private var llmTemperatureMode: PluginLLMTemperatureMode = .providerDefault
     @State private var llmTemperatureValue: Double = 0.3
+    @State private var reasoningEffortId: String = "high"
     private let bundle = Bundle(for: MistralAIPlugin.self)
     
     var body: some View {
@@ -568,6 +614,28 @@ struct MistralSettingsView: View {
                     .labelsHidden()
                     .onChange(of: selectedLLMModel) { _, newValue in
                         plugin.selectLLMModel(newValue)
+                        reasoningEffortId = plugin.defaultEffortId(for: newValue.isEmpty ? nil : newValue) ?? reasoningEffortId
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    if !plugin.supportedEfforts(for: selectedLLMModel.isEmpty ? nil : selectedLLMModel).isEmpty {
+                        Text("Reasoning Effort", bundle: bundle)
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+
+                        Picker("Reasoning Effort", selection: $reasoningEffortId) {
+                            ForEach(plugin.supportedEfforts(for: selectedLLMModel.isEmpty ? nil : selectedLLMModel), id: \.id) { effort in
+                                Text(effort.displayName).tag(effort.id)
+                            }
+                        }
+                        .onChange(of: reasoningEffortId) { _, newValue in
+                            plugin.setReasoningEffort(newValue)
+                        }
+
+                        Text("Workflow and fallback-entry effort settings override this provider default.", bundle: bundle)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                     }
                 }
 
@@ -614,6 +682,7 @@ struct MistralSettingsView: View {
             selectedLLMModel = plugin.selectedLLMModelId ?? ""
             llmTemperatureMode = plugin.llmTemperatureMode
             llmTemperatureValue = plugin.llmTemperatureValue
+            reasoningEffortId = plugin.defaultEffortId(for: selectedLLMModel.isEmpty ? nil : selectedLLMModel) ?? "high"
         }
     }
     

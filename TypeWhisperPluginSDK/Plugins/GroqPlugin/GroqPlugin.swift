@@ -5,7 +5,7 @@ import TypeWhisperPluginSDK
 // MARK: - Plugin Entry Point
 
 @objc(GroqPlugin)
-final class GroqPlugin: NSObject, TranscriptionEnginePlugin, DictionaryTermsCapabilityProviding, LLMProviderPlugin, LLMTemperatureControllableProvider, LLMModelSelectable, @unchecked Sendable {
+final class GroqPlugin: NSObject, TranscriptionEnginePlugin, DictionaryTermsCapabilityProviding, LLMProviderPlugin, LLMTemperatureAndEffortControllableProvider, LLMModelSelectable, @unchecked Sendable {
     static let pluginId = "com.typewhisper.groq"
     static let pluginName = "Groq"
     private static let transcriptionRequestTimeout: TimeInterval = 600
@@ -16,6 +16,7 @@ final class GroqPlugin: NSObject, TranscriptionEnginePlugin, DictionaryTermsCapa
     fileprivate var _selectedLLMModelId: String?
     fileprivate var _llmTemperatureModeRaw: String = PluginLLMTemperatureMode.providerDefault.rawValue
     fileprivate var _llmTemperatureValue: Double = 0.3
+    fileprivate var _reasoningEffortId: String = "medium"
     fileprivate var _fetchedLLMModels: [GroqFetchedModel] = []
 
     private let transcriptionHelper = PluginOpenAITranscriptionHelper(
@@ -45,6 +46,7 @@ final class GroqPlugin: NSObject, TranscriptionEnginePlugin, DictionaryTermsCapa
             ?? PluginLLMTemperatureMode.providerDefault.rawValue
         _llmTemperatureValue = host.userDefault(forKey: "llmTemperatureValue") as? Double
             ?? 0.3
+        _reasoningEffortId = host.userDefault(forKey: "reasoningEffort") as? String ?? "medium"
     }
 
     func deactivate() {
@@ -149,16 +151,65 @@ final class GroqPlugin: NSObject, TranscriptionEnginePlugin, DictionaryTermsCapa
         model: String?,
         temperatureDirective: PluginLLMTemperatureDirective
     ) async throws -> String {
+        try await process(
+            systemPrompt: systemPrompt,
+            userText: userText,
+            model: model,
+            temperatureDirective: temperatureDirective,
+            effort: nil
+        )
+    }
+
+    func supportedEfforts(for model: String?) -> [PluginLLMEffortInfo] {
+        let modelId = model ?? _selectedLLMModelId ?? supportedModels.first?.id ?? ""
+        if modelId.localizedCaseInsensitiveContains("gpt-oss") {
+            return PluginLLMStandardEffortCatalog.options(["low", "medium", "high"])
+        }
+        if modelId.localizedCaseInsensitiveContains("qwen3") {
+            return PluginLLMStandardEffortCatalog.options(["none", "default"])
+        }
+        return []
+    }
+
+    func defaultEffortId(for model: String?) -> String? {
+        let options = supportedEfforts(for: model)
+        guard !options.isEmpty else { return nil }
+        return options.contains { $0.id == _reasoningEffortId }
+            ? _reasoningEffortId
+            : (options.contains { $0.id == "medium" } ? "medium" : "default")
+    }
+
+    func process(systemPrompt: String, userText: String, model: String?, effort: String?) async throws -> String {
+        try await process(
+            systemPrompt: systemPrompt,
+            userText: userText,
+            model: model,
+            temperatureDirective: .inheritProviderSetting,
+            effort: effort
+        )
+    }
+
+    func process(
+        systemPrompt: String,
+        userText: String,
+        model: String?,
+        temperatureDirective: PluginLLMTemperatureDirective,
+        effort: String?
+    ) async throws -> String {
         guard let apiKey = _apiKey, !apiKey.isEmpty else {
             throw PluginChatError.notConfigured
         }
         let modelId = model ?? _selectedLLMModelId ?? supportedModels.first!.id
+        let supportedIds = Set(supportedEfforts(for: modelId).map(\.id))
+        let preferredEffort = effort ?? _reasoningEffortId
+        let resolvedEffort = supportedIds.contains(preferredEffort) ? preferredEffort : nil
         return try await chatHelper.process(
             apiKey: apiKey,
             model: modelId,
             systemPrompt: systemPrompt,
             userText: userText,
-            temperature: providerTemperatureDirective.resolvedTemperature(applying: temperatureDirective)
+            temperature: providerTemperatureDirective.resolvedTemperature(applying: temperatureDirective),
+            reasoningEffort: resolvedEffort
         )
     }
 
@@ -186,6 +237,11 @@ final class GroqPlugin: NSObject, TranscriptionEnginePlugin, DictionaryTermsCapa
         let clamped = min(max(value, 0.0), 2.0)
         _llmTemperatureValue = clamped
         host?.setUserDefault(clamped, forKey: "llmTemperatureValue")
+    }
+
+    func setReasoningEffort(_ effortId: String) {
+        _reasoningEffortId = effortId
+        host?.setUserDefault(effortId, forKey: "reasoningEffort")
     }
 
     // MARK: - Settings View
@@ -299,6 +355,7 @@ private struct GroqSettingsView: View {
     @State private var selectedLLMModel: String = ""
     @State private var llmTemperatureMode: PluginLLMTemperatureMode = .providerDefault
     @State private var llmTemperatureValue: Double = 0.3
+    @State private var reasoningEffortId: String = "medium"
     @State private var fetchedLLMModels: [GroqFetchedModel] = []
     private let bundle = Bundle(for: GroqPlugin.self)
 
@@ -409,6 +466,7 @@ private struct GroqSettingsView: View {
                     .labelsHidden()
                     .onChange(of: selectedLLMModel) {
                         plugin.selectLLMModel(selectedLLMModel)
+                        reasoningEffortId = plugin.defaultEffortId(for: selectedLLMModel) ?? reasoningEffortId
                     }
 
                     if fetchedLLMModels.isEmpty {
@@ -419,6 +477,28 @@ private struct GroqSettingsView: View {
                 }
 
                 Divider()
+
+                if !plugin.supportedEfforts(for: selectedLLMModel).isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Reasoning Effort", bundle: bundle)
+                            .font(.headline)
+
+                        Picker("Reasoning Effort", selection: $reasoningEffortId) {
+                            ForEach(plugin.supportedEfforts(for: selectedLLMModel), id: \.id) { effort in
+                                Text(effort.displayName).tag(effort.id)
+                            }
+                        }
+                        .onChange(of: reasoningEffortId) {
+                            plugin.setReasoningEffort(reasoningEffortId)
+                        }
+
+                        Text("This is the provider default. Workflow effort overrides it, and fallback-entry effort overrides it when the workflow inherits the fallback list.", bundle: bundle)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Divider()
+                }
 
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Temperature", bundle: bundle)
@@ -464,6 +544,7 @@ private struct GroqSettingsView: View {
             selectedLLMModel = plugin.selectedLLMModelId ?? plugin.supportedModels.first?.id ?? ""
             llmTemperatureMode = plugin.llmTemperatureMode
             llmTemperatureValue = plugin.llmTemperatureValue
+            reasoningEffortId = plugin.defaultEffortId(for: selectedLLMModel) ?? "medium"
             fetchedLLMModels = plugin._fetchedLLMModels
         }
     }

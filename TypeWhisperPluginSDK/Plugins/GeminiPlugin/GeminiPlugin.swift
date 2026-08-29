@@ -7,7 +7,7 @@ import TypeWhisperPluginSDK
 @objc(GeminiPlugin)
 final class GeminiPlugin: NSObject,
     LLMProviderPlugin,
-    LLMTemperatureControllableProvider,
+    LLMTemperatureAndEffortControllableProvider,
     LLMModelSelectable,
     TranscriptionEnginePlugin,
     DictionaryTermsCapabilityProviding,
@@ -40,6 +40,7 @@ final class GeminiPlugin: NSObject,
     fileprivate var _selectedTranscriptionModelId: String?
     fileprivate var _llmTemperatureModeRaw: String = PluginLLMTemperatureMode.providerDefault.rawValue
     fileprivate var _llmTemperatureValue: Double = 0.3
+    fileprivate var _reasoningEffortId: String = "medium"
     fileprivate var _fetchedLLMModels: [GeminiFetchedModel] = []
 
     private let chatHelper = PluginOpenAIChatHelper(
@@ -63,6 +64,7 @@ final class GeminiPlugin: NSObject,
             ?? PluginLLMTemperatureMode.providerDefault.rawValue
         _llmTemperatureValue = host.userDefault(forKey: "llmTemperatureValue") as? Double
             ?? 0.3
+        _reasoningEffortId = host.userDefault(forKey: "reasoningEffort") as? String ?? "medium"
         _selectedTranscriptionModelId = Self.resolvedTranscriptionModelId(
             host.userDefault(forKey: Self.selectedTranscriptionModelKey) as? String,
             host: host
@@ -123,18 +125,64 @@ final class GeminiPlugin: NSObject,
         model: String?,
         temperatureDirective: PluginLLMTemperatureDirective
     ) async throws -> String {
+        try await process(
+            systemPrompt: systemPrompt,
+            userText: userText,
+            model: model,
+            temperatureDirective: temperatureDirective,
+            effort: nil
+        )
+    }
+
+    func supportedEfforts(for model: String?) -> [PluginLLMEffortInfo] {
+        let modelId = (model ?? _selectedLLMModelId ?? defaultLLMModelId ?? "").lowercased()
+        guard modelId.contains("gemini-3") || modelId.contains("gemini-2.5") else { return [] }
+        if modelId.contains("3.7-flash") || modelId.contains("3.1-pro") {
+            return PluginLLMStandardEffortCatalog.options(["low", "medium", "high"])
+        }
+        return PluginLLMStandardEffortCatalog.options(["minimal", "low", "medium", "high"])
+    }
+
+    func defaultEffortId(for model: String?) -> String? {
+        let modelId = (model ?? _selectedLLMModelId ?? defaultLLMModelId ?? "").lowercased()
+        let options = supportedEfforts(for: modelId)
+        guard !options.isEmpty else { return nil }
+        if options.contains(where: { $0.id == _reasoningEffortId }) { return _reasoningEffortId }
+        return modelId.contains("pro") ? "high" : "medium"
+    }
+
+    func process(systemPrompt: String, userText: String, model: String?, effort: String?) async throws -> String {
+        try await process(
+            systemPrompt: systemPrompt,
+            userText: userText,
+            model: model,
+            temperatureDirective: .inheritProviderSetting,
+            effort: effort
+        )
+    }
+
+    func process(
+        systemPrompt: String,
+        userText: String,
+        model: String?,
+        temperatureDirective: PluginLLMTemperatureDirective,
+        effort: String?
+    ) async throws -> String {
         guard let apiKey = _apiKey, !apiKey.isEmpty else {
             throw PluginChatError.notConfigured
         }
         guard let modelId = model ?? _selectedLLMModelId ?? defaultLLMModelId else {
             throw PluginChatError.notConfigured
         }
+        let supportedIds = Set(supportedEfforts(for: modelId).map(\.id))
+        let preferredEffort = effort ?? _reasoningEffortId
         return try await chatHelper.process(
             apiKey: apiKey,
             model: modelId,
             systemPrompt: systemPrompt,
             userText: userText,
-            temperature: providerTemperatureDirective.resolvedTemperature(applying: temperatureDirective)
+            temperature: providerTemperatureDirective.resolvedTemperature(applying: temperatureDirective),
+            reasoningEffort: supportedIds.contains(preferredEffort) ? preferredEffort : nil
         )
     }
 
@@ -163,6 +211,11 @@ final class GeminiPlugin: NSObject,
         let clamped = min(max(value, 0.0), 2.0)
         _llmTemperatureValue = clamped
         host?.setUserDefault(clamped, forKey: "llmTemperatureValue")
+    }
+
+    func setReasoningEffort(_ effortId: String) {
+        _reasoningEffortId = effortId
+        host?.setUserDefault(effortId, forKey: "reasoningEffort")
     }
 
     // MARK: - TranscriptionEnginePlugin
@@ -588,6 +641,7 @@ private struct GeminiSettingsView: View {
     @State private var selectedModel: String = ""
     @State private var llmTemperatureMode: PluginLLMTemperatureMode = .providerDefault
     @State private var llmTemperatureValue: Double = 0.3
+    @State private var reasoningEffortId: String = "medium"
     @State private var fetchedLLMModels: [GeminiFetchedModel] = []
     private let bundle = Bundle(for: GeminiPlugin.self)
 
@@ -680,6 +734,7 @@ private struct GeminiSettingsView: View {
                     .labelsHidden()
                     .onChange(of: selectedModel) {
                         plugin.selectLLMModel(selectedModel)
+                        reasoningEffortId = plugin.defaultEffortId(for: selectedModel) ?? reasoningEffortId
                     }
 
                     if fetchedLLMModels.isEmpty {
@@ -690,6 +745,28 @@ private struct GeminiSettingsView: View {
                 }
 
                 Divider()
+
+                if !plugin.supportedEfforts(for: selectedModel).isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Reasoning Effort", bundle: bundle)
+                            .font(.headline)
+
+                        Picker("Reasoning Effort", selection: $reasoningEffortId) {
+                            ForEach(plugin.supportedEfforts(for: selectedModel), id: \.id) { effort in
+                                Text(effort.displayName).tag(effort.id)
+                            }
+                        }
+                        .onChange(of: reasoningEffortId) {
+                            plugin.setReasoningEffort(reasoningEffortId)
+                        }
+
+                        Text("This is the provider default. Workflow and fallback-entry effort settings override it.", bundle: bundle)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Divider()
+                }
 
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Temperature", bundle: bundle)
@@ -734,6 +811,7 @@ private struct GeminiSettingsView: View {
             selectedModel = plugin.selectedLLMModelId ?? plugin.defaultLLMModelId ?? ""
             llmTemperatureMode = plugin.llmTemperatureMode
             llmTemperatureValue = plugin.llmTemperatureValue
+            reasoningEffortId = plugin.defaultEffortId(for: selectedModel) ?? "medium"
             fetchedLLMModels = plugin._fetchedLLMModels
             if plugin.isAvailable, fetchedLLMModels.isEmpty {
                 refreshLLMModels()

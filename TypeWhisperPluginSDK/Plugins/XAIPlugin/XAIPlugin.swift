@@ -13,6 +13,7 @@ private enum XAIPluginDefaultsKey {
     static let customVoiceId = "customVoiceId"
     static let ttsLowLatency = "ttsLowLatency"
     static let ttsTextNormalization = "ttsTextNormalization"
+    static let reasoningEffort = "reasoningEffort"
 }
 
 private enum XAIPluginError: LocalizedError {
@@ -67,12 +68,12 @@ struct XAIResponsesClient: Sendable {
         self.apiKey = apiKey
     }
 
-    func process(systemPrompt: String, userText: String, model: String) async throws -> String {
+    func process(systemPrompt: String, userText: String, model: String, reasoningEffort: String? = nil) async throws -> String {
         guard let url = URL(string: "https://api.x.ai/v1/responses") else {
             throw XAIPluginError.invalidURL("https://api.x.ai/v1/responses")
         }
 
-        let body: [String: Any] = [
+        var body: [String: Any] = [
             "model": model,
             "store": false,
             "input": [
@@ -80,6 +81,9 @@ struct XAIResponsesClient: Sendable {
                 ["role": "user", "content": userText],
             ],
         ]
+        if let reasoningEffort {
+            body["reasoning"] = ["effort": reasoningEffort]
+        }
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -510,6 +514,7 @@ final class XAIPlugin: NSObject,
     DictionaryTermsCapabilityProviding,
     LiveTranscriptionCapablePlugin,
     LLMProviderPlugin,
+    LLMEffortControllableProvider,
     LLMProviderSetupStatusProviding,
     LLMModelSelectable,
     TTSProviderPlugin,
@@ -534,6 +539,7 @@ final class XAIPlugin: NSObject,
     fileprivate var _selectedModelId: String?
     fileprivate var _selectedLLMModelId: String?
     fileprivate var _fetchedLLMModels: [XAIFetchedModel] = []
+    fileprivate var _reasoningEffortId = "high"
     fileprivate var _selectedVoiceId: String?
     fileprivate var _fetchedVoices: [XAIFetchedVoice] = []
     fileprivate var _customVoiceId: String = ""
@@ -558,6 +564,7 @@ final class XAIPlugin: NSObject,
         _customVoiceId = host.userDefault(forKey: XAIPluginDefaultsKey.customVoiceId) as? String ?? ""
         _ttsLowLatency = host.userDefault(forKey: XAIPluginDefaultsKey.ttsLowLatency) as? Bool ?? false
         _ttsTextNormalization = host.userDefault(forKey: XAIPluginDefaultsKey.ttsTextNormalization) as? Bool ?? false
+        _reasoningEffortId = host.userDefault(forKey: XAIPluginDefaultsKey.reasoningEffort) as? String ?? "high"
 
         if let data = host.userDefault(forKey: XAIPluginDefaultsKey.fetchedLLMModels) as? Data,
            let models = try? JSONDecoder().decode([XAIFetchedModel].self, from: data) {
@@ -700,16 +707,45 @@ final class XAIPlugin: NSObject,
     var selectedLLMModelId: String? { _selectedLLMModelId }
 
     func process(systemPrompt: String, userText: String, model: String?) async throws -> String {
+        try await process(systemPrompt: systemPrompt, userText: userText, model: model, effort: nil)
+    }
+
+    func supportedEfforts(for model: String?) -> [PluginLLMEffortInfo] {
+        let modelId = (model ?? _selectedLLMModelId ?? "").lowercased()
+        if modelId.contains("grok-4.6") {
+            return PluginLLMStandardEffortCatalog.options(["low", "medium", "high", "xhigh"])
+        }
+        if modelId.contains("grok-4.5") {
+            return PluginLLMStandardEffortCatalog.options(["low", "medium", "high"])
+        }
+        return []
+    }
+
+    func defaultEffortId(for model: String?) -> String? {
+        let options = supportedEfforts(for: model)
+        guard !options.isEmpty else { return nil }
+        return options.contains(where: { $0.id == _reasoningEffortId }) ? _reasoningEffortId : "high"
+    }
+
+    func process(systemPrompt: String, userText: String, model: String?, effort: String?) async throws -> String {
         guard let apiKey = normalizedAPIKey else {
             throw PluginChatError.notConfigured
         }
 
         let modelId = model ?? _selectedLLMModelId ?? supportedModels.first?.id ?? Self.defaultLLMModelId
+        let supportedIds = Set(supportedEfforts(for: modelId).map(\.id))
+        let preferredEffort = effort ?? _reasoningEffortId
         return try await XAIResponsesClient(apiKey: apiKey).process(
             systemPrompt: systemPrompt,
             userText: userText,
-            model: modelId
+            model: modelId,
+            reasoningEffort: supportedIds.contains(preferredEffort) ? preferredEffort : nil
         )
+    }
+
+    func setReasoningEffort(_ effortId: String) {
+        _reasoningEffortId = effortId
+        host?.setUserDefault(effortId, forKey: XAIPluginDefaultsKey.reasoningEffort)
     }
 
     func selectLLMModel(_ modelId: String) {
@@ -1175,6 +1211,7 @@ private struct XAISettingsView: View {
     @State private var textNormalization = false
     @State private var isRefreshingModels = false
     @State private var isRefreshingVoices = false
+    @State private var reasoningEffortId = "high"
 
     private let bundle = Bundle(for: XAIPlugin.self)
 
@@ -1280,6 +1317,22 @@ private struct XAISettingsView: View {
             .labelsHidden()
             .onChange(of: selectedLLMModel) {
                 plugin.selectLLMModel(selectedLLMModel)
+                reasoningEffortId = plugin.defaultEffortId(for: selectedLLMModel) ?? reasoningEffortId
+            }
+
+            if !plugin.supportedEfforts(for: selectedLLMModel).isEmpty {
+                Picker("Reasoning Effort", selection: $reasoningEffortId) {
+                    ForEach(plugin.supportedEfforts(for: selectedLLMModel), id: \.id) { effort in
+                        Text(effort.displayName).tag(effort.id)
+                    }
+                }
+                .onChange(of: reasoningEffortId) {
+                    plugin.setReasoningEffort(reasoningEffortId)
+                }
+
+                Text("This is the provider default. Workflow and fallback-entry effort settings override it.", bundle: bundle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -1341,6 +1394,7 @@ private struct XAISettingsView: View {
     private func loadState() {
         apiKeyInput = plugin._apiKey ?? ""
         selectedLLMModel = plugin.selectedLLMModelId ?? plugin.supportedModels.first?.id ?? ""
+        reasoningEffortId = plugin.defaultEffortId(for: selectedLLMModel) ?? "high"
         selectedVoiceId = plugin._selectedVoiceId ?? plugin.availableVoices.first?.id ?? "eve"
         customVoiceId = plugin._customVoiceId
         lowLatency = plugin._ttsLowLatency
