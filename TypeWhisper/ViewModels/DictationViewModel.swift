@@ -314,6 +314,7 @@ final class DictationViewModel: ObservableObject {
     private let promptActionService: PromptActionService
     private let promptProcessingService: PromptProcessingService
     private let workflowTextProcessingService: WorkflowTextProcessingService
+    private let commandModeService: CommandModeService
     private let speechFeedbackService: SpeechFeedbackService
     private let accessibilityAnnouncementService: AccessibilityAnnouncementService
     private let errorLogService: ErrorLogService
@@ -454,6 +455,7 @@ final class DictationViewModel: ObservableObject {
                 translationService: translationService,
                 workflowService: workflowService
             )
+        self.commandModeService = CommandModeService(promptProcessingService: promptProcessingService)
         self.speechFeedbackService = speechFeedbackService
         self.accessibilityAnnouncementService = accessibilityAnnouncementService
         self.errorLogService = errorLogService
@@ -1871,8 +1873,9 @@ final class DictationViewModel: ObservableObject {
                     return
                 }
 
-                let actionPluginId = self.effectiveActionPluginId
-                let autoEnterMode = self.effectiveAutoEnterMode
+                let isCommandMode = self.matchedWorkflow?.template == .commandMode
+                let actionPluginId = isCommandMode ? nil : self.effectiveActionPluginId
+                let autoEnterMode: WorkflowAutoEnterMode = isCommandMode ? .never : self.effectiveAutoEnterMode
                 let autoEnterResolution = WorkflowAutoEnterResolver.resolve(
                     text: text,
                     mode: autoEnterMode
@@ -1918,13 +1921,32 @@ final class DictationViewModel: ObservableObject {
                     configuredLanguageCandidates: languageCandidates,
                     detectedLanguage: result.detectedLanguage
                 )
-                let ppResult = try await postProcessingPipeline.process(
-                    text: text, context: ppContext, dictationContext: dictationContext, llmHandler: llmHandler,
-                    outputFormat: resolvedOutputFormat,
-                    llmStepName: llmStepName,
-                    normalizeNumbers: self.effectiveNumberNormalizationOverride,
-                    llmFailureFallbackText: actionPluginId == nil ? text : nil
-                )
+                let ppResult: PostProcessingResult
+                var handledCommandMode = false
+                if let commandWorkflow = self.matchedWorkflow, isCommandMode {
+                    self.processingPhase = localizedAppText("Planning command...", de: "Befehl wird geplant...")
+                    let outcome = try await commandModeService.process(
+                        request: text,
+                        workflow: commandWorkflow,
+                        progress: { [weak self] message in
+                            self?.processingPhase = message
+                        }
+                    )
+                    handledCommandMode = true
+                    ppResult = PostProcessingResult(
+                        text: outcome.message,
+                        appliedSteps: [localizedAppText("Command Mode", de: "Befehlsmodus")],
+                        fallback: nil
+                    )
+                } else {
+                    ppResult = try await postProcessingPipeline.process(
+                        text: text, context: ppContext, dictationContext: dictationContext, llmHandler: llmHandler,
+                        outputFormat: resolvedOutputFormat,
+                        llmStepName: llmStepName,
+                        normalizeNumbers: self.effectiveNumberNormalizationOverride,
+                        llmFailureFallbackText: actionPluginId == nil ? text : nil
+                    )
+                }
                 text = ppResult.text
                 let postProcessingFallback = ppResult.fallback
                 if let postProcessingFallback {
@@ -1964,7 +1986,12 @@ final class DictationViewModel: ObservableObject {
                 }
 
                 // Route to action plugin or insert text
-                if let actionPluginId,
+                if handledCommandMode {
+                    cancelLiveFieldTranscriptSession()
+                    actionFeedbackMessage = text
+                    actionFeedbackIcon = "terminal.fill"
+                    actionDisplayDuration = 8
+                } else if let actionPluginId,
                    let actionPlugin = PluginManager.shared.actionPlugin(for: actionPluginId) {
                     cancelLiveFieldTranscriptSession()
                     try await executeActionPlugin(

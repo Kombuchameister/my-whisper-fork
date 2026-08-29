@@ -878,8 +878,65 @@ final class WorkflowServiceTests: XCTestCase {
     func testTemplateCatalogMatchesApprovedInitialOrder() {
         XCTAssertEqual(
             WorkflowTemplate.catalog.map(\.template),
-            [.cleanedText, .translation, .emailReply, .meetingNotes, .checklist, .json, .summary, .dictation, .custom]
+            [.commandMode, .cleanedText, .translation, .emailReply, .meetingNotes, .checklist, .json, .summary, .dictation, .custom]
         )
+    }
+
+    func testCommandModeDecisionParserAcceptsFencedProviderOutput() throws {
+        let decision = try CommandModeService.parseDecisionForTesting("""
+        ```json
+        {"type":"run","command":"ls -la ~/Downloads","purpose":"Checking Downloads"}
+        ```
+        """)
+
+        XCTAssertEqual(decision.type, "run")
+        XCTAssertEqual(decision.command, "ls -la ~/Downloads")
+        XCTAssertNil(decision.message)
+    }
+
+    func testCommandModeConfirmsAnythingBeyondSimpleInspection() {
+        XCTAssertFalse(CommandModeService.requiresConfirmation("ls -la ~/Downloads"))
+        XCTAssertFalse(CommandModeService.requiresConfirmation("git status"))
+        XCTAssertFalse(CommandModeService.requiresConfirmation("git branch --show-current"))
+        XCTAssertTrue(CommandModeService.requiresConfirmation("mkdir ~/Desktop/Project"))
+        XCTAssertTrue(CommandModeService.requiresConfirmation("cat input.txt > output.txt"))
+        XCTAssertTrue(CommandModeService.requiresConfirmation("ls | head"))
+        XCTAssertTrue(CommandModeService.requiresConfirmation("cat $(touch ~/Desktop/unexpected)"))
+        XCTAssertTrue(CommandModeService.requiresConfirmation("git branch new-branch"))
+        XCTAssertTrue(CommandModeService.requiresConfirmation("git branch --list --delete old-branch"))
+        XCTAssertTrue(CommandModeService.requiresConfirmation("git diff --output=/tmp/change.patch"))
+        XCTAssertTrue(CommandModeService.requiresConfirmation("git diff --ext-diff"))
+    }
+
+    func testCommandModeDraftResolvesOnlyARecordingHotkeyTrigger() throws {
+        let hotkey = UnifiedHotkey(keyCode: 2, modifierFlags: NSEvent.ModifierFlags.command.rawValue, isFn: false)
+        var draft = WorkflowDraft(template: .commandMode)
+        draft.isAppTriggerEnabled = true
+        draft.appBundleIdentifiers = ["com.apple.Safari"]
+        draft.hotkeys = [hotkey]
+        draft.hotkeyBehavior = .processSelectedText
+
+        let trigger = try XCTUnwrap(draft.resolvedTrigger())
+
+        XCTAssertEqual(trigger.kind, .hotkey)
+        XCTAssertEqual(trigger.hotkeys, [hotkey])
+        XCTAssertEqual(trigger.hotkeyBehavior, .startDictation)
+        XCTAssertTrue(trigger.appBundleIdentifiers.isEmpty)
+    }
+
+    func testCommandModeNeverMatchesAmbientAppRules() throws {
+        let appSupportDirectory = try TestSupport.makeTemporaryDirectory(prefix: "WorkflowServiceTests")
+        defer { TestSupport.remove(appSupportDirectory) }
+        let service = WorkflowService(appSupportDirectory: appSupportDirectory)
+        let workflow = try XCTUnwrap(service.addWorkflow(
+            name: "Command Mode",
+            template: .commandMode,
+            trigger: .app("com.apple.Safari")
+        ))
+
+        XCTAssertNil(service.matchWorkflow(bundleIdentifier: "com.apple.Safari"))
+        XCTAssertEqual(service.forcedWorkflowMatch(for: workflow).workflow.id, workflow.id)
+        XCTAssertEqual(workflow.pluginWorkflowInfo.template, .commandMode)
     }
 
     func testCleanedTextSystemPromptTreatsDictationAsSourceTextNotAssistantInstruction() throws {

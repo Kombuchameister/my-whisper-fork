@@ -3,6 +3,7 @@ import SwiftData
 import TypeWhisperPluginSDK
 
 enum WorkflowTemplate: String, CaseIterable, Codable, Sendable {
+    case commandMode
     case cleanedText
     case translation
     case emailReply
@@ -19,6 +20,16 @@ enum WorkflowTemplate: String, CaseIterable, Codable, Sendable {
 
     var definition: WorkflowTemplateDefinition {
         switch self {
+        case .commandMode:
+            WorkflowTemplateDefinition(
+                template: self,
+                name: localizedAppText("Command Mode", de: "Befehlsmodus"),
+                description: localizedAppText(
+                    "Control your Mac by voice with checked and confirmed shell actions.",
+                    de: "Steuere deinen Mac per Sprache mit geprüften und bestätigten Shell-Aktionen."
+                ),
+                systemImage: "terminal"
+            )
         case .dictation:
             WorkflowTemplateDefinition(
                 template: self,
@@ -730,7 +741,7 @@ extension Workflow {
         )
 
         switch template {
-        case .dictation:
+        case .dictation, .commandMode:
             return nil
         case .cleanedText:
             return """

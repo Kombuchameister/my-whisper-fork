@@ -1,6 +1,7 @@
 import Foundation
 
 public enum PluginWorkflowTemplate: String, Codable, CaseIterable, Sendable, Equatable {
+    case commandMode
     case cleanedText
     case translation
     case emailReply
