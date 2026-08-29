@@ -5,7 +5,7 @@ import TypeWhisperPluginSDK
 // MARK: - Plugin Entry Point
 
 @objc(CerebrasPlugin)
-final class CerebrasPlugin: NSObject, LLMProviderPlugin, LLMTemperatureControllableProvider, LLMModelSelectable, @unchecked Sendable {
+final class CerebrasPlugin: NSObject, LLMProviderPlugin, LLMTemperatureAndEffortControllableProvider, LLMModelSelectable, @unchecked Sendable {
     static let pluginId = "com.typewhisper.cerebras"
     static let pluginName = "Cerebras"
 
@@ -14,6 +14,7 @@ final class CerebrasPlugin: NSObject, LLMProviderPlugin, LLMTemperatureControlla
     fileprivate var _selectedLLMModelId: String?
     fileprivate var _llmTemperatureModeRaw: String = PluginLLMTemperatureMode.providerDefault.rawValue
     fileprivate var _llmTemperatureValue: Double = 0.3
+    fileprivate var _reasoningEffortId: String = "medium"
     fileprivate var _fetchedModels: [CerebrasFetchedModel] = []
 
     private let chatHelper = PluginOpenAIChatHelper(
@@ -36,6 +37,7 @@ final class CerebrasPlugin: NSObject, LLMProviderPlugin, LLMTemperatureControlla
             ?? PluginLLMTemperatureMode.providerDefault.rawValue
         _llmTemperatureValue = host.userDefault(forKey: "llmTemperatureValue") as? Double
             ?? 0.3
+        _reasoningEffortId = host.userDefault(forKey: "reasoningEffort") as? String ?? "medium"
     }
 
     func deactivate() {
@@ -88,16 +90,41 @@ final class CerebrasPlugin: NSObject, LLMProviderPlugin, LLMTemperatureControlla
         model: String?,
         temperatureDirective: PluginLLMTemperatureDirective
     ) async throws -> String {
+        try await process(systemPrompt: systemPrompt, userText: userText, model: model, temperatureDirective: temperatureDirective, effort: nil)
+    }
+
+    func supportedEfforts(for model: String?) -> [PluginLLMEffortInfo] {
+        let id = (model ?? _selectedLLMModelId ?? supportedModels.first?.id ?? "").lowercased()
+        if id.contains("gpt-oss") { return PluginLLMStandardEffortCatalog.options(["low", "medium", "high"]) }
+        if id.contains("glm-4.7") { return PluginLLMStandardEffortCatalog.options(["none", "default"]) }
+        return []
+    }
+
+    func defaultEffortId(for model: String?) -> String? {
+        let options = supportedEfforts(for: model)
+        guard !options.isEmpty else { return nil }
+        return options.contains(where: { $0.id == _reasoningEffortId })
+            ? _reasoningEffortId : (options.contains(where: { $0.id == "medium" }) ? "medium" : "default")
+    }
+
+    func process(systemPrompt: String, userText: String, model: String?, effort: String?) async throws -> String {
+        try await process(systemPrompt: systemPrompt, userText: userText, model: model, temperatureDirective: .inheritProviderSetting, effort: effort)
+    }
+
+    func process(systemPrompt: String, userText: String, model: String?, temperatureDirective: PluginLLMTemperatureDirective, effort: String?) async throws -> String {
         guard let apiKey = _apiKey, !apiKey.isEmpty else {
             throw PluginChatError.notConfigured
         }
         let modelId = model ?? _selectedLLMModelId ?? supportedModels.first!.id
+        let supportedIds = Set(supportedEfforts(for: modelId).map(\.id))
+        let preferredEffort = effort ?? _reasoningEffortId
         return try await chatHelper.process(
             apiKey: apiKey,
             model: modelId,
             systemPrompt: systemPrompt,
             userText: userText,
-            temperature: providerTemperatureDirective.resolvedTemperature(applying: temperatureDirective)
+            temperature: providerTemperatureDirective.resolvedTemperature(applying: temperatureDirective),
+            reasoningEffort: supportedIds.contains(preferredEffort) ? preferredEffort : nil
         )
     }
 
@@ -125,6 +152,11 @@ final class CerebrasPlugin: NSObject, LLMProviderPlugin, LLMTemperatureControlla
         let clamped = min(max(value, 0.0), 2.0)
         _llmTemperatureValue = clamped
         host?.setUserDefault(clamped, forKey: "llmTemperatureValue")
+    }
+
+    func setReasoningEffort(_ effortId: String) {
+        _reasoningEffortId = effortId
+        host?.setUserDefault(effortId, forKey: "reasoningEffort")
     }
 
     // MARK: - Settings View
@@ -248,6 +280,7 @@ private struct CerebrasSettingsView: View {
     @State private var selectedModel: String = ""
     @State private var llmTemperatureMode: PluginLLMTemperatureMode = .providerDefault
     @State private var llmTemperatureValue: Double = 0.3
+    @State private var reasoningEffortId: String = "medium"
     @State private var fetchedModels: [CerebrasFetchedModel] = []
     private let bundle = Bundle(for: CerebrasPlugin.self)
 
@@ -320,6 +353,21 @@ private struct CerebrasSettingsView: View {
                 Divider()
 
                 // LLM Model Selection
+                if !plugin.supportedEfforts(for: selectedModel).isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Reasoning Effort", bundle: bundle).font(.headline)
+                        Picker("Reasoning Effort", selection: $reasoningEffortId) {
+                            ForEach(plugin.supportedEfforts(for: selectedModel), id: \.id) { effort in
+                                Text(effort.displayName).tag(effort.id)
+                            }
+                        }
+                        .onChange(of: reasoningEffortId) { plugin.setReasoningEffort(reasoningEffortId) }
+                        Text("Workflow and fallback-entry effort settings override this provider default.", bundle: bundle)
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Divider()
+                }
+
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
                         Text("LLM Model", bundle: bundle)
@@ -344,6 +392,7 @@ private struct CerebrasSettingsView: View {
                     .labelsHidden()
                     .onChange(of: selectedModel) {
                         plugin.selectLLMModel(selectedModel)
+                        reasoningEffortId = plugin.defaultEffortId(for: selectedModel) ?? reasoningEffortId
                     }
 
                     if fetchedModels.isEmpty {
@@ -398,6 +447,7 @@ private struct CerebrasSettingsView: View {
             selectedModel = plugin.selectedLLMModelId ?? plugin.supportedModels.first?.id ?? ""
             llmTemperatureMode = plugin.llmTemperatureMode
             llmTemperatureValue = plugin.llmTemperatureValue
+            reasoningEffortId = plugin.defaultEffortId(for: selectedModel) ?? "medium"
             fetchedModels = plugin._fetchedModels
         }
     }
