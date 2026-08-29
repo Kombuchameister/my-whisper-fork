@@ -298,7 +298,7 @@ final class TypeWhisperIntegrationTests: XCTestCase {
     }
 
     @objc(APIRouterMockLLMProviderPlugin)
-    private final class MockLLMProviderPlugin: NSObject, LLMProviderPlugin, LLMProviderIdentityProviding, LLMProviderSetupStatusProviding, LLMTemperatureControllableProvider, PluginSettingsActivityReporting, @unchecked Sendable {
+    private final class MockLLMProviderPlugin: NSObject, LLMProviderPlugin, LLMProviderIdentityProviding, LLMProviderSetupStatusProviding, LLMTemperatureRangeProviding, PluginSettingsActivityReporting, @unchecked Sendable {
         static var pluginId: String { "com.typewhisper.mock.llm" }
         static var pluginName: String { "Mock LLM" }
 
@@ -322,6 +322,7 @@ final class TypeWhisperIntegrationTests: XCTestCase {
         var requiresExternalCredentials = true
         var unavailableReason: String?
         var restoreMakesAvailable = false
+        var supportedTemperatureRange: ClosedRange<Double>? = 0...2
         nonisolated(unsafe) private var _lastSystemPrompt: String?
         nonisolated(unsafe) private var _lastUserText: String?
         nonisolated(unsafe) private var _lastRequestedModel: String?
@@ -376,6 +377,10 @@ final class TypeWhisperIntegrationTests: XCTestCase {
         var isAvailable: Bool { available }
         var supportedModels: [PluginModelInfo] { models }
         var currentSettingsActivity: PluginSettingsActivity? { nil }
+
+        func supportedTemperatureRange(for model: String?, effort: String?) -> ClosedRange<Double>? {
+            supportedTemperatureRange
+        }
 
         func process(systemPrompt: String, userText: String, model: String?) async throws -> String {
             try await resolveProcessOutcome(
@@ -11399,7 +11404,19 @@ final class TypeWhisperIntegrationTests: XCTestCase {
         ]
 
         let service = PromptProcessingService(userDefaults: isolatedDefaults.defaults)
-        service.addLLMFallback(providerId: plugin.providerId, modelId: "gemini-2.5-pro")
+        service.addLLMFallback(
+            providerId: plugin.providerId,
+            modelId: "gemini-2.5-pro",
+            temperatureDirective: .custom(0.6)
+        )
+        _ = try await service.processWorkflow(
+            prompt: "Fix grammar",
+            text: "hello world",
+            behavior: WorkflowBehavior()
+        )
+
+        XCTAssertEqual(plugin.lastTemperatureDirective, .custom(0.6))
+
         _ = try await service.process(
             prompt: "Fix grammar",
             text: "hello world",
@@ -11408,6 +11425,30 @@ final class TypeWhisperIntegrationTests: XCTestCase {
 
         XCTAssertEqual(plugin.lastRequestedModel, "gemini-2.5-pro")
         XCTAssertEqual(plugin.lastTemperatureDirective, .custom(0.8))
+
+        let fallback = try XCTUnwrap(service.primaryFallbackItem)
+        service.updateLLMFallback(
+            fallback,
+            providerId: plugin.providerId,
+            modelId: "gemini-2.5-pro",
+            temperatureDirective: .providerDefault
+        )
+        _ = try await service.processWorkflow(
+            prompt: "Fix grammar",
+            text: "hello world",
+            behavior: WorkflowBehavior()
+        )
+        XCTAssertEqual(plugin.lastTemperatureDirective, .providerDefault)
+
+        let reloadedService = PromptProcessingService(userDefaults: isolatedDefaults.defaults)
+        XCTAssertEqual(reloadedService.primaryFallbackItem?.temperatureDirective, .providerDefault)
+
+        XCTAssertEqual(
+            service.temperatureRangeForWorkflow(providerId: nil, modelId: nil, effortId: nil),
+            0...2
+        )
+        plugin.supportedTemperatureRange = nil
+        XCTAssertNil(service.temperatureRange(for: plugin.providerId, modelId: "gemini-2.5-pro", effortId: nil))
     }
 
     @MainActor
@@ -11486,6 +11527,14 @@ final class TypeWhisperIntegrationTests: XCTestCase {
             service.defaultEffortId(
                 for: unconfiguredEffortProvider.providerId,
                 modelId: "reasoning-model"
+            )
+        )
+        configuredProvider.available = false
+        XCTAssertNil(
+            service.temperatureRange(
+                for: configuredProvider.providerId,
+                modelId: nil,
+                effortId: nil
             )
         )
     }

@@ -246,6 +246,10 @@ public final class MistralAIPlugin: NSObject, LLMProviderPlugin, LLMProviderIden
     }
 }
 
+extension MistralAIPlugin: LLMTemperatureRangeProviding {
+    public func supportedTemperatureRange(for model: String?, effort: String?) -> ClosedRange<Double>? { 0...2 }
+}
+
 enum MistralAPIError: LocalizedError {
     case invalidURL
     case invalidResponse

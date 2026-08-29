@@ -807,6 +807,10 @@ final class OpenRouterPlugin: NSObject,
     }
 }
 
+extension OpenRouterPlugin: LLMTemperatureRangeProviding {
+    func supportedTemperatureRange(for model: String?, effort: String?) -> ClosedRange<Double>? { 0...2 }
+}
+
 // MARK: - API Response Models
 
 private struct OpenRouterModelsResponse: Decodable {

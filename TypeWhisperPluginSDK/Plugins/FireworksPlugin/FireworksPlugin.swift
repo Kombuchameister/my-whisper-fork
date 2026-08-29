@@ -389,6 +389,10 @@ final class FireworksPlugin: NSObject, TranscriptionEnginePlugin, DictionaryTerm
     }
 }
 
+extension FireworksPlugin: LLMTemperatureRangeProviding {
+    func supportedTemperatureRange(for model: String?, effort: String?) -> ClosedRange<Double>? { 0...2 }
+}
+
 // MARK: - Fetched Model
 
 struct FireworksFetchedModel: Codable, Sendable {

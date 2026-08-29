@@ -643,6 +643,13 @@ final class ClaudePlugin: NSObject, LLMProviderPlugin, LLMTemperatureAndEffortCo
     }
 }
 
+extension ClaudePlugin: LLMTemperatureRangeProviding {
+    func supportedTemperatureRange(for model: String?, effort: String?) -> ClosedRange<Double>? {
+        guard let model, !Self.modelRejectsSamplingParams(model) else { return nil }
+        return 0...2
+    }
+}
+
 // MARK: - Models API Decoding
 
 private struct ClaudeModelsResponse: Decodable {

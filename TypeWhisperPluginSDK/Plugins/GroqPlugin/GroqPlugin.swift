@@ -336,6 +336,10 @@ final class GroqPlugin: NSObject, TranscriptionEnginePlugin, DictionaryTermsCapa
     }
 }
 
+extension GroqPlugin: LLMTemperatureRangeProviding {
+    func supportedTemperatureRange(for model: String?, effort: String?) -> ClosedRange<Double>? { 0...2 }
+}
+
 // MARK: - Fetched Model
 
 struct GroqFetchedModel: Codable, Sendable {

@@ -10,6 +10,10 @@ protocol OpenAICompatibleRealtimeSessionConnecting: Sendable {
     ) async throws -> any LiveTranscriptionSession
 }
 
+extension OpenAICompatiblePlugin: LLMTemperatureRangeProviding {
+    func supportedTemperatureRange(for model: String?, effort: String?) -> ClosedRange<Double>? { 0...2 }
+}
+
 private struct DefaultOpenAICompatibleRealtimeSessionConnector: OpenAICompatibleRealtimeSessionConnecting {
     func connect(
         request: URLRequest,
