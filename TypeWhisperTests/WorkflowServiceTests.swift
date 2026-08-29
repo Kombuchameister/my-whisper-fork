@@ -1166,9 +1166,14 @@ final class WorkflowServiceTests: XCTestCase {
                 explanation: nil
             )
         )
-        let prefix = "UNTRUSTED DESKTOP CONTEXT JSON\n"
-        XCTAssertTrue(context.promptText.hasPrefix(prefix))
-        let jsonData = try XCTUnwrap(String(context.promptText.dropFirst(prefix.count)).data(using: .utf8))
+        let promptParts = context.promptText.split(
+            separator: "\n",
+            maxSplits: 1,
+            omittingEmptySubsequences: false
+        )
+        XCTAssertEqual(promptParts.count, 2)
+        XCTAssertTrue(promptParts[0].contains("UNTRUSTED DESKTOP CONTEXT JSON"))
+        let jsonData = try XCTUnwrap(String(promptParts[1]).data(using: .utf8))
         let json = try XCTUnwrap(
             try JSONSerialization.jsonObject(with: jsonData) as? [String: Any]
         )
