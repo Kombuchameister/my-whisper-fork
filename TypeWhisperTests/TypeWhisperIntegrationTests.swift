@@ -430,6 +430,7 @@ final class TypeWhisperIntegrationTests: XCTestCase {
         nonisolated(unsafe) private var _lastModel: String?
         nonisolated(unsafe) private var _lastEffort: String?
         nonisolated(unsafe) var exposesCatalog = true
+        nonisolated(unsafe) var available = true
 
         required override init() {}
 
@@ -439,7 +440,7 @@ final class TypeWhisperIntegrationTests: XCTestCase {
         var providerName: String { "Mock Effort LLM" }
         var providerId: String { "mock-effort-llm" }
         var providerDisplayName: String { providerName }
-        var isAvailable: Bool { true }
+        var isAvailable: Bool { available }
         var supportedModels: [PluginModelInfo] {
             exposesCatalog
                 ? [PluginModelInfo(id: "reasoning-model", displayName: "Reasoning Model")]
@@ -9196,6 +9197,86 @@ final class TypeWhisperIntegrationTests: XCTestCase {
 
         XCTAssertEqual(plugin.lastRequestedModel, "gemini-2.5-pro")
         XCTAssertEqual(plugin.lastTemperatureDirective, .custom(0.8))
+    }
+
+    @MainActor
+    func testPromptProcessingOnlyOffersConfiguredEnabledProvidersAndEfforts() throws {
+        let appSupportDirectory = try TestSupport.makeTemporaryDirectory()
+        defer { TestSupport.remove(appSupportDirectory) }
+        let isolatedDefaults = Self.makeEmptyLLMFallbackDefaults()
+        defer { isolatedDefaults.defaults.removePersistentDomain(forName: isolatedDefaults.suiteName) }
+
+        EventBus.shared = EventBus()
+        PluginManager.shared = PluginManager(appSupportDirectory: appSupportDirectory)
+
+        let configuredProvider = MockLLMProviderPlugin()
+        configuredProvider.configuredProviderId = "configured-provider"
+        configuredProvider.configuredProviderDisplayName = "Configured Provider"
+
+        let unconfiguredEffortProvider = MockEffortLLMProviderPlugin()
+        unconfiguredEffortProvider.available = false
+
+        let disabledProvider = MockLLMProviderPlugin()
+        disabledProvider.configuredProviderId = "disabled-provider"
+        disabledProvider.configuredProviderDisplayName = "Disabled Provider"
+
+        PluginManager.shared.loadedPlugins = [
+            LoadedPlugin(
+                manifest: PluginManifest(
+                    id: "com.typewhisper.mock.configured-provider",
+                    name: "Configured Provider",
+                    version: "1.0.0",
+                    principalClass: "APIRouterMockLLMProviderPlugin"
+                ),
+                instance: configuredProvider,
+                bundle: Bundle.main,
+                sourceURL: appSupportDirectory,
+                isEnabled: true
+            ),
+            LoadedPlugin(
+                manifest: PluginManifest(
+                    id: MockEffortLLMProviderPlugin.pluginId,
+                    name: MockEffortLLMProviderPlugin.pluginName,
+                    version: "1.0.0",
+                    principalClass: "APIRouterMockEffortLLMProviderPlugin"
+                ),
+                instance: unconfiguredEffortProvider,
+                bundle: Bundle.main,
+                sourceURL: appSupportDirectory,
+                isEnabled: true
+            ),
+            LoadedPlugin(
+                manifest: PluginManifest(
+                    id: "com.typewhisper.mock.disabled-provider",
+                    name: "Disabled Provider",
+                    version: "1.0.0",
+                    principalClass: "APIRouterMockLLMProviderPlugin"
+                ),
+                instance: disabledProvider,
+                bundle: Bundle.main,
+                sourceURL: appSupportDirectory,
+                isEnabled: false
+            ),
+        ]
+
+        let service = PromptProcessingService(userDefaults: isolatedDefaults.defaults)
+
+        XCTAssertEqual(
+            service.availableProviders.filter { $0.id != PromptProcessingService.appleIntelligenceId }.map(\.id),
+            ["configured-provider"]
+        )
+        XCTAssertTrue(
+            service.effortsForProvider(
+                unconfiguredEffortProvider.providerId,
+                modelId: "reasoning-model"
+            ).isEmpty
+        )
+        XCTAssertNil(
+            service.defaultEffortId(
+                for: unconfiguredEffortProvider.providerId,
+                modelId: "reasoning-model"
+            )
+        )
     }
 
     @MainActor
