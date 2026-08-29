@@ -230,8 +230,8 @@ final class FireworksPlugin: NSObject, TranscriptionEnginePlugin, DictionaryTerm
             model: modelId,
             systemPrompt: systemPrompt,
             userText: userText,
-            temperature: providerTemperatureDirective.resolvedTemperature(applying: temperatureDirective),
-            reasoningEffort: supportedIds.contains(preferredEffort) ? preferredEffort : nil
+            reasoningEffort: preferredEffort == "default" ? nil : (supportedIds.contains(preferredEffort) ? preferredEffort : nil),
+            temperature: providerTemperatureDirective.resolvedTemperature(applying: temperatureDirective)
         )
     }
 

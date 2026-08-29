@@ -325,9 +325,23 @@ final class OpenRouterPlugin: NSObject,
 
     func supportedEfforts(for model: String?) -> [PluginLLMEffortInfo] {
         let modelId = model ?? _selectedLLMModelId
-        guard let modelInfo = _fetchedLLMModels.first(where: { $0.id == modelId }),
-              let supported = modelInfo.supportedEfforts, !supported.isEmpty else { return [] }
-        return PluginLLMStandardEffortCatalog.options(supported)
+        if let modelInfo = _fetchedLLMModels.first(where: { $0.id == modelId }),
+           let supported = modelInfo.supportedEfforts, !supported.isEmpty {
+            return PluginLLMStandardEffortCatalog.options(supported)
+        }
+        guard let modelId else { return [] }
+        let id = modelId.lowercased()
+        if id.contains("claude-sonnet-4-6") || id.contains("claude-opus-4-6")
+            || id.contains("claude-opus-4-7") || id.contains("claude-sonnet-5") {
+            return PluginLLMStandardEffortCatalog.options(["low", "medium", "high", "max"])
+        }
+        if id.contains("gemini-2.5") || id.contains("gemini-3") {
+            return PluginLLMStandardEffortCatalog.options(["minimal", "low", "medium", "high"])
+        }
+        if id.contains("gpt-5") || id.contains("o3") || id.contains("o4") {
+            return PluginLLMStandardEffortCatalog.options(["none", "low", "medium", "high"])
+        }
+        return []
     }
 
     func defaultEffortId(for model: String?) -> String? {

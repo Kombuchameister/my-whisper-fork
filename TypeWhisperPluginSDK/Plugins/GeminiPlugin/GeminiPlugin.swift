@@ -140,6 +140,9 @@ final class GeminiPlugin: NSObject,
         if modelId.contains("3.7-flash") || modelId.contains("3.1-pro") {
             return PluginLLMStandardEffortCatalog.options(["low", "medium", "high"])
         }
+        if modelId.contains("2.5") && !modelId.contains("pro") {
+            return PluginLLMStandardEffortCatalog.options(["none", "minimal", "low", "medium", "high"])
+        }
         return PluginLLMStandardEffortCatalog.options(["minimal", "low", "medium", "high"])
     }
 
@@ -181,8 +184,8 @@ final class GeminiPlugin: NSObject,
             model: modelId,
             systemPrompt: systemPrompt,
             userText: userText,
-            temperature: providerTemperatureDirective.resolvedTemperature(applying: temperatureDirective),
-            reasoningEffort: supportedIds.contains(preferredEffort) ? preferredEffort : nil
+            reasoningEffort: supportedIds.contains(preferredEffort) ? preferredEffort : nil,
+            temperature: providerTemperatureDirective.resolvedTemperature(applying: temperatureDirective)
         )
     }
 

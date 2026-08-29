@@ -123,8 +123,8 @@ final class CerebrasPlugin: NSObject, LLMProviderPlugin, LLMTemperatureAndEffort
             model: modelId,
             systemPrompt: systemPrompt,
             userText: userText,
-            temperature: providerTemperatureDirective.resolvedTemperature(applying: temperatureDirective),
-            reasoningEffort: supportedIds.contains(preferredEffort) ? preferredEffort : nil
+            reasoningEffort: preferredEffort == "default" ? nil : (supportedIds.contains(preferredEffort) ? preferredEffort : nil),
+            temperature: providerTemperatureDirective.resolvedTemperature(applying: temperatureDirective)
         )
     }
 

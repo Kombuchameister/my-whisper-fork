@@ -202,14 +202,14 @@ final class GroqPlugin: NSObject, TranscriptionEnginePlugin, DictionaryTermsCapa
         let modelId = model ?? _selectedLLMModelId ?? supportedModels.first!.id
         let supportedIds = Set(supportedEfforts(for: modelId).map(\.id))
         let preferredEffort = effort ?? _reasoningEffortId
-        let resolvedEffort = supportedIds.contains(preferredEffort) ? preferredEffort : nil
+        let resolvedEffort = preferredEffort == "default" ? nil : (supportedIds.contains(preferredEffort) ? preferredEffort : nil)
         return try await chatHelper.process(
             apiKey: apiKey,
             model: modelId,
             systemPrompt: systemPrompt,
             userText: userText,
-            temperature: providerTemperatureDirective.resolvedTemperature(applying: temperatureDirective),
-            reasoningEffort: resolvedEffort
+            reasoningEffort: resolvedEffort,
+            temperature: providerTemperatureDirective.resolvedTemperature(applying: temperatureDirective)
         )
     }
 
