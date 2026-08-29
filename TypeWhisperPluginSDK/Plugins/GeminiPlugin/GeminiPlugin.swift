@@ -610,6 +610,10 @@ final class GeminiPlugin: NSObject,
     }
 }
 
+extension GeminiPlugin: LLMTemperatureRangeProviding {
+    func supportedTemperatureRange(for model: String?, effort: String?) -> ClosedRange<Double>? { 0...2 }
+}
+
 // MARK: - OpenAI-Compatible Models API
 
 private struct GeminiCompatibleModelsResponse: Decodable {

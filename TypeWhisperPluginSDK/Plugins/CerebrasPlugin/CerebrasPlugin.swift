@@ -240,6 +240,10 @@ final class CerebrasPlugin: NSObject, LLMProviderPlugin, LLMTemperatureAndEffort
     }
 }
 
+extension CerebrasPlugin: LLMTemperatureRangeProviding {
+    func supportedTemperatureRange(for model: String?, effort: String?) -> ClosedRange<Double>? { 0...2 }
+}
+
 // MARK: - Fetched Model
 
 struct CerebrasFetchedModel: Codable, Sendable {

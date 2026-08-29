@@ -18,6 +18,17 @@ enum OpenAINetworkAccessPolicy {
     }
 }
 
+extension OpenAIPlugin: LLMTemperatureRangeProviding {
+    func supportedTemperatureRange(for model: String?, effort: String?) -> ClosedRange<Double>? {
+        guard _authMode == .apiKey, let model else { return nil }
+        let resolvedEffort = effort
+            ?? Self.effectiveReasoningEffort(_reasoningEffort, for: model)?.rawValue
+        return Self.supportsCustomTemperature(for: model, reasoningEffort: resolvedEffort)
+            ? 0...2
+            : nil
+    }
+}
+
 // MARK: - OAuth Helpers
 
 private enum OpenAIAuthMode: String, Codable, CaseIterable, Hashable, Sendable {

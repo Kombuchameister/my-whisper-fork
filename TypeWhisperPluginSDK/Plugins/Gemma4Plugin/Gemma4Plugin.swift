@@ -16,6 +16,10 @@ private struct Gemma4DownloadProgressReport: Equatable {
     let isSnapshotComplete: Bool
 }
 
+extension Gemma4Plugin: LLMTemperatureRangeProviding {
+    func supportedTemperatureRange(for model: String?, effort: String?) -> ClosedRange<Double>? { 0...1 }
+}
+
 private struct Gemma4DownloadProgressAccumulator {
     private var snapshotCompletedUnitCount: Int64 = 0
     private var snapshotTotalUnitCount: Int64 = 0
