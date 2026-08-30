@@ -1409,6 +1409,54 @@ final class IndicatorPanelInteractionTests: XCTestCase {
         )
     }
 
+    func testLongOverlayFeedbackGrowsAndExpandsFurtherOnHover() {
+        let message = String(repeating: "Readable command result ", count: 8)
+
+        XCTAssertEqual(
+            IndicatorFeedbackPanelLayout.panelSize(
+                for: .overlay,
+                isFeedbackInteractive: true,
+                feedbackMessage: message
+            ),
+            CGSize(width: 540, height: 136)
+        )
+        XCTAssertEqual(
+            IndicatorFeedbackPanelLayout.panelSize(
+                for: .overlay,
+                isFeedbackInteractive: true,
+                feedbackMessage: message,
+                feedbackExpanded: true
+            ),
+            CGSize(width: 620, height: 208)
+        )
+    }
+
+    func testLongNotchFeedbackGrowsAndExpandsFurtherOnHover() {
+        let message = String(repeating: "Readable command result ", count: 8)
+
+        XCTAssertEqual(
+            IndicatorFeedbackPanelLayout.panelSize(
+                for: .notch,
+                isFeedbackInteractive: true,
+                feedbackMessage: message,
+                notchClosedWidth: 305,
+                notchClosedHeight: 30
+            ),
+            CGSize(width: 540, height: 118)
+        )
+        XCTAssertEqual(
+            IndicatorFeedbackPanelLayout.panelSize(
+                for: .notch,
+                isFeedbackInteractive: true,
+                feedbackMessage: message,
+                feedbackExpanded: true,
+                notchClosedWidth: 305,
+                notchClosedHeight: 30
+            ),
+            CGSize(width: 620, height: 190)
+        )
+    }
+
     func testOverlaySurfaceClipsFeedbackProgressToRoundedWindow() throws {
         let width = Int(IndicatorFeedbackPanelLayout.feedbackWidth)
         let height = Int(

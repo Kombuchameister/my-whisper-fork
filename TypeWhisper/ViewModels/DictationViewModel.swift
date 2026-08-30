@@ -260,11 +260,24 @@ final class DictationViewModel: ObservableObject {
     @Published var processingPhase: String?
     @Published private(set) var isRecordingInputReady = false
     @Published var actionFeedbackMessage: String?
+    @Published private(set) var actionFeedbackExpanded = false
+    @Published private(set) var actionFeedbackShowsCommandModeDetails = false
+    @Published private(set) var actionFeedbackCommandModeContext: String?
     @Published var actionFeedbackIcon: String?
     @Published var actionFeedbackIsError: Bool = false
     @Published var actionFeedbackUndoTitle: String?
     @Published private(set) var actionFeedbackRemainingFraction: Double = 0
     @Published private(set) var actionFeedbackIsPaused = false
+
+    var actionFeedbackLayoutText: String? {
+        guard let actionFeedbackMessage else { return nil }
+        guard actionFeedbackExpanded,
+              let actionFeedbackCommandModeContext,
+              !actionFeedbackCommandModeContext.isEmpty else {
+            return actionFeedbackMessage
+        }
+        return actionFeedbackCommandModeContext + "\n" + actionFeedbackMessage
+    }
     @Published var activeAppIcon: NSImage?
     private var actionDisplayDuration: TimeInterval = 3.5
     private let indicatorFeedbackLifetime = IndicatorFeedbackLifetime()
@@ -314,6 +327,7 @@ final class DictationViewModel: ObservableObject {
     private let promptActionService: PromptActionService
     private let promptProcessingService: PromptProcessingService
     private let workflowTextProcessingService: WorkflowTextProcessingService
+    private let commandModeService: CommandModeService
     private let speechFeedbackService: SpeechFeedbackService
     private let accessibilityAnnouncementService: AccessibilityAnnouncementService
     private let errorLogService: ErrorLogService
@@ -455,6 +469,10 @@ final class DictationViewModel: ObservableObject {
                 translationService: translationService,
                 workflowService: workflowService
             )
+        self.commandModeService = CommandModeService(
+            promptProcessingService: promptProcessingService,
+            workflowService: workflowService
+        )
         self.speechFeedbackService = speechFeedbackService
         self.accessibilityAnnouncementService = accessibilityAnnouncementService
         self.errorLogService = errorLogService
@@ -1878,8 +1896,9 @@ final class DictationViewModel: ObservableObject {
                     return
                 }
 
-                let actionPluginId = self.effectiveActionPluginId
-                let autoEnterMode = self.effectiveAutoEnterMode
+                let isCommandMode = self.matchedWorkflow?.template == .commandMode
+                let actionPluginId = isCommandMode ? nil : self.effectiveActionPluginId
+                let autoEnterMode: WorkflowAutoEnterMode = isCommandMode ? .never : self.effectiveAutoEnterMode
                 let autoEnterResolution = WorkflowAutoEnterResolver.resolve(
                     text: text,
                     mode: autoEnterMode
@@ -1925,13 +1944,33 @@ final class DictationViewModel: ObservableObject {
                     configuredLanguageCandidates: languageCandidates,
                     detectedLanguage: result.detectedLanguage
                 )
-                let ppResult = try await postProcessingPipeline.process(
-                    text: text, context: ppContext, dictationContext: dictationContext, llmHandler: llmHandler,
-                    outputFormat: resolvedOutputFormat,
-                    llmStepName: llmStepName,
-                    normalizeNumbers: self.effectiveNumberNormalizationOverride,
-                    llmFailureFallbackText: actionPluginId == nil ? text : nil
-                )
+                let ppResult: PostProcessingResult
+                var handledCommandMode = false
+                if let commandWorkflow = self.matchedWorkflow, isCommandMode {
+                    self.processingPhase = localizedAppText("Planning command...", de: "Befehl wird geplant...")
+                    let outcome = try await commandModeService.process(
+                        request: text,
+                        workflow: commandWorkflow,
+                        selectedText: self.capturedSelectedText,
+                        progress: { [weak self] message in
+                            self?.processingPhase = message
+                        }
+                    )
+                    handledCommandMode = true
+                    ppResult = PostProcessingResult(
+                        text: outcome.message,
+                        appliedSteps: [localizedAppText("Command Mode", de: "Befehlsmodus")],
+                        fallback: nil
+                    )
+                } else {
+                    ppResult = try await postProcessingPipeline.process(
+                        text: text, context: ppContext, dictationContext: dictationContext, llmHandler: llmHandler,
+                        outputFormat: resolvedOutputFormat,
+                        llmStepName: llmStepName,
+                        normalizeNumbers: self.effectiveNumberNormalizationOverride,
+                        llmFailureFallbackText: actionPluginId == nil ? text : nil
+                    )
+                }
                 text = ppResult.text
                 let postProcessingFallback = ppResult.fallback
                 if let postProcessingFallback {
@@ -1971,7 +2010,14 @@ final class DictationViewModel: ObservableObject {
                 }
 
                 // Route to action plugin or insert text
-                if let actionPluginId,
+                if handledCommandMode {
+                    cancelLiveFieldTranscriptSession()
+                    actionFeedbackCommandModeContext = "Request: \(result.text)\nStatus: Complete"
+                    actionFeedbackMessage = text
+                    actionFeedbackIcon = "terminal.fill"
+                    actionFeedbackShowsCommandModeDetails = true
+                    actionDisplayDuration = 8
+                } else if let actionPluginId,
                    let actionPlugin = PluginManager.shared.actionPlugin(for: actionPluginId) {
                     cancelLiveFieldTranscriptSession()
                     try await executeActionPlugin(
@@ -2367,6 +2413,9 @@ final class DictationViewModel: ObservableObject {
         activeAppIcon = nil
         processingPhase = nil
         actionFeedbackMessage = nil
+        actionFeedbackExpanded = false
+        actionFeedbackShowsCommandModeDetails = false
+        actionFeedbackCommandModeContext = nil
         actionFeedbackIcon = nil
         actionFeedbackIsError = false
         clearPendingUndoActionFeedback()
@@ -3059,6 +3108,8 @@ final class DictationViewModel: ObservableObject {
         undoTitle: String? = nil
     ) {
         actionFeedbackMessage = message
+        actionFeedbackShowsCommandModeDetails = false
+        actionFeedbackCommandModeContext = nil
         actionFeedbackIcon = icon
         actionFeedbackIsError = isError
         if undoTitle == nil {
@@ -3078,9 +3129,11 @@ final class DictationViewModel: ObservableObject {
 
     func setActionFeedbackHovered(_ hovered: Bool) {
         guard state == .inserting, actionFeedbackMessage != nil else {
+            actionFeedbackExpanded = false
             indicatorFeedbackLifetime.setHovered(false)
             return
         }
+        actionFeedbackExpanded = hovered
         indicatorFeedbackLifetime.setHovered(hovered)
     }
 

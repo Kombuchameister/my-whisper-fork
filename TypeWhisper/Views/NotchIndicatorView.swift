@@ -6,6 +6,7 @@ import SwiftUI
 /// Expands wider and downward to show streaming partial text.
 /// Blue glow emanates from the notch shape, reacting to audio level.
 struct NotchIndicatorView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject private var viewModel = DictationViewModel.shared
     @ObservedObject private var recorder = AudioRecorderViewModel.shared
     @ObservedObject private var countdownModel: CalendarMeetingCountdownModel
@@ -16,7 +17,6 @@ struct NotchIndicatorView: View {
     private let contentPadding: CGFloat = 28
     private let sizing: IndicatorSizing = .notch
     private let processingBodyHeight: CGFloat = 28
-    private let feedbackBodyHeight = IndicatorFeedbackPanelLayout.feedbackBodyHeight
 
     init(
         geometry: NotchGeometry,
@@ -110,7 +110,16 @@ struct NotchIndicatorView: View {
     }
 
     private var currentWidth: CGFloat {
-        NotchIndicatorLayout.containerWidth(closedWidth: closedWidth, mode: expansionMode)
+        if hasActionFeedback {
+            return max(
+                closedWidth,
+                IndicatorFeedbackPanelLayout.feedbackWidth(
+                    message: viewModel.actionFeedbackLayoutText,
+                    expanded: viewModel.actionFeedbackExpanded
+                )
+            )
+        }
+        return NotchIndicatorLayout.containerWidth(closedWidth: closedWidth, mode: expansionMode)
     }
 
     private var bottomCornerRadius: CGFloat {
@@ -134,10 +143,10 @@ struct NotchIndicatorView: View {
 
     private var expandedBodyHeight: CGFloat {
         if countdownPresentation != nil {
-            return feedbackBodyHeight
+            return IndicatorFeedbackPanelLayout.feedbackBodyHeight
         }
         if hasCancelWarning {
-            return feedbackBodyHeight
+            return IndicatorFeedbackPanelLayout.feedbackBodyHeight
         }
         if hasTranscriptSection {
             return transcriptBodyHeight
@@ -146,7 +155,10 @@ struct NotchIndicatorView: View {
             return processingBodyHeight
         }
         if hasActionFeedback {
-            return feedbackBodyHeight
+            return IndicatorFeedbackPanelLayout.feedbackBodyHeight(
+                message: viewModel.actionFeedbackLayoutText,
+                expanded: viewModel.actionFeedbackExpanded
+            )
         }
         return 0
     }
@@ -179,8 +191,8 @@ struct NotchIndicatorView: View {
             viewModel.setActionFeedbackHovered(hovered)
         }
         .animation(.easeOut(duration: 0.22), value: geometry.isPresented)
-        .animation(.easeOut(duration: 0.24), value: currentWidth)
-        .animation(.easeOut(duration: 0.24), value: expandedBodyHeight)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.24), value: currentWidth)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.24), value: expandedBodyHeight)
         .animation(.easeInOut(duration: 0.18), value: presentation.state)
         // Matches the ~30 Hz (33ms) level-publish throttle shared by both
         // audio level sources (AudioRecordingService's dictation pipeline and
@@ -317,7 +329,13 @@ struct NotchIndicatorView: View {
                 onAction: presentation.actionFeedbackUndoTitle == nil ? nil : {
                     viewModel.undoActionFeedback()
                 },
-                remainingFraction: presentation.actionFeedbackRemainingFraction
+                remainingFraction: presentation.actionFeedbackRemainingFraction,
+                expanded: viewModel.actionFeedbackExpanded,
+                expandedContext: viewModel.actionFeedbackCommandModeContext,
+                detailsTitle: viewModel.actionFeedbackShowsCommandModeDetails ? "Open Command Mode" : nil,
+                onDetails: viewModel.actionFeedbackShowsCommandModeDetails ? {
+                    CommandModeWindowManager.shared.present()
+                } : nil
             )
         } else {
             Color.clear

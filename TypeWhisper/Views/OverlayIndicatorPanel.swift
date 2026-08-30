@@ -16,6 +16,7 @@ class OverlayIndicatorPanel: NSPanel {
     private var cancellables = Set<AnyCancellable>()
     private var cachedScreen: NSScreen?
     private var isActionFeedbackInteractive = false
+    private var isActionFeedbackExpanded = false
     private var meetingCountdownKind: CalendarMeetingCountdownKind?
 
     private var isMeetingCountdownPresented: Bool {
@@ -156,6 +157,17 @@ class OverlayIndicatorPanel: NSPanel {
             }
             .store(in: &cancellables)
 
+        vm.$actionFeedbackExpanded
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] expanded in
+                guard let self else { return }
+                self.isActionFeedbackExpanded = expanded
+                guard self.isVisible else { return }
+                self.show()
+            }
+            .store(in: &cancellables)
+
         countdownModel.$presentation
             .removeDuplicates()
             .receive(on: DispatchQueue.main)
@@ -222,6 +234,8 @@ class OverlayIndicatorPanel: NSPanel {
         let panelSize = IndicatorFeedbackPanelLayout.panelSize(
             for: .overlay,
             isFeedbackInteractive: isFeedbackInteractive,
+            feedbackMessage: DictationViewModel.shared.actionFeedbackLayoutText,
+            feedbackExpanded: isActionFeedbackExpanded,
             countdownKind: meetingCountdownKind
         )
         let panelFrame = IndicatorFeedbackPanelLayout.panelFrame(

@@ -220,6 +220,17 @@ class PromptProcessingService: ObservableObject {
         return effortProvider.defaultEffortId(for: resolvedModel)
     }
 
+    func effortsForWorkflow(providerId: String?, modelId: String?) -> [PluginLLMEffortInfo] {
+        if let providerId {
+            return effortsForProvider(providerId, modelId: modelId)
+        }
+
+        var seen: Set<String> = []
+        return fallbackPriorityList
+            .flatMap { effortsForProvider($0.providerId, modelId: $0.modelId) }
+            .filter { seen.insert($0.id).inserted }
+    }
+
     /// Returns display name for a provider ID, retaining an unknown saved ID so
     /// the user can repair it rather than silently losing that fallback entry.
     func displayName(for providerId: String) -> String {
@@ -395,6 +406,7 @@ class PromptProcessingService: ObservableObject {
             temperatureDirective: temperatureDirective,
             effortOverride: effortOverride,
             skipMemoryInjection: true,
+            onPartialResult: nil,
             processingKind: .workflow(originalText: text)
         )
     }
@@ -413,7 +425,8 @@ class PromptProcessingService: ObservableObject {
         cloudModelOverride: String? = nil,
         temperatureDirective: PluginLLMTemperatureDirective = .inheritProviderSetting,
         effortOverride: String? = nil,
-        skipMemoryInjection: Bool = false
+        skipMemoryInjection: Bool = false,
+        onPartialResult: (@MainActor @Sendable (String) -> Void)? = nil
     ) async throws -> String {
         try await execute(
             prompt: prompt,
@@ -423,6 +436,7 @@ class PromptProcessingService: ObservableObject {
             temperatureDirective: temperatureDirective,
             effortOverride: effortOverride,
             skipMemoryInjection: skipMemoryInjection,
+            onPartialResult: onPartialResult,
             processingKind: .prompt
         )
     }
@@ -435,6 +449,7 @@ class PromptProcessingService: ObservableObject {
         temperatureDirective: PluginLLMTemperatureDirective,
         effortOverride: String?,
         skipMemoryInjection: Bool,
+        onPartialResult: (@MainActor @Sendable (String) -> Void)?,
         processingKind: ProcessingKind
     ) async throws -> String {
         let totalStart = ContinuousClock.now
@@ -464,7 +479,15 @@ class PromptProcessingService: ObservableObject {
                 )
             ]
         } else {
-            candidates = fallbackPriorityList
+            let normalizedWorkflowEffort = Self.normalizedEffortId(effortOverride)
+            candidates = fallbackPriorityList.map { candidate in
+                LLMFallbackPriorityItem(
+                    id: candidate.id,
+                    providerId: candidate.providerId,
+                    modelId: candidate.modelId,
+                    effortId: normalizedWorkflowEffort ?? candidate.effortId
+                )
+            }
         }
 
         guard !candidates.isEmpty else {
@@ -498,6 +521,7 @@ class PromptProcessingService: ObservableObject {
                     prompt: effectivePrompt,
                     text: attemptText,
                     temperatureDirective: temperatureDirective,
+                    onPartialResult: onPartialResult,
                     onLocalProviderUsed: { provider in
                         let identity = ObjectIdentifier(provider)
                         guard localProviderIdentities.insert(identity).inserted else { return }
@@ -550,6 +574,7 @@ class PromptProcessingService: ObservableObject {
         prompt: String,
         text: String,
         temperatureDirective: PluginLLMTemperatureDirective,
+        onPartialResult: (@MainActor @Sendable (String) -> Void)?,
         onLocalProviderUsed: (any LLMProviderPlugin) -> Void
     ) async throws -> String {
         if providerId == Self.appleIntelligenceId {
@@ -606,7 +631,8 @@ class PromptProcessingService: ObservableObject {
                     text: text,
                     model: model,
                     temperatureDirective: temperatureDirective,
-                    effort: effort
+                    effort: effort,
+                    onPartialResult: onPartialResult
                 )
             }
             logger.info("Prompt provider call finished in \(ContinuousClock.now - providerStart)")
@@ -623,8 +649,23 @@ class PromptProcessingService: ObservableObject {
         text: String,
         model: String?,
         temperatureDirective: PluginLLMTemperatureDirective,
-        effort: String?
+        effort: String?,
+        onPartialResult: (@MainActor @Sendable (String) -> Void)?
     ) async throws -> String {
+        if let streamingPlugin = plugin as? any LLMResponseStreamingProvider,
+           let onPartialResult {
+            return try await streamingPlugin.processStreaming(
+                systemPrompt: prompt,
+                userText: text,
+                model: model,
+                temperatureDirective: temperatureDirective,
+                effort: effort,
+                onPartialResult: { partial in
+                    Task { @MainActor in onPartialResult(partial) }
+                }
+            )
+        }
+
         if let combinedPlugin = plugin as? any LLMTemperatureAndEffortControllableProvider {
             return try await combinedPlugin.process(
                 systemPrompt: prompt,

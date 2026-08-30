@@ -1089,7 +1089,9 @@ private struct WorkflowEditorPage: View {
     @State private var validationMessage: String?
     @State private var isAdvancedExpanded = false
     @State private var showingAppPicker = false
+    @State private var showingExcludedAppPicker = false
     @State private var websiteInput = ""
+    @State private var excludedWebsiteInput = ""
 
     init(workflow: Workflow?) {
         self.workflow = workflow
@@ -1122,6 +1124,12 @@ private struct WorkflowEditorPage: View {
             WorkflowAppPickerSheet(
                 installedApps: profilesViewModel.installedApps,
                 selectedBundleIdentifiers: $draft.appBundleIdentifiers
+            )
+        }
+        .sheet(isPresented: $showingExcludedAppPicker) {
+            WorkflowAppPickerSheet(
+                installedApps: profilesViewModel.installedApps,
+                selectedBundleIdentifiers: $draft.excludedAppBundleIdentifiers
             )
         }
     }
@@ -1188,9 +1196,39 @@ private struct WorkflowEditorPage: View {
                         .textFieldStyle(.roundedBorder)
                 }
 
-                if draft.template == .dictation {
+                if draft.template == .dictation || draft.template == .commandMode {
                     workflowInputLanguageEditor
                     workflowTranscriptionEngineSection
+                }
+
+                if draft.template == .commandMode {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Label(
+                            localizedAppText(
+                                "Commands and command output are sent to this workflow's selected LLM. Mutating commands always ask before running.",
+                                de: "Befehle und Befehlsausgaben werden an das ausgewählte LLM dieses Workflows gesendet. Ändernde Befehle fragen vor der Ausführung immer nach."
+                            ),
+                            systemImage: "exclamationmark.shield"
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                        Button {
+                            CommandModeWindowManager.shared.present()
+                        } label: {
+                            Label(
+                                localizedAppText(
+                                    "Open Command Mode",
+                                    de: "Befehlsmodus öffnen",
+                                    ja: "コマンドモードを開く"
+                                ),
+                                systemImage: "terminal"
+                            )
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(Color(red: 0.76, green: 0.16, blue: 0.24))
+                        .accessibilityIdentifier("command-mode.open-window")
+                    }
                 }
 
                 if draft.template == .translation {
@@ -1213,10 +1251,15 @@ private struct WorkflowEditorPage: View {
                 if draft.usesLLMProcessing {
                     WorkflowTextEditorField(
                         title: localizedAppText("Fine-Tuning", de: "Feinabstimmung"),
-                        placeholder: localizedAppText(
-                            "Optional: add tone, length, or wording hints.",
-                            de: "Optional: ergänze Hinweise zu Ton, Länge oder Formulierung."
-                        ),
+                        placeholder: draft.template == .commandMode
+                            ? localizedAppText(
+                                "Optional: add preferred tools, folders, or operating rules.",
+                                de: "Optional: ergänze bevorzugte Werkzeuge, Ordner oder Arbeitsregeln."
+                            )
+                            : localizedAppText(
+                                "Optional: add tone, length, or wording hints.",
+                                de: "Optional: ergänze Hinweise zu Ton, Länge oder Formulierung."
+                            ),
                         text: $draft.fineTuning
                     )
                 }
@@ -1249,7 +1292,7 @@ private struct WorkflowEditorPage: View {
 
                     if isAdvancedExpanded {
                         VStack(alignment: .leading, spacing: 14) {
-                            if draft.template != .dictation {
+                            if draft.template != .dictation && draft.template != .commandMode {
                                 workflowInputLanguageEditor
 
                                 Divider()
@@ -1258,26 +1301,28 @@ private struct WorkflowEditorPage: View {
                             if draft.usesLLMProcessing {
                                 workflowProviderOverrideSection
 
-                                Divider()
+                                if draft.template != .commandMode {
+                                    Divider()
 
-                                VStack(alignment: .leading, spacing: 6) {
-                                    Text(localizedAppText("Output Format", de: "Ausgabeformat"))
-                                        .font(.subheadline.weight(.semibold))
-                                    HStack(spacing: 8) {
-                                        TextField(localizedAppText("e.g. Auto, Markdown, RTF, JSON, plain text", de: "z. B. Auto, Markdown, RTF, JSON, Plain Text"), text: $draft.outputFormat)
-                                            .textFieldStyle(.roundedBorder)
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        Text(localizedAppText("Output Format", de: "Ausgabeformat"))
+                                            .font(.subheadline.weight(.semibold))
+                                        HStack(spacing: 8) {
+                                            TextField(localizedAppText("e.g. Auto, Markdown, RTF, JSON, plain text", de: "z. B. Auto, Markdown, RTF, JSON, Plain Text"), text: $draft.outputFormat)
+                                                .textFieldStyle(.roundedBorder)
 
-                                        Menu {
-                                            ForEach(WorkflowOutputFormatPreset.all) { preset in
-                                                Button(preset.title) {
-                                                    draft.outputFormat = preset.value
+                                            Menu {
+                                                ForEach(WorkflowOutputFormatPreset.all) { preset in
+                                                    Button(preset.title) {
+                                                        draft.outputFormat = preset.value
+                                                    }
                                                 }
+                                            } label: {
+                                                Label(localizedAppText("Presets", de: "Presets"), systemImage: "list.bullet.rectangle")
                                             }
-                                        } label: {
-                                            Label(localizedAppText("Presets", de: "Presets"), systemImage: "list.bullet.rectangle")
+                                            .menuStyle(.borderlessButton)
+                                            .help(localizedAppText("Choose an output format preset", de: "Ausgabeformat-Preset wählen"))
                                         }
-                                        .menuStyle(.borderlessButton)
-                                        .help(localizedAppText("Choose an output format preset", de: "Ausgabeformat-Preset wählen"))
                                     }
                                 }
 
@@ -1288,22 +1333,24 @@ private struct WorkflowEditorPage: View {
 
                             Divider()
 
-                            VStack(alignment: .leading, spacing: 6) {
-                                Picker(
-                                    localizedAppText("Press Enter after inserting", de: "Nach dem Einfügen Enter drücken"),
-                                    selection: $draft.autoEnterMode
-                                ) {
-                                    ForEach(WorkflowAutoEnterMode.allCases) { mode in
-                                        Text(mode.displayName)
-                                            .tag(mode)
+                            if draft.template != .commandMode {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Picker(
+                                        localizedAppText("Press Enter after inserting", de: "Nach dem Einfügen Enter drücken"),
+                                        selection: $draft.autoEnterMode
+                                    ) {
+                                        ForEach(WorkflowAutoEnterMode.allCases) { mode in
+                                            Text(mode.displayName)
+                                                .tag(mode)
+                                        }
                                     }
-                                }
-                                .pickerStyle(.menu)
+                                    .pickerStyle(.menu)
 
-                                Text(draft.autoEnterMode.helpText)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .fixedSize(horizontal: false, vertical: true)
+                                    Text(draft.autoEnterMode.helpText)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
                             }
                         }
                         .padding(.top, 4)
@@ -1314,7 +1361,7 @@ private struct WorkflowEditorPage: View {
     }
 
     private var shouldShowActionTargetSection: Bool {
-        draft.template != .dictation
+        draft.template != .dictation && draft.template != .commandMode
             && (!sortedActionPlugins.isEmpty || draft.targetActionPluginId != nil)
     }
 
@@ -1637,41 +1684,6 @@ private struct WorkflowEditorPage: View {
                         .foregroundStyle(.secondary)
                     }
 
-                    let efforts = promptProcessingService.effortsForProvider(
-                        providerId,
-                        modelId: draft.cloudModel
-                    )
-                    if !efforts.isEmpty || draft.effortId != nil {
-                        Picker(
-                            localizedAppText("Effort", de: "Effort"),
-                            selection: workflowEffortOverrideBinding
-                        ) {
-                            Text(workflowProviderDefaultEffortLabel(
-                                providerId: providerId,
-                                efforts: efforts
-                            ))
-                            .tag(nil as String?)
-
-                            if let selectedEffortID = draft.effortId,
-                               !efforts.contains(where: { $0.id == selectedEffortID }) {
-                                Text(selectedEffortID).tag(selectedEffortID as String?)
-                            }
-
-                            ForEach(efforts, id: \.id) { effort in
-                                Text(effort.displayName).tag(effort.id as String?)
-                            }
-                        }
-
-                        Text(
-                            localizedAppText(
-                                "Leave effort on Provider Default to follow the selected model's recommended setting.",
-                                de: "Lass Effort auf Provider-Standard, um der empfohlenen Einstellung des ausgewählten Modells zu folgen."
-                            )
-                        )
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    }
-
                     if !promptProcessingService.isProviderReady(providerId) {
                         Text(
                             localizedAppText(
@@ -1682,6 +1694,43 @@ private struct WorkflowEditorPage: View {
                         .font(.caption)
                         .foregroundStyle(.orange)
                     }
+                }
+
+                let efforts = promptProcessingService.effortsForWorkflow(
+                    providerId: draft.providerId,
+                    modelId: draft.cloudModel
+                )
+                if !efforts.isEmpty || draft.effortId != nil {
+                    Picker(
+                        localizedAppText("Effort", de: "Effort"),
+                        selection: workflowEffortOverrideBinding
+                    ) {
+                        Text(workflowDefaultEffortLabel(efforts: efforts))
+                            .tag(nil as String?)
+
+                        if let selectedEffortID = draft.effortId,
+                           !efforts.contains(where: { $0.id == selectedEffortID }) {
+                            Text(selectedEffortID).tag(selectedEffortID as String?)
+                        }
+
+                        ForEach(efforts, id: \.id) { effort in
+                            Text(effort.displayName).tag(effort.id as String?)
+                        }
+                    }
+
+                    Text(
+                        draft.providerId == nil
+                            ? localizedAppText(
+                                "A workflow effort overrides every global fallback attempt. Leave it on Use Fallback Entry / Provider Default to keep each fallback's setting.",
+                                de: "Ein Workflow-Effort überschreibt jeden globalen Fallback-Versuch. Mit Fallback-Eintrag / Provider-Standard bleibt die Einstellung jedes Fallbacks erhalten."
+                            )
+                            : localizedAppText(
+                                "Leave effort on Provider Default to follow the selected provider's setting.",
+                                de: "Lass Effort auf Provider-Standard, um der Einstellung des ausgewählten Providers zu folgen."
+                            )
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 }
             }
         }
@@ -1700,10 +1749,13 @@ private struct WorkflowEditorPage: View {
         )
     }
 
-    private func workflowProviderDefaultEffortLabel(
-        providerId: String,
-        efforts: [PluginLLMEffortInfo]
-    ) -> String {
+    private func workflowDefaultEffortLabel(efforts: [PluginLLMEffortInfo]) -> String {
+        guard let providerId = draft.providerId else {
+            return localizedAppText(
+                "Use Fallback Entry / Provider Default",
+                de: "Fallback-Eintrag / Provider-Standard"
+            )
+        }
         guard let defaultEffortID = promptProcessingService.defaultEffortId(
             for: providerId,
             modelId: draft.cloudModel
@@ -1727,22 +1779,33 @@ private struct WorkflowEditorPage: View {
             )
         ) {
             VStack(alignment: .leading, spacing: 14) {
-                Picker(localizedAppText("Trigger", de: "Trigger"), selection: $draft.triggerMode) {
-                    Text(localizedAppText("Automatic", de: "Automatisch")).tag(WorkflowTriggerMode.automatic)
-                    if draft.template != .dictation {
-                        Text(localizedAppText("Manual", de: "Manuell")).tag(WorkflowTriggerMode.manual)
-                    }
-                    Text(localizedAppText("Always", de: "Immer")).tag(WorkflowTriggerMode.global)
-                }
-                .pickerStyle(.segmented)
+                if draft.template == .commandMode {
+                    Text(localizedAppText(
+                        "Command Mode starts only from its shortcut, so it cannot run accidentally for an app or website.",
+                        de: "Der Befehlsmodus startet nur über seinen Shortcut und kann daher nicht versehentlich für eine App oder Website ausgeführt werden."
+                    ))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
 
-                switch draft.triggerMode {
-                case .manual:
-                    manualTriggerEditor
-                case .automatic:
-                    automaticTriggerEditor
-                case .global:
-                    alwaysTriggerEditor
+                    hotkeyTriggerEditor
+                } else {
+                    Picker(localizedAppText("Trigger", de: "Trigger"), selection: $draft.triggerMode) {
+                        Text(localizedAppText("Automatic", de: "Automatisch")).tag(WorkflowTriggerMode.automatic)
+                        if draft.template != .dictation {
+                            Text(localizedAppText("Manual", de: "Manuell")).tag(WorkflowTriggerMode.manual)
+                        }
+                        Text(localizedAppText("Always", de: "Immer")).tag(WorkflowTriggerMode.global)
+                    }
+                    .pickerStyle(.segmented)
+
+                    switch draft.triggerMode {
+                    case .manual:
+                        manualTriggerEditor
+                    case .automatic:
+                        automaticTriggerEditor
+                    case .global:
+                        alwaysTriggerEditor
+                    }
                 }
             }
         }
@@ -1940,26 +2003,28 @@ private struct WorkflowEditorPage: View {
 
     private var hotkeyTriggerEditor: some View {
         VStack(alignment: .leading, spacing: 10) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(localizedAppText("Shortcut Behavior", de: "Shortcut-Verhalten"))
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
+            if draft.template != .commandMode {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(localizedAppText("Shortcut Behavior", de: "Shortcut-Verhalten"))
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
 
-                Picker(
-                    localizedAppText("Shortcut Behavior", de: "Shortcut-Verhalten"),
-                    selection: $draft.hotkeyBehavior
-                ) {
-                    ForEach(WorkflowHotkeyBehavior.allCases, id: \.self) { behavior in
-                        Text(behavior.editorLabel).tag(behavior)
+                    Picker(
+                        localizedAppText("Shortcut Behavior", de: "Shortcut-Verhalten"),
+                        selection: $draft.hotkeyBehavior
+                    ) {
+                        ForEach(WorkflowHotkeyBehavior.allCases, id: \.self) { behavior in
+                            Text(behavior.editorLabel).tag(behavior)
+                        }
                     }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
 
-                Text(draft.hotkeyBehavior.editorDescription)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                    Text(draft.hotkeyBehavior.editorDescription)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
 
             if draft.hotkeys.isEmpty {
@@ -1993,27 +2058,84 @@ private struct WorkflowEditorPage: View {
     }
 
     private var alwaysTriggerEditor: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "infinity")
-                .foregroundStyle(.secondary)
-                .frame(width: 20)
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "infinity")
+                    .foregroundStyle(.secondary)
+                    .frame(width: 20)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(localizedAppText("Always", de: "Immer"))
-                    .font(.subheadline.weight(.medium))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(localizedAppText("Always", de: "Immer"))
+                        .font(.subheadline.weight(.medium))
 
-                Text(
-                    localizedAppText(
-                        "Runs when no app or website workflow matches. Hotkeys stay direct triggers.",
-                        de: "Läuft, wenn kein App- oder Website-Workflow passt. Hotkeys bleiben direkte Trigger."
+                    Text(
+                        localizedAppText(
+                            "Runs when no app or website workflow matches. Hotkeys stay direct triggers.",
+                            de: "Läuft, wenn kein App- oder Website-Workflow passt. Hotkeys bleiben direkte Trigger."
+                        )
                     )
-                )
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
             }
 
-            Spacer()
+            Divider()
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text(localizedAppText("Exclude Apps", de: "Apps ausschließen"))
+                    .font(.subheadline.weight(.semibold))
+
+                ForEach(draft.excludedAppBundleIdentifiers, id: \.self) { bundleId in
+                    WorkflowSelectionRow(
+                        title: installedAppName(for: bundleId),
+                        subtitle: bundleId,
+                        icon: installedAppIcon(for: bundleId)
+                    ) {
+                        draft.excludedAppBundleIdentifiers.removeAll { $0 == bundleId }
+                    }
+                }
+
+                Button(localizedAppText("Select Apps…", de: "Apps auswählen…")) {
+                    showingExcludedAppPicker = true
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text(localizedAppText("Exclude Websites", de: "Websites ausschließen"))
+                    .font(.subheadline.weight(.semibold))
+
+                ForEach(draft.excludedWebsitePatterns, id: \.self) { pattern in
+                    WorkflowSelectionRow(
+                        title: pattern,
+                        subtitle: localizedAppText("Website exclusion", de: "Website-Ausschluss"),
+                        iconSystemName: "globe"
+                    ) {
+                        draft.excludedWebsitePatterns.removeAll { $0 == pattern }
+                    }
+                }
+
+                HStack(alignment: .top, spacing: 10) {
+                    TextField(String(localized: "docs.github.com"), text: $excludedWebsiteInput)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit { addExcludedWebsiteInput() }
+
+                    Button(localizedAppText("Add", de: "Hinzufügen")) {
+                        addExcludedWebsiteInput()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+
+                Text(localizedAppText(
+                    "Matching an exclusion skips this Always workflow.",
+                    de: "Bei einem passenden Ausschluss wird dieser Immer-Workflow übersprungen."
+                ))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
@@ -2092,6 +2214,14 @@ private struct WorkflowEditorPage: View {
         guard !normalized.isEmpty else { return }
         draft.addWebsitePattern(normalized)
         websiteInput = ""
+        validationMessage = nil
+    }
+
+    private func addExcludedWebsiteInput() {
+        let normalized = workflowNormalizedDomainFromInput(excludedWebsiteInput)
+        guard !normalized.isEmpty else { return }
+        draft.addExcludedWebsitePattern(normalized)
+        excludedWebsiteInput = ""
         validationMessage = nil
     }
 
@@ -2650,6 +2780,8 @@ struct WorkflowDraft {
     var isHotkeyTriggerEnabled: Bool
     var appBundleIdentifiers: [String]
     var websitePatterns: [String]
+    var excludedAppBundleIdentifiers: [String]
+    var excludedWebsitePatterns: [String]
     var hotkeys: [UnifiedHotkey]
     var hotkeyBehavior: WorkflowHotkeyBehavior
     var fineTuning: String
@@ -2682,6 +2814,8 @@ struct WorkflowDraft {
         self.isHotkeyTriggerEnabled = template.requiresRecordingTrigger
         self.appBundleIdentifiers = []
         self.websitePatterns = []
+        self.excludedAppBundleIdentifiers = []
+        self.excludedWebsitePatterns = []
         self.hotkeys = []
         self.hotkeyBehavior = .startDictation
         self.fineTuning = ""
@@ -2727,8 +2861,9 @@ struct WorkflowDraft {
         self.outputFormat = output.format ?? ""
         self.autoEnterMode = output.autoEnterMode
         self.numberNormalizationMode = output.numberNormalizationMode
-        self.transcriptionEngineId = workflow.template == .dictation ? behavior.transcriptionEngineId : nil
-        self.transcriptionModelId = workflow.template == .dictation ? behavior.transcriptionModelId : nil
+        let usesRecordingShortcut = workflow.template == .dictation || workflow.template == .commandMode
+        self.transcriptionEngineId = usesRecordingShortcut ? behavior.transcriptionEngineId : nil
+        self.transcriptionModelId = usesRecordingShortcut ? behavior.transcriptionModelId : nil
         self.microphoneBoostOverride = behavior.microphoneBoostOverride
         self.hotkeyBehavior = .startDictation
         self.preservedBehaviorSettings = behavior.settings
@@ -2737,11 +2872,13 @@ struct WorkflowDraft {
         self.effortId = behavior.effortId
         self.temperatureModeRaw = behavior.temperatureModeRaw
         self.temperatureValue = behavior.temperatureValue
-        self.targetActionPluginId = workflow.template == .dictation ? nil : output.targetActionPluginId
+        self.targetActionPluginId = usesRecordingShortcut ? nil : output.targetActionPluginId
 
         if let trigger = workflow.trigger {
             self.appBundleIdentifiers = trigger.appBundleIdentifiers
             self.websitePatterns = trigger.websitePatterns
+            self.excludedAppBundleIdentifiers = trigger.excludedAppBundleIdentifiers
+            self.excludedWebsitePatterns = trigger.excludedWebsitePatterns
             self.hotkeys = trigger.hotkeys
             self.hotkeyBehavior = trigger.hotkeyBehavior
 
@@ -2769,6 +2906,8 @@ struct WorkflowDraft {
             self.isHotkeyTriggerEnabled = false
             self.appBundleIdentifiers = []
             self.websitePatterns = []
+            self.excludedAppBundleIdentifiers = []
+            self.excludedWebsitePatterns = []
             self.hotkeys = []
         }
 
@@ -2777,6 +2916,14 @@ struct WorkflowDraft {
             if !hasEnabledAutomaticTriggerComponent {
                 self.isHotkeyTriggerEnabled = true
             }
+        }
+
+        if self.template == .commandMode {
+            self.triggerMode = .automatic
+            self.isAppTriggerEnabled = false
+            self.isWebsiteTriggerEnabled = false
+            self.isHotkeyTriggerEnabled = true
+            self.hotkeyBehavior = .startDictation
         }
     }
 
@@ -2811,9 +2958,9 @@ struct WorkflowDraft {
 
         if triggerMode == .global {
             return localizedAppText(
-                "\(resolvedName) runs always as \(template.definition.name).\(languageSentence)\(outputRouteSentence)",
-                de: "\(resolvedName) läuft immer als \(template.definition.name).\(languageSentence)\(outputRouteSentence)",
-                ja: "\(resolvedName)は常に\(template.definition.name)として実行されます。\(languageSentence)\(outputRouteSentence)"
+                "\(resolvedName) runs always as \(template.definition.name)\(globalExclusionSummary).\(languageSentence)\(outputRouteSentence)",
+                de: "\(resolvedName) läuft immer als \(template.definition.name)\(globalExclusionSummary).\(languageSentence)\(outputRouteSentence)",
+                ja: "\(resolvedName)は常に\(template.definition.name)として実行されます\(globalExclusionSummary)。\(languageSentence)\(outputRouteSentence)"
             )
         }
 
@@ -2869,6 +3016,17 @@ struct WorkflowDraft {
                 isHotkeyTriggerEnabled = true
             }
         }
+
+        if newTemplate == .commandMode {
+            triggerMode = .automatic
+            isAppTriggerEnabled = false
+            isWebsiteTriggerEnabled = false
+            isHotkeyTriggerEnabled = true
+            hotkeyBehavior = .startDictation
+            outputFormat = ""
+            autoEnterMode = .never
+            targetActionPluginId = nil
+        }
     }
 
     @MainActor
@@ -2878,6 +3036,13 @@ struct WorkflowDraft {
         pluginManager: PluginManager,
         existingWorkflowId: UUID?
     ) -> String? {
+        if template == .commandMode && hotkeys.isEmpty {
+            return localizedAppText(
+                "Command Mode needs a recording shortcut.",
+                de: "Der Befehlsmodus benötigt einen Aufnahme-Shortcut."
+            )
+        }
+
         if template.requiresRecordingTrigger && triggerMode == .manual {
             return localizedAppText(
                 "This workflow needs a recording trigger.",
@@ -2885,7 +3050,7 @@ struct WorkflowDraft {
             )
         }
 
-        if template == .dictation,
+        if template == .dictation || template == .commandMode,
            let transcriptionEngineId,
            !transcriptionEngineId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             guard let engine = pluginManager.transcriptionEngine(for: transcriptionEngineId) else {
@@ -3007,6 +3172,11 @@ struct WorkflowDraft {
     }
 
     func resolvedTrigger() -> WorkflowTrigger? {
+        if template == .commandMode {
+            guard !hotkeys.isEmpty else { return nil }
+            return .hotkeys(hotkeys, behavior: .startDictation)
+        }
+
         switch triggerMode {
         case .automatic:
             let resolvedApps = isAppTriggerEnabled ? appBundleIdentifiers : []
@@ -3033,7 +3203,10 @@ struct WorkflowDraft {
                 hotkeyBehavior: hotkeyBehavior
             )
         case .global:
-            return .global()
+            return .global(
+                excludingApps: excludedAppBundleIdentifiers,
+                websites: excludedWebsitePatterns
+            )
         case .manual:
             return .manual()
         }
@@ -3067,7 +3240,8 @@ struct WorkflowDraft {
         let trimmedProviderId = providerId?.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedCloudModel = cloudModel?.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedEffortId = effortId?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedTranscriptionEngineId = template == .dictation ? Self.trimmedOptional(transcriptionEngineId) : nil
+        let usesRecordingShortcut = template == .dictation || template == .commandMode
+        let trimmedTranscriptionEngineId = usesRecordingShortcut ? Self.trimmedOptional(transcriptionEngineId) : nil
 
         return WorkflowBehavior(
             settings: settings,
@@ -3085,10 +3259,11 @@ struct WorkflowDraft {
 
     func resolvedOutput() -> WorkflowOutput {
         let trimmedFormat = outputFormat.trimmingCharacters(in: .whitespacesAndNewlines)
+        let usesRecordingShortcut = template == .dictation || template == .commandMode
         return WorkflowOutput(
-            format: usesLLMProcessing && !trimmedFormat.isEmpty ? trimmedFormat : nil,
-            autoEnterMode: autoEnterMode,
-            targetActionPluginId: template == .dictation ? nil : targetActionPluginId,
+            format: usesLLMProcessing && template != .commandMode && !trimmedFormat.isEmpty ? trimmedFormat : nil,
+            autoEnterMode: template == .commandMode ? .never : autoEnterMode,
+            targetActionPluginId: usesRecordingShortcut ? nil : targetActionPluginId,
             numberNormalizationModeRaw: numberNormalizationMode == .inherit ? nil : numberNormalizationMode.rawValue
         )
     }
@@ -3163,10 +3338,27 @@ struct WorkflowDraft {
         isAppTriggerEnabled || isWebsiteTriggerEnabled || isHotkeyTriggerEnabled
     }
 
+    private var globalExclusionSummary: String {
+        let appCount = excludedAppBundleIdentifiers.count
+        let websiteCount = excludedWebsitePatterns.count
+        guard appCount + websiteCount > 0 else { return "" }
+        return localizedAppText(
+            ", except in \(appCount) app(s) and \(websiteCount) website(s)",
+            de: ", außer in \(appCount) App(s) und auf \(websiteCount) Website(s)",
+            ja: "（除外: アプリ\(appCount)件、Webサイト\(websiteCount)件）"
+        )
+    }
+
     mutating func addWebsitePattern(_ value: String) {
         let normalized = workflowNormalizedDomainFromInput(value)
         guard !normalized.isEmpty, !websitePatterns.contains(normalized) else { return }
         websitePatterns.append(normalized)
+    }
+
+    mutating func addExcludedWebsitePattern(_ value: String) {
+        let normalized = workflowNormalizedDomainFromInput(value)
+        guard !normalized.isEmpty, !excludedWebsitePatterns.contains(normalized) else { return }
+        excludedWebsitePatterns.append(normalized)
     }
 
     func containsEquivalentHotkey(_ hotkey: UnifiedHotkey) -> Bool {
@@ -3225,6 +3417,8 @@ private func workflowSummaryText(for workflow: Workflow) -> String {
             "Spoken instruction with active-window context",
             de: "Gesprochene Anweisung mit Kontext des aktiven Fensters"
         )
+    case .commandMode:
+        return localizedAppText("Voice-controlled Mac actions", de: "Sprachgesteuerte Mac-Aktionen")
     case .translation:
         let targetLanguage = workflow.translationTargetLanguage
         if let targetLanguage, !targetLanguage.isEmpty {

@@ -56,6 +56,7 @@ struct OverlayIndicatorSurface<Content: View>: View {
 /// Pill-shaped overlay indicator that appears centered on the screen.
 /// Supports top and bottom positioning.
 struct OverlayIndicatorView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject private var viewModel = DictationViewModel.shared
     @ObservedObject private var recorder = AudioRecorderViewModel.shared
     @ObservedObject private var countdownModel: CalendarMeetingCountdownModel
@@ -115,7 +116,15 @@ struct OverlayIndicatorView: View {
         }
         if hasCancelWarning { return max(closedWidth, IndicatorFeedbackPanelLayout.feedbackWidth) }
         if transcriptBodyVisible { return max(closedWidth, 400) }
-        if hasActionFeedback { return max(closedWidth, IndicatorFeedbackPanelLayout.feedbackWidth) }
+        if hasActionFeedback {
+            return max(
+                closedWidth,
+                IndicatorFeedbackPanelLayout.feedbackWidth(
+                    message: viewModel.actionFeedbackLayoutText,
+                    expanded: viewModel.actionFeedbackExpanded
+                )
+            )
+        }
         return closedWidth
     }
 
@@ -162,7 +171,7 @@ struct OverlayIndicatorView: View {
             guard hasActionFeedback else { return }
             viewModel.setActionFeedbackHovered(hovered)
         }
-        .animation(.easeInOut(duration: 0.3), value: textExpanded)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: textExpanded)
         .animation(.easeInOut(duration: 0.2), value: presentation.state)
         // Matches the ~30 Hz (33ms) level-publish throttle shared by both
         // audio level sources (AudioRecordingService's dictation pipeline and
@@ -280,7 +289,13 @@ struct OverlayIndicatorView: View {
                     onAction: presentation.actionFeedbackUndoTitle == nil ? nil : {
                         viewModel.undoActionFeedback()
                     },
-                    remainingFraction: presentation.actionFeedbackRemainingFraction
+                    remainingFraction: presentation.actionFeedbackRemainingFraction,
+                    expanded: viewModel.actionFeedbackExpanded,
+                    expandedContext: viewModel.actionFeedbackCommandModeContext,
+                    detailsTitle: viewModel.actionFeedbackShowsCommandModeDetails ? "Open Command Mode" : nil,
+                    onDetails: viewModel.actionFeedbackShowsCommandModeDetails ? {
+                        CommandModeWindowManager.shared.present()
+                    } : nil
                 )
                 .overlay(alignment: .top) {
                     Divider().background(Color.white.opacity(0.1))
@@ -299,7 +314,13 @@ struct OverlayIndicatorView: View {
                     onAction: presentation.actionFeedbackUndoTitle == nil ? nil : {
                         viewModel.undoActionFeedback()
                     },
-                    remainingFraction: presentation.actionFeedbackRemainingFraction
+                    remainingFraction: presentation.actionFeedbackRemainingFraction,
+                    expanded: viewModel.actionFeedbackExpanded,
+                    expandedContext: viewModel.actionFeedbackCommandModeContext,
+                    detailsTitle: viewModel.actionFeedbackShowsCommandModeDetails ? "Open Command Mode" : nil,
+                    onDetails: viewModel.actionFeedbackShowsCommandModeDetails ? {
+                        CommandModeWindowManager.shared.present()
+                    } : nil
                 )
                 .overlay(alignment: .bottom) {
                     Divider().background(Color.white.opacity(0.1))

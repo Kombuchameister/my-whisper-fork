@@ -2,6 +2,7 @@ import Foundation
 
 public enum PluginWorkflowTemplate: String, Codable, CaseIterable, Sendable, Equatable {
     case speakToWindow
+    case commandMode
     case cleanedText
     case translation
     case emailReply

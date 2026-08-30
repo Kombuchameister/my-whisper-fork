@@ -51,9 +51,22 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO
 
+          xcodebuild build \
+            -project TypeWhisper.xcodeproj \
+            -scheme OpenAIPlugin \
+            -configuration Debug \
+            -derivedDataPath build-feature \
+            -destination 'generic/platform=macOS' \
+            CODE_SIGN_IDENTITY='-' \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
       - name: Package app
         run: |
           mv build-feature/Build/Products/Debug/TypeWhisper.app "build-feature/Build/Products/Debug/$APP_NAME.app"
+          ditto \
+            build-feature/Build/Products/Debug/OpenAIPlugin.bundle \
+            "build-feature/Build/Products/Debug/$APP_NAME.app/Contents/PlugIns/OpenAIPlugin.bundle"
           printf 'branch=%s\ncommit=%s\n' "$GITHUB_REF_NAME" "$GITHUB_SHA" \
             > "build-feature/Build/Products/Debug/$APP_NAME.app/Contents/Resources/FeatureBuildSource.txt"
           ditto -c -k --keepParent \

@@ -209,7 +209,8 @@ final class WorkflowService: ObservableObject {
     func matchWorkflow(bundleIdentifier: String?, url: String? = nil) -> WorkflowMatchResult? {
         let bundleId = bundleIdentifier ?? ""
         let domain = extractDomain(from: url)
-        let enabled = workflows.filter(\.isEnabled)
+        // Command Mode is intentionally shortcut-only; never select it from ambient app/website matching.
+        let enabled = workflows.filter { $0.isEnabled && $0.template != .commandMode }
 
         if !bundleId.isEmpty, let domain {
             let matches = enabled.filter { workflow in
@@ -258,7 +259,16 @@ final class WorkflowService: ObservableObject {
         }
 
         let globalMatches = enabled.filter { workflow in
-            workflow.trigger?.kind == .global
+            guard let trigger = workflow.trigger,
+                  trigger.kind == .global,
+                  !trigger.excludedAppBundleIdentifiers.contains(bundleId) else {
+                return false
+            }
+            return domain.map { domain in
+                !trigger.excludedWebsitePatterns.contains { pattern in
+                    !pattern.isEmpty && domainMatches(domain, pattern: pattern)
+                }
+            } ?? true
         }
         if let result = bestMatch(from: globalMatches, kind: .globalFallback, matchedDomain: nil) {
             return result
