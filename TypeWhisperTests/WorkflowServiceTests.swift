@@ -1456,6 +1456,53 @@ final class WorkflowServiceTests: XCTestCase {
         XCTAssertTrue(executedCommands.isEmpty)
     }
 
+    func testCommandModeRetriesOneDecodedButSemanticallyInvalidDecision() async throws {
+        let directory = try TestSupport.makeTemporaryDirectory(prefix: "CommandModeSemanticRetry")
+        defer { TestSupport.remove(directory) }
+        let workflowService = WorkflowService(appSupportDirectory: directory)
+        let workflow = try XCTUnwrap(workflowService.addWorkflow(
+            name: "Command Mode",
+            template: .commandMode,
+            trigger: .manual()
+        ))
+        var responses = [
+            #"{"type":"done","message":"   "}"#,
+            #"{"type":"done","message":"Ready."}"#,
+        ]
+        var receivedContexts: [String] = []
+        let service = CommandModeService(
+            promptProcessingService: PromptProcessingService(),
+            workflowService: workflowService,
+            store: CommandModeConversationStore(appSupportDirectory: directory),
+            contextCoordinator: CommandModeContextCoordinator(providers: [], applicationProvider: { nil }),
+            promptRunner: { _, context, _, _ in
+                receivedContexts.append(context)
+                return responses.removeFirst()
+            },
+            shellRunner: { _ in
+                XCTFail("A semantically invalid decision must not execute a command.")
+                return CommandModeShellResult(
+                    success: false,
+                    command: "",
+                    output: "",
+                    error: nil,
+                    exitCode: 1,
+                    timedOut: false
+                )
+            }
+        )
+
+        let outcome = try await service.process(
+            request: "Reply without running a command.",
+            workflow: workflow,
+            progress: { _ in }
+        )
+
+        XCTAssertEqual(outcome.message, "Ready.")
+        XCTAssertEqual(receivedContexts.count, 2)
+        XCTAssertTrue(receivedContexts[1].contains("including every required non-empty field"))
+    }
+
     func testCommandModeDraftResolvesOnlyARecordingHotkeyTrigger() throws {
         let hotkey = UnifiedHotkey(keyCode: 2, modifierFlags: NSEvent.ModifierFlags.command.rawValue, isFn: false)
         var draft = WorkflowDraft(template: .commandMode)
