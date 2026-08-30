@@ -414,6 +414,7 @@ final class CommandModeService {
         ].compactMap { $0 }.joined(separator: "\n\n")
         var commandCount = 0
         var planCorrectionCount = 0
+        var responseFormatCorrectionCount = 0
 
         while commandCount < 8 {
             try Task.checkCancellation()
@@ -437,7 +438,23 @@ final class CommandModeService {
                 }
             )
             store.setStreamingText(nil, conversationID: conversationID)
-            let decision = try Self.parseDecision(response)
+            let decision: Decision
+            do {
+                decision = try Self.parseDecision(response)
+            } catch CommandModeError.invalidResponse {
+                guard responseFormatCorrectionCount < 1 else {
+                    throw CommandModeError.invalidResponse
+                }
+                responseFormatCorrectionCount += 1
+                let correctionMessage = "Correcting response format"
+                progress(correctionMessage)
+                store.setProgress(.planning, detail: correctionMessage, conversationID: conversationID)
+                context += """
+
+                Format correction: the previous response was not a valid Command Mode JSON object. Do not repeat or explain it. Return exactly one JSON object using one of the two schemas from the system instructions. For a conversational reply or clarification, use {"type":"done","message":"<reply>"}.
+                """
+                continue
+            }
 
             switch decision.type {
             case .done:

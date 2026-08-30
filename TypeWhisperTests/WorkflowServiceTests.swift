@@ -1383,6 +1383,55 @@ final class WorkflowServiceTests: XCTestCase {
         XCTAssertEqual(approvals, 2)
     }
 
+    func testCommandModeRetriesOneInvalidProviderEnvelopeWithoutExecutingIt() async throws {
+        let directory = try TestSupport.makeTemporaryDirectory(prefix: "CommandModeFormatRetry")
+        defer { TestSupport.remove(directory) }
+        let workflowService = WorkflowService(appSupportDirectory: directory)
+        let workflow = try XCTUnwrap(workflowService.addWorkflow(
+            name: "Command Mode",
+            template: .commandMode,
+            trigger: .manual()
+        ))
+        var responses = [
+            "ready",
+            #"{"type":"done","message":"Ready."}"#,
+        ]
+        var receivedContexts: [String] = []
+        var executedCommands: [String] = []
+        let service = CommandModeService(
+            promptProcessingService: PromptProcessingService(),
+            workflowService: workflowService,
+            store: CommandModeConversationStore(appSupportDirectory: directory),
+            contextCoordinator: CommandModeContextCoordinator(providers: [], applicationProvider: { nil }),
+            promptRunner: { _, context, _, _ in
+                receivedContexts.append(context)
+                return responses.removeFirst()
+            },
+            shellRunner: { action in
+                executedCommands.append(action.command)
+                return CommandModeShellResult(
+                    success: true,
+                    command: action.command,
+                    output: "unexpected",
+                    error: nil,
+                    exitCode: 0,
+                    timedOut: false
+                )
+            }
+        )
+
+        let outcome = try await service.process(
+            request: "Reply with the word ready. Do not run a command.",
+            workflow: workflow,
+            progress: { _ in }
+        )
+
+        XCTAssertEqual(outcome.message, "Ready.")
+        XCTAssertEqual(receivedContexts.count, 2)
+        XCTAssertTrue(receivedContexts[1].contains("Format correction:"))
+        XCTAssertTrue(executedCommands.isEmpty)
+    }
+
     func testCommandModeDraftResolvesOnlyARecordingHotkeyTrigger() throws {
         let hotkey = UnifiedHotkey(keyCode: 2, modifierFlags: NSEvent.ModifierFlags.command.rawValue, isFn: false)
         var draft = WorkflowDraft(template: .commandMode)
