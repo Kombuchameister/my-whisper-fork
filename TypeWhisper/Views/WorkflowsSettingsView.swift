@@ -525,6 +525,14 @@ private struct LLMFallbackPriorityRow: View {
         promptProcessingService.effortsForProvider(item.providerId, modelId: item.modelId)
     }
 
+    private var temperatureRange: ClosedRange<Double>? {
+        promptProcessingService.temperatureRange(
+            for: item.providerId,
+            modelId: item.modelId,
+            effortId: item.effortId
+        )
+    }
+
     private var providerOptions: [(id: String, displayName: String)] {
         let otherFallbacks = promptProcessingService.fallbackPriorityList.filter { $0.id != item.id }
         var providers = promptProcessingService.availableProviders.filter { provider in
@@ -560,6 +568,7 @@ private struct LLMFallbackPriorityRow: View {
     private var canMoveDown: Bool { index < count - 1 }
     private var showsModelPicker: Bool { !availableModels.isEmpty || item.modelId != nil }
     private var showsEffortPicker: Bool { !availableEfforts.isEmpty || item.effortId != nil }
+    private var showsTemperaturePicker: Bool { temperatureRange != nil }
     private var isReady: Bool { promptProcessingService.isProviderReady(item.providerId) }
     private var statusText: String {
         isReady
@@ -657,6 +666,9 @@ private struct LLMFallbackPriorityRow: View {
         if showsEffortPicker {
             effortPicker
         }
+        if showsTemperaturePicker {
+            temperaturePicker
+        }
     }
 
     private var providerPicker: some View {
@@ -713,6 +725,32 @@ private struct LLMFallbackPriorityRow: View {
         .frame(width: 125, alignment: .leading)
     }
 
+    @ViewBuilder
+    private var temperaturePicker: some View {
+        Picker(localizedAppText("Temperature", de: "Temperatur"), selection: temperatureModeBinding) {
+            Text(localizedAppText("Provider Setting", de: "Provider-Einstellung"))
+                .tag(PluginLLMTemperatureMode.inheritProviderSetting)
+            Text(localizedAppText("API Default", de: "API-Standard"))
+                .tag(PluginLLMTemperatureMode.providerDefault)
+            Text(localizedAppText("Custom", de: "Benutzerdefiniert"))
+                .tag(PluginLLMTemperatureMode.custom)
+        }
+        .labelsHidden()
+        .pickerStyle(.menu)
+        .controlSize(.small)
+        .frame(width: 125, alignment: .leading)
+
+        if item.temperatureDirective.mode == .custom, let temperatureRange {
+            HStack(spacing: 4) {
+                Slider(value: temperatureValueBinding, in: temperatureRange, step: 0.1)
+                    .frame(width: 80)
+                Text(temperatureValueBinding.wrappedValue, format: .number.precision(.fractionLength(1)))
+                    .font(.caption2.monospacedDigit())
+                    .frame(width: 24, alignment: .trailing)
+            }
+        }
+    }
+
     private var providerDefaultEffortLabel: String {
         guard let defaultEffortID = promptProcessingService.defaultEffortId(
             for: item.providerId,
@@ -750,7 +788,8 @@ private struct LLMFallbackPriorityRow: View {
                     item,
                     providerId: providerID,
                     modelId: nil,
-                    effortId: nil
+                    effortId: nil,
+                    temperatureDirective: .inheritProviderSetting
                 )
             }
         )
@@ -764,7 +803,8 @@ private struct LLMFallbackPriorityRow: View {
                     item,
                     providerId: item.providerId,
                     modelId: modelID,
-                    effortId: nil
+                    effortId: nil,
+                    temperatureDirective: .inheritProviderSetting
                 )
             }
         )
@@ -778,7 +818,45 @@ private struct LLMFallbackPriorityRow: View {
                     item,
                     providerId: item.providerId,
                     modelId: item.modelId,
-                    effortId: effortID
+                    effortId: effortID,
+                    temperatureDirective: .inheritProviderSetting
+                )
+            }
+        )
+    }
+
+    private var temperatureModeBinding: Binding<PluginLLMTemperatureMode> {
+        Binding(
+            get: { item.temperatureDirective.mode },
+            set: { mode in
+                let directive = PluginLLMTemperatureDirective(
+                    mode: mode,
+                    value: mode == .custom ? temperatureValueBinding.wrappedValue : nil
+                )
+                promptProcessingService.updateLLMFallback(
+                    item,
+                    providerId: item.providerId,
+                    modelId: item.modelId,
+                    effortId: item.effortId,
+                    temperatureDirective: directive
+                )
+            }
+        )
+    }
+
+    private var temperatureValueBinding: Binding<Double> {
+        Binding(
+            get: {
+                let range = temperatureRange ?? 0...2
+                return min(max(item.temperatureValue ?? 0.3, range.lowerBound), range.upperBound)
+            },
+            set: { value in
+                promptProcessingService.updateLLMFallback(
+                    item,
+                    providerId: item.providerId,
+                    modelId: item.modelId,
+                    effortId: item.effortId,
+                    temperatureDirective: .custom(value)
                 )
             }
         )
@@ -1732,6 +1810,53 @@ private struct WorkflowEditorPage: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 }
+
+                if let temperatureRange = promptProcessingService.temperatureRangeForWorkflow(
+                    providerId: draft.providerId,
+                    modelId: draft.cloudModel,
+                    effortId: draft.effortId
+                ) {
+                    Picker(
+                        localizedAppText("Temperature", de: "Temperatur"),
+                        selection: workflowTemperatureModeBinding
+                    ) {
+                        Text(
+                            draft.providerId == nil
+                                ? localizedAppText("Use Fallback Entry / Provider Setting", de: "Fallback-Eintrag / Provider-Einstellung")
+                                : localizedAppText("Use Provider Setting", de: "Provider-Einstellung verwenden")
+                        )
+                        .tag(PluginLLMTemperatureMode.inheritProviderSetting)
+                        Text(localizedAppText("API Default", de: "API-Standard"))
+                            .tag(PluginLLMTemperatureMode.providerDefault)
+                        Text(localizedAppText("Custom", de: "Benutzerdefiniert"))
+                            .tag(PluginLLMTemperatureMode.custom)
+                    }
+
+                    if draft.temperatureDirective.mode == .custom {
+                        HStack(spacing: 10) {
+                            Slider(
+                                value: workflowTemperatureValueBinding(range: temperatureRange),
+                                in: temperatureRange,
+                                step: 0.1
+                            )
+                            Text(
+                                workflowTemperatureValueBinding(range: temperatureRange).wrappedValue,
+                                format: .number.precision(.fractionLength(1))
+                            )
+                            .monospacedDigit()
+                            .frame(width: 32, alignment: .trailing)
+                        }
+                    }
+
+                    Text(
+                        localizedAppText(
+                            "A workflow temperature overrides fallback entries. API Default omits the provider integration's custom temperature.",
+                            de: "Eine Workflow-Temperatur überschreibt Fallback-Einträge. API-Standard ignoriert die benutzerdefinierte Temperatur der Provider-Integration."
+                        )
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
             }
         }
     }
@@ -2297,11 +2422,15 @@ private struct WorkflowEditorPage: View {
                 if providerId == nil {
                     draft.cloudModel = nil
                     draft.effortId = nil
+                    draft.temperatureModeRaw = nil
+                    draft.temperatureValue = nil
                     return
                 }
 
                 if providerChanged {
                     draft.effortId = nil
+                    draft.temperatureModeRaw = nil
+                    draft.temperatureValue = nil
                 }
 
                 if let cloudModel = draft.cloudModel,
@@ -2309,6 +2438,8 @@ private struct WorkflowEditorPage: View {
                    !promptProcessingService.modelsForProvider(providerId).contains(where: { $0.id == cloudModel }) {
                     draft.cloudModel = nil
                     draft.effortId = nil
+                    draft.temperatureModeRaw = nil
+                    draft.temperatureValue = nil
                 }
             }
         )
@@ -2320,6 +2451,8 @@ private struct WorkflowEditorPage: View {
             set: { modelId in
                 if draft.cloudModel != modelId {
                     draft.effortId = nil
+                    draft.temperatureModeRaw = nil
+                    draft.temperatureValue = nil
                 }
                 draft.cloudModel = modelId
             }
@@ -2331,7 +2464,36 @@ private struct WorkflowEditorPage: View {
             get: { draft.effortId },
             set: { effortId in
                 draft.effortId = effortId
+                if promptProcessingService.temperatureRangeForWorkflow(
+                    providerId: draft.providerId,
+                    modelId: draft.cloudModel,
+                    effortId: effortId
+                ) == nil {
+                    draft.temperatureModeRaw = nil
+                    draft.temperatureValue = nil
+                }
             }
+        )
+    }
+
+    private var workflowTemperatureModeBinding: Binding<PluginLLMTemperatureMode> {
+        Binding(
+            get: { draft.temperatureDirective.mode },
+            set: { mode in
+                draft.temperatureModeRaw = mode.rawValue
+                if mode != .custom {
+                    draft.temperatureValue = nil
+                } else if draft.temperatureValue == nil {
+                    draft.temperatureValue = 0.3
+                }
+            }
+        )
+    }
+
+    private func workflowTemperatureValueBinding(range: ClosedRange<Double>) -> Binding<Double> {
+        Binding(
+            get: { min(max(draft.temperatureValue ?? 0.3, range.lowerBound), range.upperBound) },
+            set: { draft.temperatureValue = min(max($0, range.lowerBound), range.upperBound) }
         )
     }
 
@@ -2800,8 +2962,15 @@ struct WorkflowDraft {
     var providerId: String?
     var cloudModel: String?
     var effortId: String?
-    private let temperatureModeRaw: String?
-    private let temperatureValue: Double?
+    var temperatureModeRaw: String?
+    var temperatureValue: Double?
+
+    var temperatureDirective: PluginLLMTemperatureDirective {
+        PluginLLMTemperatureDirective(
+            mode: PluginLLMTemperatureMode(rawValue: temperatureModeRaw ?? "") ?? .inheritProviderSetting,
+            value: temperatureValue
+        )
+    }
     var targetActionPluginId: String?
 
     init(template: WorkflowTemplate) {

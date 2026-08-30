@@ -43,17 +43,30 @@ struct LLMFallbackPriorityItem: Identifiable, Codable, Equatable, Sendable {
     var providerId: String
     var modelId: String?
     var effortId: String?
+    var temperatureModeRaw: String?
+    var temperatureValue: Double?
 
     init(
         id: UUID = UUID(),
         providerId: String,
         modelId: String? = nil,
-        effortId: String? = nil
+        effortId: String? = nil,
+        temperatureModeRaw: String? = nil,
+        temperatureValue: Double? = nil
     ) {
         self.id = id
         self.providerId = providerId
         self.modelId = modelId
         self.effortId = effortId
+        self.temperatureModeRaw = temperatureModeRaw
+        self.temperatureValue = temperatureValue
+    }
+
+    var temperatureDirective: PluginLLMTemperatureDirective {
+        PluginLLMTemperatureDirective(
+            mode: PluginLLMTemperatureMode(rawValue: temperatureModeRaw ?? "") ?? .inheritProviderSetting,
+            value: temperatureValue
+        )
     }
 }
 
@@ -158,15 +171,15 @@ class PromptProcessingService: ObservableObject {
         return false
     }
 
-    /// Returns (id, displayName) pairs for all available providers.
+    /// Returns (id, displayName) pairs for configured, enabled providers.
     var availableProviders: [(id: String, displayName: String)] {
         var result: [(id: String, displayName: String)] = []
 
-        if #available(macOS 26, *) {
+        if #available(macOS 26, *), isAppleIntelligenceAvailable {
             result.append((id: Self.appleIntelligenceId, displayName: "Apple Intelligence"))
         }
 
-        for plugin in PluginManager.shared?.llmProviders ?? [] {
+        for plugin in PluginManager.shared?.llmProviders.filter(\.isAvailable) ?? [] {
             result.append((id: plugin.llmProviderId, displayName: plugin.llmProviderDisplayName))
         }
 
@@ -195,6 +208,7 @@ class PromptProcessingService: ObservableObject {
     func effortsForProvider(_ providerId: String, modelId: String?) -> [PluginLLMEffortInfo] {
         guard providerId != Self.appleIntelligenceId,
               let provider = PluginManager.shared?.llmProvider(for: providerId),
+              provider.isAvailable,
               let effortProvider = provider as? any LLMEffortControllableProvider
         else { return [] }
 
@@ -209,6 +223,7 @@ class PromptProcessingService: ObservableObject {
     func defaultEffortId(for providerId: String, modelId: String?) -> String? {
         guard providerId != Self.appleIntelligenceId,
               let provider = PluginManager.shared?.llmProvider(for: providerId),
+              provider.isAvailable,
               let effortProvider = provider as? any LLMEffortControllableProvider
         else { return nil }
 
@@ -218,6 +233,53 @@ class PromptProcessingService: ObservableObject {
             requestedModelId: modelId
         )
         return effortProvider.defaultEffortId(for: resolvedModel)
+    }
+
+    func temperatureRange(
+        for providerId: String,
+        modelId: String?,
+        effortId: String?
+    ) -> ClosedRange<Double>? {
+        guard providerId != Self.appleIntelligenceId,
+              let provider = PluginManager.shared?.llmProvider(for: providerId),
+              provider.isAvailable,
+              let temperatureProvider = provider as? any LLMTemperatureRangeProviding
+        else { return nil }
+
+        let resolvedModel = resolvedModelHint(
+            for: provider,
+            providerId: providerId,
+            requestedModelId: modelId
+        )
+        return temperatureProvider.supportedTemperatureRange(
+            for: resolvedModel,
+            effort: Self.normalizedEffortId(effortId)
+        )
+    }
+
+    func temperatureRangeForWorkflow(
+        providerId: String?,
+        modelId: String?,
+        effortId: String?
+    ) -> ClosedRange<Double>? {
+        if let providerId {
+            return temperatureRange(for: providerId, modelId: modelId, effortId: effortId)
+        }
+
+        guard !fallbackPriorityList.isEmpty else { return nil }
+        var ranges: [ClosedRange<Double>] = []
+        for fallback in fallbackPriorityList {
+            guard let range = temperatureRange(
+                for: fallback.providerId,
+                modelId: fallback.modelId,
+                effortId: effortId ?? fallback.effortId
+            ) else { return nil }
+            ranges.append(range)
+        }
+        guard let first = ranges.first else { return nil }
+        let lowerBound = ranges.dropFirst().reduce(first.lowerBound) { max($0, $1.lowerBound) }
+        let upperBound = ranges.dropFirst().reduce(first.upperBound) { min($0, $1.upperBound) }
+        return lowerBound <= upperBound ? lowerBound...upperBound : nil
     }
 
     func effortsForWorkflow(providerId: String?, modelId: String?) -> [PluginLLMEffortInfo] {
@@ -288,7 +350,8 @@ class PromptProcessingService: ObservableObject {
     func addLLMFallback(
         providerId: String,
         modelId: String? = nil,
-        effortId: String? = nil
+        effortId: String? = nil,
+        temperatureDirective: PluginLLMTemperatureDirective = .inheritProviderSetting
     ) {
         let normalizedProviderId = normalizeProviderId(providerId)
         guard !normalizedProviderId.isEmpty else { return }
@@ -303,7 +366,9 @@ class PromptProcessingService: ObservableObject {
                 LLMFallbackPriorityItem(
                     providerId: normalizedProviderId,
                     modelId: normalizedModelId,
-                    effortId: normalizedEffortId
+                    effortId: normalizedEffortId,
+                    temperatureModeRaw: temperatureDirective.mode.rawValue,
+                    temperatureValue: temperatureDirective.customValue
                 )
             ],
             normalizeProviderIds: true
@@ -314,7 +379,8 @@ class PromptProcessingService: ObservableObject {
         _ item: LLMFallbackPriorityItem,
         providerId: String,
         modelId: String? = nil,
-        effortId: String? = nil
+        effortId: String? = nil,
+        temperatureDirective: PluginLLMTemperatureDirective? = nil
     ) {
         guard let index = fallbackPriorityList.firstIndex(where: { $0.id == item.id }) else { return }
         let normalizedProviderId = normalizeProviderId(providerId)
@@ -331,6 +397,10 @@ class PromptProcessingService: ObservableObject {
         updated[index].providerId = normalizedProviderId
         updated[index].modelId = normalizedModelId
         updated[index].effortId = normalizedEffortId
+        if let temperatureDirective {
+            updated[index].temperatureModeRaw = temperatureDirective.mode.rawValue
+            updated[index].temperatureValue = temperatureDirective.customValue
+        }
         setFallbackPriorityList(updated, normalizeProviderIds: true)
     }
 
@@ -475,17 +545,25 @@ class PromptProcessingService: ObservableObject {
                 LLMFallbackPriorityItem(
                     providerId: normalizeProviderId(explicitProviderId),
                     modelId: Self.normalizedModelId(cloudModelOverride),
-                    effortId: Self.normalizedEffortId(effortOverride)
+                    effortId: Self.normalizedEffortId(effortOverride),
+                    temperatureModeRaw: temperatureDirective.mode.rawValue,
+                    temperatureValue: temperatureDirective.customValue
                 )
             ]
         } else {
             let normalizedWorkflowEffort = Self.normalizedEffortId(effortOverride)
+            let workflowOverridesTemperature = temperatureDirective != .inheritProviderSetting
             candidates = fallbackPriorityList.map { candidate in
-                LLMFallbackPriorityItem(
+                let effectiveTemperature = workflowOverridesTemperature
+                    ? temperatureDirective
+                    : candidate.temperatureDirective
+                return LLMFallbackPriorityItem(
                     id: candidate.id,
                     providerId: candidate.providerId,
                     modelId: candidate.modelId,
-                    effortId: normalizedWorkflowEffort ?? candidate.effortId
+                    effortId: normalizedWorkflowEffort ?? candidate.effortId,
+                    temperatureModeRaw: effectiveTemperature.mode.rawValue,
+                    temperatureValue: effectiveTemperature.customValue
                 )
             }
         }
@@ -520,7 +598,7 @@ class PromptProcessingService: ObservableObject {
                     requestedEffortId: candidate.effortId,
                     prompt: effectivePrompt,
                     text: attemptText,
-                    temperatureDirective: temperatureDirective,
+                    temperatureDirective: candidate.temperatureDirective,
                     onPartialResult: onPartialResult,
                     onLocalProviderUsed: { provider in
                         let identity = ObjectIdentifier(provider)
@@ -894,7 +972,9 @@ class PromptProcessingService: ObservableObject {
                 id: item.id,
                 providerId: normalizeProviderIds ? normalizeProviderId(rawProviderId) : rawProviderId,
                 modelId: Self.normalizedModelId(item.modelId),
-                effortId: Self.normalizedEffortId(item.effortId)
+                effortId: Self.normalizedEffortId(item.effortId),
+                temperatureModeRaw: item.temperatureDirective.mode.rawValue,
+                temperatureValue: item.temperatureDirective.customValue
             )
         }
         return Self.deduplicatedFallbackPriorityList(normalizedItems)
@@ -922,7 +1002,9 @@ class PromptProcessingService: ObservableObject {
                     id: item.id,
                     providerId: providerId,
                     modelId: normalizedModelId(item.modelId),
-                    effortId: normalizedEffortId(item.effortId)
+                    effortId: normalizedEffortId(item.effortId),
+                    temperatureModeRaw: item.temperatureDirective.mode.rawValue,
+                    temperatureValue: item.temperatureDirective.customValue
                 )
             })
             persistInitialFallbackPriorityList(normalized, to: defaults)
@@ -993,7 +1075,9 @@ class PromptProcessingService: ObservableObject {
                     id: identifier,
                     providerId: item.providerId,
                     modelId: item.modelId,
-                    effortId: item.effortId
+                    effortId: item.effortId,
+                    temperatureModeRaw: item.temperatureDirective.mode.rawValue,
+                    temperatureValue: item.temperatureDirective.customValue
                 )
             )
         }

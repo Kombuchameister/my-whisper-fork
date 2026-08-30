@@ -6,7 +6,7 @@ import TypeWhisperPluginSDK
 // MARK: - Plugin Entry Point
 
 @objc(ClaudePlugin)
-final class ClaudePlugin: NSObject, LLMProviderPlugin, LLMTemperatureControllableProvider, LLMModelSelectable, @unchecked Sendable {
+final class ClaudePlugin: NSObject, LLMProviderPlugin, LLMTemperatureAndEffortControllableProvider, LLMModelSelectable, @unchecked Sendable {
     static let pluginId = "com.typewhisper.claude"
     static let pluginName = "Claude"
 
@@ -37,6 +37,7 @@ final class ClaudePlugin: NSObject, LLMProviderPlugin, LLMTemperatureControllabl
         var selectedLLMModelId: String?
         var llmTemperatureModeRaw = PluginLLMTemperatureMode.providerDefault.rawValue
         var llmTemperatureValue = 0.3
+        var reasoningEffortId = "high"
         var modelCache: ClaudeModelCache?
         var refreshGeneration: UInt64 = 0
         var inFlightModelRefresh: InFlightModelRefresh?
@@ -47,6 +48,7 @@ final class ClaudePlugin: NSObject, LLMProviderPlugin, LLMTemperatureControllabl
         let selectedModelId: String?
         let defaultModelId: String
         let temperatureDirective: PluginLLMTemperatureDirective
+        let reasoningEffortId: String
     }
 
     private let state = OSAllocatedUnfairLock(initialState: State())
@@ -76,6 +78,7 @@ final class ClaudePlugin: NSObject, LLMProviderPlugin, LLMTemperatureControllabl
             ?? PluginLLMTemperatureMode.providerDefault.rawValue
         let llmTemperatureValue = host.userDefault(forKey: "llmTemperatureValue") as? Double
             ?? 0.3
+        let reasoningEffortId = host.userDefault(forKey: "reasoningEffort") as? String ?? "high"
 
         let previousTask = state.withLock { state -> Task<Bool, Never>? in
             let previousTask = state.inFlightModelRefresh?.task
@@ -85,6 +88,7 @@ final class ClaudePlugin: NSObject, LLMProviderPlugin, LLMTemperatureControllabl
             state.selectedLLMModelId = selectedLLMModelId
             state.llmTemperatureModeRaw = llmTemperatureModeRaw
             state.llmTemperatureValue = llmTemperatureValue
+            state.reasoningEffortId = reasoningEffortId
             state.modelCache = modelCache
             state.refreshGeneration &+= 1
             state.inFlightModelRefresh = nil
@@ -170,6 +174,55 @@ final class ClaudePlugin: NSObject, LLMProviderPlugin, LLMTemperatureControllabl
         model: String?,
         temperatureDirective: PluginLLMTemperatureDirective
     ) async throws -> String {
+        try await process(
+            systemPrompt: systemPrompt,
+            userText: userText,
+            model: model,
+            temperatureDirective: temperatureDirective,
+            effort: nil
+        )
+    }
+
+    func supportedEfforts(for model: String?) -> [PluginLLMEffortInfo] {
+        let id = (model ?? selectedLLMModelId ?? supportedModels.first?.id ?? "").lowercased()
+        let supportsEffort = id.contains("opus-4-5") || id.contains("opus-4-6")
+            || id.contains("opus-4-7") || id.contains("opus-4-8") || id.contains("opus-5")
+            || id.contains("sonnet-4-6") || id.contains("sonnet-5")
+            || id.contains("fable-5") || id.contains("mythos-5")
+        guard supportsEffort else { return [] }
+        var ids = ["low", "medium", "high"]
+        if !id.contains("opus-4-5") { ids.append("max") }
+        if id.contains("opus-4-7") || id.contains("opus-4-8") || id.contains("opus-5")
+            || id.contains("sonnet-5") || id.contains("fable-5") || id.contains("mythos-5") {
+            ids.append("xhigh")
+        }
+        return PluginLLMStandardEffortCatalog.options(ids)
+    }
+
+    func defaultEffortId(for model: String?) -> String? {
+        let configured = state.withLock { $0.reasoningEffortId }
+        let options = supportedEfforts(for: model)
+        guard !options.isEmpty else { return nil }
+        return options.contains(where: { $0.id == configured }) ? configured : "high"
+    }
+
+    func process(systemPrompt: String, userText: String, model: String?, effort: String?) async throws -> String {
+        try await process(
+            systemPrompt: systemPrompt,
+            userText: userText,
+            model: model,
+            temperatureDirective: .inheritProviderSetting,
+            effort: effort
+        )
+    }
+
+    func process(
+        systemPrompt: String,
+        userText: String,
+        model: String?,
+        temperatureDirective: PluginLLMTemperatureDirective,
+        effort: String?
+    ) async throws -> String {
         let snapshot = state.withLock { state -> ProcessingSnapshot in
             let models = Self.baseModels(from: state.modelCache)
             return ProcessingSnapshot(
@@ -179,7 +232,8 @@ final class ClaudePlugin: NSObject, LLMProviderPlugin, LLMTemperatureControllabl
                 temperatureDirective: PluginLLMTemperatureDirective(
                     mode: PluginLLMTemperatureMode(rawValue: state.llmTemperatureModeRaw) ?? .providerDefault,
                     value: state.llmTemperatureValue
-                )
+                ),
+                reasoningEffortId: state.reasoningEffortId
             )
         }
         guard let apiKey = snapshot.apiKey, !apiKey.isEmpty else {
@@ -187,12 +241,15 @@ final class ClaudePlugin: NSObject, LLMProviderPlugin, LLMTemperatureControllabl
         }
         let modelId = model ?? snapshot.selectedModelId ?? snapshot.defaultModelId
         let resolvedTemperature = snapshot.temperatureDirective.resolvedTemperature(applying: temperatureDirective)
+        let supportedIds = Set(supportedEfforts(for: modelId).map(\.id))
+        let preferredEffort = effort ?? snapshot.reasoningEffortId
         return try await callMessagesAPI(
             apiKey: apiKey,
             model: modelId,
             systemPrompt: systemPrompt,
             userText: userText,
-            temperature: resolvedTemperature
+            temperature: resolvedTemperature,
+            reasoningEffort: supportedIds.contains(preferredEffort) ? preferredEffort : nil
         )
     }
 
@@ -228,6 +285,14 @@ final class ClaudePlugin: NSObject, LLMProviderPlugin, LLMTemperatureControllabl
             return state.host
         }
         host?.setUserDefault(clamped, forKey: "llmTemperatureValue")
+    }
+
+    func setReasoningEffort(_ effortId: String) {
+        let host = state.withLock { state -> HostServices? in
+            state.reasoningEffortId = effortId
+            return state.host
+        }
+        host?.setUserDefault(effortId, forKey: "reasoningEffort")
     }
 
     // MARK: - Settings View
@@ -512,7 +577,8 @@ final class ClaudePlugin: NSObject, LLMProviderPlugin, LLMTemperatureControllabl
         model: String,
         systemPrompt: String,
         userText: String,
-        temperature: Double?
+        temperature: Double?,
+        reasoningEffort: String?
     ) async throws -> String {
         guard let url = URL(string: Self.messagesEndpoint) else {
             throw PluginChatError.apiError("Invalid URL")
@@ -530,6 +596,9 @@ final class ClaudePlugin: NSObject, LLMProviderPlugin, LLMTemperatureControllabl
         // families 400 on any sampling parameter.
         if let temperature, !Self.modelRejectsSamplingParams(model) {
             requestBody["temperature"] = temperature
+        }
+        if let reasoningEffort {
+            requestBody["output_config"] = ["effort": reasoningEffort]
         }
 
         var request = URLRequest(url: url)
@@ -571,6 +640,13 @@ final class ClaudePlugin: NSObject, LLMProviderPlugin, LLMTemperatureControllabl
         }
 
         return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+extension ClaudePlugin: LLMTemperatureRangeProviding {
+    func supportedTemperatureRange(for model: String?, effort: String?) -> ClosedRange<Double>? {
+        guard let model, !Self.modelRejectsSamplingParams(model) else { return nil }
+        return 0...2
     }
 }
 
@@ -625,6 +701,7 @@ private struct ClaudeSettingsView: View {
     @State private var selectedModel: String = ""
     @State private var llmTemperatureMode: PluginLLMTemperatureMode = .providerDefault
     @State private var llmTemperatureValue: Double = 0.3
+    @State private var reasoningEffortId: String = "high"
     @State private var isRefreshing = false
     @State private var lastUpdated: Date?
     @State private var refreshErrorMessage: String?
@@ -725,6 +802,7 @@ private struct ClaudeSettingsView: View {
                     .labelsHidden()
                     .onChange(of: selectedModel) {
                         plugin.selectLLMModel(selectedModel)
+                        reasoningEffortId = plugin.defaultEffortId(for: selectedModel) ?? reasoningEffortId
                     }
 
                     if let lastUpdated {
@@ -745,6 +823,21 @@ private struct ClaudeSettingsView: View {
                 }
 
                 Divider()
+
+                if !plugin.supportedEfforts(for: selectedModel).isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Reasoning Effort", bundle: bundle).font(.headline)
+                        Picker("Reasoning Effort", selection: $reasoningEffortId) {
+                            ForEach(plugin.supportedEfforts(for: selectedModel), id: \.id) { effort in
+                                Text(effort.displayName).tag(effort.id)
+                            }
+                        }
+                        .onChange(of: reasoningEffortId) { plugin.setReasoningEffort(reasoningEffortId) }
+                        Text("Workflow and fallback-entry effort settings override this provider default.", bundle: bundle)
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Divider()
+                }
 
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Temperature", bundle: bundle)
@@ -789,6 +882,7 @@ private struct ClaudeSettingsView: View {
             selectedModel = plugin.selectedLLMModelId ?? plugin.supportedModels.first?.id ?? ""
             llmTemperatureMode = plugin.llmTemperatureMode
             llmTemperatureValue = plugin.llmTemperatureValue
+            reasoningEffortId = plugin.defaultEffortId(for: selectedModel) ?? "high"
             lastUpdated = plugin.cacheLastUpdated
             // Serve the cache immediately; refresh in the background if stale.
             if plugin.isAvailable, !plugin.isModelCacheFresh {

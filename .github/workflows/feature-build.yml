@@ -51,22 +51,34 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO
 
-          xcodebuild build \
-            -project TypeWhisper.xcodeproj \
-            -scheme OpenAIPlugin \
-            -configuration Debug \
-            -derivedDataPath build-feature \
-            -destination 'generic/platform=macOS' \
-            CODE_SIGN_IDENTITY='-' \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO
+          for plugin in \
+            OpenAIPlugin GroqPlugin GeminiPlugin XAIPlugin ClaudePlugin \
+            CerebrasPlugin FireworksPlugin MistralAIPlugin OpenRouterPlugin \
+            OpenAICompatiblePlugin
+          do
+            xcodebuild build \
+              -project TypeWhisper.xcodeproj \
+              -target "$plugin" \
+              -configuration Debug \
+              SYMROOT="$PWD/build-feature/Build/Products" \
+              OBJROOT="$PWD/build-feature/Build/Intermediates.noindex" \
+              CODE_SIGN_IDENTITY='-' \
+              CODE_SIGNING_REQUIRED=NO \
+              CODE_SIGNING_ALLOWED=NO
+          done
 
       - name: Package app
         run: |
           mv build-feature/Build/Products/Debug/TypeWhisper.app "build-feature/Build/Products/Debug/$APP_NAME.app"
-          ditto \
-            build-feature/Build/Products/Debug/OpenAIPlugin.bundle \
-            "build-feature/Build/Products/Debug/$APP_NAME.app/Contents/PlugIns/OpenAIPlugin.bundle"
+          for plugin in \
+            OpenAIPlugin GroqPlugin GeminiPlugin XAIPlugin ClaudePlugin \
+            CerebrasPlugin FireworksPlugin MistralAIPlugin OpenRouterPlugin \
+            OpenAICompatiblePlugin
+          do
+            ditto \
+              "build-feature/Build/Products/Debug/$plugin.bundle" \
+              "build-feature/Build/Products/Debug/$APP_NAME.app/Contents/PlugIns/$plugin.bundle"
+          done
           printf 'branch=%s\ncommit=%s\n' "$GITHUB_REF_NAME" "$GITHUB_SHA" \
             > "build-feature/Build/Products/Debug/$APP_NAME.app/Contents/Resources/FeatureBuildSource.txt"
           ditto -c -k --keepParent \

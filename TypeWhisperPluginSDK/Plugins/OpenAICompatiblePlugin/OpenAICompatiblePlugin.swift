@@ -10,6 +10,10 @@ protocol OpenAICompatibleRealtimeSessionConnecting: Sendable {
     ) async throws -> any LiveTranscriptionSession
 }
 
+extension OpenAICompatiblePlugin: LLMTemperatureRangeProviding {
+    func supportedTemperatureRange(for model: String?, effort: String?) -> ClosedRange<Double>? { 0...2 }
+}
+
 private struct DefaultOpenAICompatibleRealtimeSessionConnector: OpenAICompatibleRealtimeSessionConnecting {
     func connect(
         request: URLRequest,
@@ -91,6 +95,8 @@ enum OpenAICompatibleLLMAPI: String, Codable, CaseIterable, Sendable {
 
 enum OpenAICompatibleReasoningEffort: String, Codable, CaseIterable, Sendable {
     case providerDefault = ""
+    case none
+    case minimal
     case low
     case medium
     case high
@@ -101,6 +107,10 @@ enum OpenAICompatibleReasoningEffort: String, Codable, CaseIterable, Sendable {
         switch self {
         case .providerDefault:
             "Provider Default"
+        case .none:
+            "None"
+        case .minimal:
+            "Minimal"
         case .low:
             "Low"
         case .medium:
@@ -337,7 +347,7 @@ final class OpenAICompatiblePlugin: NSObject,
     DictionaryTermsCapabilityProviding,
     LLMProviderPlugin,
     LLMProviderIdentityProviding,
-    LLMTemperatureControllableProvider,
+    LLMTemperatureAndEffortControllableProvider,
     LLMModelSelectable,
     AdditionalTranscriptionEnginesProviding,
     AdditionalLLMProvidersProviding,
@@ -537,6 +547,43 @@ final class OpenAICompatiblePlugin: NSObject,
             userText: userText,
             model: model,
             temperatureDirective: temperatureDirective,
+            effort: nil,
+            profileId: providerId
+        )
+    }
+
+    func supportedEfforts(for model: String?) -> [PluginLLMEffortInfo] {
+        supportedEfforts(for: providerId)
+    }
+
+    func defaultEffortId(for model: String?) -> String? {
+        profile(for: providerId)?.reasoningEffort.requestValue
+    }
+
+    func process(systemPrompt: String, userText: String, model: String?, effort: String?) async throws -> String {
+        try await process(
+            systemPrompt: systemPrompt,
+            userText: userText,
+            model: model,
+            temperatureDirective: .inheritProviderSetting,
+            effort: effort,
+            profileId: providerId
+        )
+    }
+
+    func process(
+        systemPrompt: String,
+        userText: String,
+        model: String?,
+        temperatureDirective: PluginLLMTemperatureDirective,
+        effort: String?
+    ) async throws -> String {
+        try await process(
+            systemPrompt: systemPrompt,
+            userText: userText,
+            model: model,
+            temperatureDirective: temperatureDirective,
+            effort: effort,
             profileId: providerId
         )
     }
@@ -721,6 +768,11 @@ final class OpenAICompatiblePlugin: NSObject,
         updateProfile(profileId) { profile in
             profile.reasoningEffortRaw = effort.rawValue
         }
+    }
+
+    func supportedEfforts(for profileId: String) -> [PluginLLMEffortInfo] {
+        guard profile(for: profileId)?.llmAPI == .responses else { return [] }
+        return PluginLLMStandardEffortCatalog.options(["none", "minimal", "low", "medium", "high", "xhigh", "max"])
     }
 
     // MARK: - Profile Runtime
@@ -981,6 +1033,7 @@ final class OpenAICompatiblePlugin: NSObject,
         userText: String,
         model: String?,
         temperatureDirective: PluginLLMTemperatureDirective,
+        effort: String?,
         profileId: String
     ) async throws -> String {
         guard let profile = profile(for: profileId), !profile.baseURL.isEmpty else {
@@ -1008,14 +1061,16 @@ final class OpenAICompatiblePlugin: NSObject,
                 apiVersion: profile.apiVersion
             )
         case .responses:
+            let configuredEffort = profile.reasoningEffort.requestValue
+            let resolvedEffort = effort ?? configuredEffort
             return try await processResponse(
                 apiKey: apiKey,
                 baseURL: profile.baseURL,
                 model: modelId,
                 systemPrompt: systemPrompt,
                 userText: userText,
-                temperature: profile.reasoningEffort.requestValue == nil ? temperature : nil,
-                reasoningEffort: profile.reasoningEffort.requestValue,
+                temperature: resolvedEffort == nil ? temperature : nil,
+                reasoningEffort: resolvedEffort,
                 requestTimeout: profile.resolvedChatRequestTimeout,
                 apiVersion: profile.apiVersion
             )
@@ -1725,7 +1780,7 @@ private final class OpenAICompatibleProfileRole: NSObject,
     DictionaryTermsCapabilityProviding,
     LLMProviderPlugin,
     LLMProviderIdentityProviding,
-    LLMTemperatureControllableProvider,
+    LLMTemperatureAndEffortControllableProvider,
     LLMModelSelectable,
     LiveLanguageHintDictionaryTermHintTranscriptionCapablePlugin,
     @unchecked Sendable
@@ -1864,6 +1919,42 @@ private final class OpenAICompatibleProfileRole: NSObject,
             userText: userText,
             model: model,
             temperatureDirective: temperatureDirective,
+            effort: nil,
+            profileId: profileId
+        )
+    }
+
+    func supportedEfforts(for model: String?) -> [PluginLLMEffortInfo] {
+        plugin.supportedEfforts(for: profileId)
+    }
+
+    func defaultEffortId(for model: String?) -> String? {
+        plugin.profileSnapshot(for: profileId)?.reasoningEffort.requestValue
+    }
+
+    func process(systemPrompt: String, userText: String, model: String?, effort: String?) async throws -> String {
+        try await process(
+            systemPrompt: systemPrompt,
+            userText: userText,
+            model: model,
+            temperatureDirective: .inheritProviderSetting,
+            effort: effort
+        )
+    }
+
+    func process(
+        systemPrompt: String,
+        userText: String,
+        model: String?,
+        temperatureDirective: PluginLLMTemperatureDirective,
+        effort: String?
+    ) async throws -> String {
+        try await plugin.process(
+            systemPrompt: systemPrompt,
+            userText: userText,
+            model: model,
+            temperatureDirective: temperatureDirective,
+            effort: effort,
             profileId: profileId
         )
     }

@@ -80,3 +80,11 @@ public protocol LLMTemperatureControllableProvider: LLMProviderPlugin {
         temperatureDirective: PluginLLMTemperatureDirective
     ) async throws -> String
 }
+
+/// Optional model-aware catalog used by host UIs. Returning `nil` means the
+/// selected backend/model/effort combination does not accept temperature.
+/// Kept separate from `LLMTemperatureControllableProvider` for binary
+/// compatibility with existing external plugins.
+public protocol LLMTemperatureRangeProviding: LLMTemperatureControllableProvider {
+    func supportedTemperatureRange(for model: String?, effort: String?) -> ClosedRange<Double>?
+}
