@@ -1202,15 +1202,33 @@ private struct WorkflowEditorPage: View {
                 }
 
                 if draft.template == .commandMode {
-                    Label(
-                        localizedAppText(
-                            "Commands and command output are sent to this workflow's selected LLM. Mutating commands always ask before running.",
-                            de: "Befehle und Befehlsausgaben werden an das ausgewählte LLM dieses Workflows gesendet. Ändernde Befehle fragen vor der Ausführung immer nach."
-                        ),
-                        systemImage: "exclamationmark.shield"
-                    )
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 10) {
+                        Label(
+                            localizedAppText(
+                                "Commands and command output are sent to this workflow's selected LLM. Mutating commands always ask before running.",
+                                de: "Befehle und Befehlsausgaben werden an das ausgewählte LLM dieses Workflows gesendet. Ändernde Befehle fragen vor der Ausführung immer nach."
+                            ),
+                            systemImage: "exclamationmark.shield"
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                        Button {
+                            CommandModeWindowManager.shared.present()
+                        } label: {
+                            Label(
+                                localizedAppText(
+                                    "Open Command Mode",
+                                    de: "Befehlsmodus öffnen",
+                                    ja: "コマンドモードを開く"
+                                ),
+                                systemImage: "terminal"
+                            )
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(Color(red: 0.76, green: 0.16, blue: 0.24))
+                        .accessibilityIdentifier("command-mode.open-window")
+                    }
                 }
 
                 if draft.template == .translation {
