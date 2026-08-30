@@ -24,7 +24,7 @@ jobs:
 
       - name: Name feature app
         run: |
-          slug="${GITHUB_REF_NAME#feature/}"
+          slug="${GITHUB_REF_NAME##*/}"
           bundle_suffix="$(printf '%s' "$slug" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9')"
           display_slug="$(printf '%s' "$slug" | tr '-' ' ')"
           echo "FEATURE_SLUG=$slug" >> "$GITHUB_ENV"
@@ -69,7 +69,9 @@ jobs:
 
       - name: Package app
         run: |
-          mv build-feature/Build/Products/Debug/TypeWhisper.app "build-feature/Build/Products/Debug/$APP_NAME.app"
+          staging="build-feature/$APP_NAME-artifact"
+          mkdir -p "$staging/BranchBuiltPlugins"
+          mv build-feature/Build/Products/Debug/TypeWhisper.app "$staging/$APP_NAME.app"
           for plugin in \
             OpenAIPlugin GroqPlugin GeminiPlugin XAIPlugin ClaudePlugin \
             CerebrasPlugin FireworksPlugin MistralAIPlugin OpenRouterPlugin \
@@ -77,13 +79,11 @@ jobs:
           do
             ditto \
               "build-feature/Build/Products/Debug/$plugin.bundle" \
-              "build-feature/Build/Products/Debug/$APP_NAME.app/Contents/PlugIns/$plugin.bundle"
+              "$staging/BranchBuiltPlugins/$plugin.bundle"
           done
           printf 'branch=%s\ncommit=%s\n' "$GITHUB_REF_NAME" "$GITHUB_SHA" \
-            > "build-feature/Build/Products/Debug/$APP_NAME.app/Contents/Resources/FeatureBuildSource.txt"
-          ditto -c -k --keepParent \
-            "build-feature/Build/Products/Debug/$APP_NAME.app" \
-            "build-feature/$APP_NAME.zip"
+            > "$staging/$APP_NAME.app/Contents/Resources/FeatureBuildSource.txt"
+          (cd "$staging" && ditto -c -k --sequesterRsrc . "$GITHUB_WORKSPACE/build-feature/$APP_NAME.zip")
 
       - uses: actions/upload-artifact@v7
         with:
