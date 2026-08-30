@@ -477,6 +477,11 @@ final class CommandModeService {
             do {
                 decision = try Self.parseDecision(response)
             } catch CommandModeError.invalidResponse {
+                Self.recordInvalidResponseDiagnostic(
+                    response,
+                    workflow: workflow,
+                    attempt: responseFormatCorrectionCount + 1
+                )
                 guard responseFormatCorrectionCount < 1 else {
                     throw CommandModeError.invalidResponse
                 }
@@ -935,6 +940,10 @@ final class CommandModeService {
         actions(from: try parseDecision(response))
     }
 
+    static func invalidResponseDiagnosticForTesting(_ response: String) -> String {
+        invalidResponseDiagnostic(response)
+    }
+
     private static func actions(from decision: Decision) -> [CommandModeShellAction] {
         if let commands = decision.commands, !commands.isEmpty {
             return commands.map { item in
@@ -962,12 +971,99 @@ final class CommandModeService {
             trimmed = lines.dropFirst().dropLast().joined(separator: "\n")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
         }
-        guard trimmed.hasPrefix("{"), trimmed.hasSuffix("}"),
-              let data = trimmed.data(using: .utf8),
-              let decision = try? JSONDecoder().decode(Decision.self, from: data) else {
+
+        if let decision = decodeDecision(trimmed) {
+            return decision
+        }
+
+        let candidates = jsonObjectCandidates(in: trimmed)
+        guard candidates.count == 1,
+              let decision = decodeDecision(candidates[0]) else {
             throw CommandModeError.invalidResponse
         }
         return decision
+    }
+
+    private static func decodeDecision(_ value: String) -> Decision? {
+        guard let data = value.data(using: .utf8) else { return nil }
+        return try? JSONDecoder().decode(Decision.self, from: data)
+    }
+
+    /// Extracts complete top-level JSON objects without treating braces inside JSON strings as structure.
+    /// Exactly one valid object may be accepted from a provider envelope; multiple objects remain ambiguous.
+    private static func jsonObjectCandidates(in response: String) -> [String] {
+        let characters = Array(response)
+        var candidates: [String] = []
+        var start: Int?
+        var depth = 0
+        var isInsideString = false
+        var isEscaped = false
+
+        for index in characters.indices {
+            let character = characters[index]
+            if depth > 0 {
+                if isEscaped {
+                    isEscaped = false
+                    continue
+                }
+                if character == "\\", isInsideString {
+                    isEscaped = true
+                    continue
+                }
+                if character == "\"" {
+                    isInsideString.toggle()
+                    continue
+                }
+                guard !isInsideString else { continue }
+            }
+
+            if character == "{" {
+                if depth == 0 { start = index }
+                depth += 1
+            } else if character == "}", depth > 0 {
+                depth -= 1
+                if depth == 0, let objectStart = start {
+                    candidates.append(String(characters[objectStart...index]))
+                    start = nil
+                    isInsideString = false
+                    isEscaped = false
+                }
+            }
+        }
+
+        return candidates
+    }
+
+    private static func invalidResponseDiagnostic(_ response: String) -> String {
+        let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
+        let candidates = jsonObjectCandidates(in: trimmed)
+        let reason: String
+        if trimmed.isEmpty {
+            reason = "empty-output"
+        } else if candidates.isEmpty {
+            reason = "no-json-object"
+        } else if candidates.count > 1 {
+            reason = "multiple-json-objects"
+        } else if decodeDecision(candidates[0]) == nil {
+            reason = "invalid-command-schema"
+        } else {
+            reason = "invalid-envelope"
+        }
+        return "reason=\(reason), characters=\(trimmed.count), jsonObjects=\(candidates.count)"
+    }
+
+    private static func recordInvalidResponseDiagnostic(
+        _ response: String,
+        workflow: Workflow,
+        attempt: Int
+    ) {
+        let provider = nonEmpty(workflow.behavior.providerId) ?? "fallback"
+        let model = nonEmpty(workflow.behavior.cloudModel) ?? "provider-default"
+        let message = "Command Mode rejected an LLM response (attempt=\(attempt), provider=\(provider), model=\(model), \(invalidResponseDiagnostic(response))). Response content was not retained."
+        workflowTextProcessingLogger.error("\(message, privacy: .public)")
+        if !AppConstants.isRunningTests {
+            ServiceContainer.shared.errorLogService.addEntry(message: message, category: "command-mode")
+        }
     }
 
     private static func nonEmpty(_ value: String?) -> String? {

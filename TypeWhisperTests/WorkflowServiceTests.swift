@@ -998,10 +998,33 @@ final class WorkflowServiceTests: XCTestCase {
         XCTAssertTrue(CommandModeService.requiresConfirmation("git diff --ext-diff"))
     }
 
-    func testCommandModeStrictParserRejectsProseWrappedJSON() {
-        XCTAssertThrowsError(try CommandModeService.parseDecisionForTesting(
+    func testCommandModeParserAcceptsOneJSONDecisionInsideProviderProse() throws {
+        let decision = try CommandModeService.parseDecisionForTesting(
             "Here is the plan: {\"type\":\"done\",\"message\":\"Finished\"}"
+        )
+        XCTAssertEqual(decision.type, "done")
+        XCTAssertEqual(decision.message, "Finished")
+    }
+
+    func testCommandModeParserRejectsMultipleJSONObjects() {
+        XCTAssertThrowsError(try CommandModeService.parseDecisionForTesting(
+            #"{"type":"done","message":"First"} {"type":"done","message":"Second"}"#
         ))
+    }
+
+    func testCommandModeParserHandlesBracesInsideJSONString() throws {
+        let decision = try CommandModeService.parseDecisionForTesting(
+            #"Provider envelope: {"type":"done","message":"Opened {apple.com} safely."} end"#
+        )
+        XCTAssertEqual(decision.message, "Opened {apple.com} safely.")
+    }
+
+    func testCommandModeInvalidResponseDiagnosticDoesNotRetainProviderContent() {
+        let diagnostic = CommandModeService.invalidResponseDiagnosticForTesting(
+            "sensitive provider prose without JSON"
+        )
+        XCTAssertEqual(diagnostic, "reason=no-json-object, characters=37, jsonObjects=0")
+        XCTAssertFalse(diagnostic.contains("sensitive"))
     }
 
     func testCommandModeValidationRequiresAbsoluteExistingWorkingDirectory() throws {
