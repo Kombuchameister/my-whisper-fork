@@ -86,7 +86,9 @@ class OverlayIndicatorPanel: NSPanel {
 
         let hostingView = OverlayFirstMouseHostingView(rootView: content())
         hostingView.sizingOptions = []
-        contentView = hostingView
+        contentView = FrameDrivenHostingContainer(
+            hostingView: hostingView, frame: NSRect(origin: .zero, size: initialSize)
+        )
     }
 
     override var canBecomeKey: Bool { false }

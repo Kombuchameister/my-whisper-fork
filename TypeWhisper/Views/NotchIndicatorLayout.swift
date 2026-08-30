@@ -8,6 +8,12 @@ enum IndicatorFeedbackPanelLayout {
     static let overlayStatusHeight: CGFloat = 48
     static let screenEdgeInset: CGFloat = 20
 
+    static func feedbackLayoutText(message: String?, context: String?, expanded: Bool) -> String? {
+        guard let message else { return nil }
+        guard expanded, let context, !context.isEmpty else { return message }
+        return context + "\n" + message
+    }
+
     static func feedbackIsLong(_ message: String?) -> Bool {
         guard let message else { return false }
         return message.count > 78 || message.contains("\n")

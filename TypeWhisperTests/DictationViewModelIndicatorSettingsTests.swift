@@ -1342,6 +1342,48 @@ private final class IndicatorFeedbackTestClock {
 
 @MainActor
 final class IndicatorPanelInteractionTests: XCTestCase {
+    func testCollapsedCommandFeedbackDoesNotReserveSpaceForHiddenContext() {
+        let message = "Instagram was opened in Google Chrome."
+        let context = "Request: Open Instagram in Chrome\nStatus: Complete"
+        let collapsed = IndicatorFeedbackPanelLayout.feedbackLayoutText(
+            message: message, context: context, expanded: false
+        )
+        XCTAssertEqual(collapsed, message)
+        let bodyHeight = IndicatorFeedbackPanelLayout.feedbackBodyHeight(message: collapsed, expanded: false)
+        let panel = IndicatorFeedbackPanelLayout.panelSize(
+            for: .notch, isFeedbackInteractive: true, feedbackMessage: collapsed, notchClosedHeight: 32
+        )
+        XCTAssertEqual(panel.height - 32, bodyHeight)
+        XCTAssertEqual(bodyHeight, 52)
+        XCTAssertEqual(IndicatorFeedbackPanelLayout.feedbackLayoutText(
+            message: message, context: context, expanded: true
+        ), context + "\n" + message)
+    }
+
+    func testFrameDrivenHostingDoesNotResizePanelDuringErrorTransitions() async throws {
+        let size = NSSize(width: 660, height: 120)
+        let panel = NSPanel(
+            contentRect: NSRect(origin: .zero, size: size),
+            styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false
+        )
+        panel.isReleasedWhenClosed = false
+        defer { panel.close() }
+        let hosting = NSHostingView(rootView: AnyView(Text("Planning")))
+        hosting.sizingOptions = []
+        panel.contentView = FrameDrivenHostingContainer(hostingView: hosting, frame: NSRect(origin: .zero, size: size))
+        for message in ["", "Planning", "API error: The model qwen/qwen3-32b does not exist or you do not have access to it.", "Ready"] {
+            hosting.rootView = AnyView(Text(message).frame(maxWidth: .infinity, maxHeight: .infinity))
+            panel.contentView?.layoutSubtreeIfNeeded()
+            await Task.yield()
+            XCTAssertEqual(panel.frame.size, size)
+            XCTAssertEqual(hosting.frame.size, size)
+        }
+        let resized = NSSize(width: 540, height: 88)
+        panel.setContentSize(resized)
+        panel.contentView?.layoutSubtreeIfNeeded()
+        XCTAssertEqual(hosting.frame.size, resized)
+    }
+
     func testOnlyVisibleInsertingFeedbackIsInteractive() {
         XCTAssertTrue(IndicatorFeedbackPanelLayout.isInteractive(
             state: .inserting,

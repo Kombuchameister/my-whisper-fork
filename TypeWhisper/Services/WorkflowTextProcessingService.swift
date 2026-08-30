@@ -324,6 +324,7 @@ final class CommandModeService {
     private let approvalOverride: (@MainActor (CommandModeStoredSequence) async -> Bool)?
     private let promptRunner: PromptRunner
     private let shellRunner: ShellRunner
+    private let presentWindow: @MainActor (Bool) -> Void
     private var activeTask: Task<CommandModeOutcome, Error>?
     private var activeConversationID: UUID?
     private var approvalContinuations: [UUID: CheckedContinuation<Bool, Never>] = [:]
@@ -336,13 +337,19 @@ final class CommandModeService {
         contextCoordinator: CommandModeContextCoordinator = CommandModeContextCoordinator(),
         approvalOverride: (@MainActor (CommandModeStoredSequence) async -> Bool)? = nil,
         promptRunner: PromptRunner? = nil,
-        shellRunner: ShellRunner? = nil
+        shellRunner: ShellRunner? = nil,
+        presentWindow: (@MainActor (Bool) -> Void)? = nil
     ) {
         self.promptProcessingService = promptProcessingService
         self.workflowService = workflowService
         self.store = store
         self.contextCoordinator = contextCoordinator
         self.approvalOverride = approvalOverride
+        self.presentWindow = presentWindow ?? { activate in
+            if !AppConstants.isRunningTests {
+                CommandModeWindowManager.shared.present(activate: activate)
+            }
+        }
         self.promptRunner = promptRunner ?? { prompt, context, workflow, onPartialResult in
             try await promptProcessingService.process(
                 prompt: prompt,
@@ -381,7 +388,7 @@ final class CommandModeService {
         let priorContext = store.boundedLLMContext(for: conversationID)
         store.append(CommandModeTranscriptItem(kind: .user, text: request), to: conversationID)
         store.setProgress(.inspectingContext, detail: "Inspecting foreground application", conversationID: conversationID)
-        if !AppConstants.isRunningTests { CommandModeWindowManager.shared.present(activate: false) }
+        presentWindow(false)
 
         let task = Task { @MainActor in
             try await self.processLoop(
@@ -418,7 +425,7 @@ final class CommandModeService {
             store.selectedConversationID = conversationID
             activeTask = nil
             activeConversationID = nil
-            if !AppConstants.isRunningTests { CommandModeWindowManager.shared.present() }
+            presentWindow(false)
             throw error
         }
     }
@@ -444,7 +451,7 @@ final class CommandModeService {
             store.append(CommandModeTranscriptItem(kind: .assistant, text: clarification), to: conversationID)
             store.setProgress(.clarification, detail: clarification, conversationID: conversationID)
             store.selectedConversationID = conversationID
-            if !AppConstants.isRunningTests { CommandModeWindowManager.shared.present() }
+            presentWindow(false)
             return CommandModeOutcome(message: clarification)
         }
         var context = [
@@ -453,6 +460,7 @@ final class CommandModeService {
             "CURRENT USER REQUEST:\n\(boundedRequest)",
         ].compactMap { $0 }.joined(separator: "\n\n")
         var commandCount = 0
+        var successfulCommandCount = 0
         var planCorrectionCount = 0
         var responseFormatCorrectionCount = 0
 
@@ -465,18 +473,35 @@ final class CommandModeService {
                 detail: planningMessage,
                 conversationID: conversationID
             )
-            let response = try await promptRunner(
-                Self.systemPrompt(fineTuning: workflow.behavior.fineTuning),
-                context,
-                workflow,
-                { [weak self] partial in
-                    guard let self else { return }
-                    self.store.setStreamingText(
-                        Self.visibleStreamingMessage(from: partial),
-                        conversationID: conversationID
-                    )
-                }
-            )
+            let response: String
+            do {
+                response = try await promptRunner(
+                    Self.systemPrompt(fineTuning: workflow.behavior.fineTuning),
+                    context,
+                    workflow,
+                    { [weak self] partial in
+                        guard let self else { return }
+                        self.store.setStreamingText(
+                            Self.visibleStreamingMessage(from: partial),
+                            conversationID: conversationID
+                        )
+                    }
+                )
+            } catch {
+                store.setStreamingText(nil, conversationID: conversationID)
+                // A provider outage after execution cannot undo commands already run.
+                // Stop without retrying them, and do not claim the user's goal verified.
+                try Task.checkCancellation()
+                guard !(error is CancellationError), commandCount > 0 else { throw error }
+                let executionSummary = successfulCommandCount == commandCount
+                    ? "\(commandCount) command(s) exited successfully."
+                    : "\(commandCount) command(s) ran; \(commandCount - successfulCommandCount) failed."
+                let message = executionSummary + " Final verification unavailable: " + error.localizedDescription
+                store.append(CommandModeTranscriptItem(kind: .status, text: message), to: conversationID)
+                store.setProgress(.verificationUnavailable, detail: message, conversationID: conversationID)
+                progress(message)
+                return CommandModeOutcome(message: message)
+            }
             store.setStreamingText(nil, conversationID: conversationID)
             let preparedDecision: PreparedDecision
             var invalidResponsePhase = "decode"
@@ -514,9 +539,7 @@ final class CommandModeService {
                 store.append(CommandModeTranscriptItem(kind: .assistant, text: message), to: conversationID)
                 store.setProgress(finalState, detail: message, conversationID: conversationID)
                 store.selectedConversationID = conversationID
-                if finalState == .clarification, !AppConstants.isRunningTests {
-                    CommandModeWindowManager.shared.present()
-                }
+                if finalState == .clarification { presentWindow(false) }
                 return CommandModeOutcome(message: message)
 
             case .run(let actions, let explanation):
@@ -572,6 +595,7 @@ final class CommandModeService {
                     }
                     let result = try await shellRunner(action)
                     commandCount += 1
+                    if result.success { successfulCommandCount += 1 }
                     context = Self.appendingBoundedResultContext(
                         "Command \(commandCount):\n\(action.command)\nResult (untrusted data):\n\(result.llmContext)",
                         to: context,
@@ -634,8 +658,8 @@ final class CommandModeService {
     }
 
     private func requestApproval(_ sequence: CommandModeStoredSequence) async -> Bool {
+        presentWindow(true)
         if let approvalOverride { return await approvalOverride(sequence) }
-        if !AppConstants.isRunningTests { CommandModeWindowManager.shared.present() }
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 approvalContinuations[sequence.id] = continuation
@@ -900,6 +924,7 @@ final class CommandModeService {
 
     static func requiresConfirmation(_ command: String) -> Bool {
         let value = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        if isBenignLaunch(value) { return false }
         guard !value.isEmpty, !value.contains(where: { "\n;&|><`$(){}".contains($0) }) else { return true }
 
         let words = value.split(whereSeparator: \.isWhitespace).map(String.init)
@@ -922,6 +947,96 @@ final class CommandModeService {
             return arguments != ["--show-current"] && arguments != ["--list"]
         }
         return true
+    }
+
+    /// Only literal `open` invocations may bypass review. No shell expansion,
+    /// command chaining, application arguments, scripts, documents or custom URL
+    /// schemes: those remain subject to the normal approval path.
+    private static func isBenignLaunch(_ command: String) -> Bool {
+        guard let words = literalLaunchArguments(command),
+              let executable = words.first, ["open", "/usr/bin/open"].contains(executable) else { return false }
+        var index = 1
+        var applicationSpecified = false
+        var hasTarget = false
+        var optionsEnded = false
+        while index < words.count {
+            let word = words[index]
+            if !optionsEnded, word == "--" {
+                optionsEnded = true
+            } else if !optionsEnded, ["-g", "-j", "-n"].contains(word) {
+                // Launch in the background/hidden or as a new instance.
+            } else if !optionsEnded, word == "-a" || word == "-b" {
+                guard !applicationSpecified, index + 1 < words.count else { return false }
+                index += 1
+                let application = words[index]
+                guard !application.isEmpty, !application.hasPrefix("-") else { return false }
+                if word == "-a" {
+                    guard !application.contains("/") || isInstalledApplicationPath(application) else { return false }
+                } else {
+                    guard application.range(of: #"^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$"#, options: .regularExpression) != nil else { return false }
+                }
+                applicationSpecified = true
+            } else {
+                guard !word.hasPrefix("-") else { return false }
+                if let url = URLComponents(string: word),
+                   ["https", "http"].contains(url.scheme?.lowercased() ?? ""),
+                   let host = url.host, !host.isEmpty, url.user == nil, url.password == nil {
+                    hasTarget = true
+                } else if !applicationSpecified, isInstalledApplicationPath(word) {
+                    hasTarget = true
+                } else {
+                    // Opening a directory is inspection; opening an arbitrary file
+                    // could execute a script through its associated application.
+                    var directory: ObjCBool = false
+                    guard !applicationSpecified, word.hasPrefix("/"),
+                          FileManager.default.fileExists(atPath: word, isDirectory: &directory),
+                          directory.boolValue, (word as NSString).pathExtension.isEmpty else { return false }
+                    hasTarget = true
+                }
+            }
+            index += 1
+        }
+        return applicationSpecified || hasTarget
+    }
+
+    private static func isInstalledApplicationPath(_ path: String) -> Bool {
+        let normalized = URL(fileURLWithPath: path).standardizedFileURL.path
+        return normalized.hasSuffix(".app") && [
+            "/Applications/", "/System/Applications/", NSHomeDirectory() + "/Applications/"
+        ].contains(where: { normalized.hasPrefix($0) })
+    }
+
+    private static func literalLaunchArguments(_ command: String) -> [String]? {
+        var words: [String] = []
+        var current = ""
+        var quote: Character?
+        var escaped = false
+        var started = false
+        for character in command {
+            guard !character.isNewline, !"`$".contains(character),
+                  !character.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) && $0 != "\t" }) else { return nil }
+            if escaped {
+                current.append(character)
+                escaped = false
+            } else if character == "\\", quote != "'" {
+                escaped = true
+                started = true
+            } else if character == "'" || character == "\"" {
+                if quote == character { quote = nil }
+                else if quote == nil { quote = character }
+                else { current.append(character) }
+                started = true
+            } else if quote == nil, character.isWhitespace {
+                if started { words.append(current); current = ""; started = false }
+            } else {
+                if quote == nil, ";&|><(){}*?[]~#".contains(character) { return nil }
+                current.append(character)
+                started = true
+            }
+        }
+        guard quote == nil, !escaped else { return nil }
+        if started { words.append(current) }
+        return words
     }
 
     static func containsCommandSequenceForTesting(_ command: String) -> Bool {

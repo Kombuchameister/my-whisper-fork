@@ -374,7 +374,9 @@ struct IndicatorActionFeedback: View {
         }
         .frame(maxWidth: .infinity)
         .frame(height: IndicatorFeedbackPanelLayout.feedbackBodyHeight(
-            message: expandedContext.map { $0 + "\n" + message } ?? message,
+            message: IndicatorFeedbackPanelLayout.feedbackLayoutText(
+                message: message, context: expandedContext, expanded: expanded
+            ),
             expanded: expanded
         ))
         .accessibilityElement(children: actionTitle == nil && detailsTitle == nil ? .combine : .contain)

@@ -984,7 +984,7 @@ final class WorkflowServiceTests: XCTestCase {
         )
     }
 
-    func testCommandModeConfirmsAnythingBeyondSimpleInspection() {
+    func testCommandModeConfirmsMutationsAndShellComposition() {
         XCTAssertFalse(CommandModeService.requiresConfirmation("ls -la ~/Downloads"))
         XCTAssertFalse(CommandModeService.requiresConfirmation("git status"))
         XCTAssertFalse(CommandModeService.requiresConfirmation("git branch --show-current"))
@@ -996,6 +996,129 @@ final class WorkflowServiceTests: XCTestCase {
         XCTAssertTrue(CommandModeService.requiresConfirmation("git branch --list --delete old-branch"))
         XCTAssertTrue(CommandModeService.requiresConfirmation("git diff --output=/tmp/change.patch"))
         XCTAssertTrue(CommandModeService.requiresConfirmation("git diff --ext-diff"))
+    }
+
+    func testCommandModeAllowsLiteralWebAndApplicationLaunches() {
+        for command in [
+            "open https://apple.com",
+            "open -a 'Google Chrome' 'https://apple.com'",
+            #"/usr/bin/open -a "Google Chrome" "https://example.com/?a=1&b=2""#,
+            "open -a Safari",
+            "open -b com.google.Chrome",
+            "open -g -a 'Google Chrome' https://apple.com",
+            "open '/Applications/Google Chrome.app'",
+            "open /System/Applications/Calculator.app",
+            "open /tmp",
+        ] {
+            XCTAssertFalse(CommandModeService.requiresConfirmation(command), command)
+        }
+    }
+
+    func testCommandModeLaunchApprovalCannotBeBypassedWithArgumentsOrShellSyntax() {
+        for command in [
+            "open -a Terminal /tmp/run.command",
+            "open -a Chrome --args --disable-web-security",
+            "open -a Chrome --env TEST=1",
+            "open -f", "open /tmp/run.command", "open /tmp/new.app",
+            "open 'shortcuts://run-shortcut?name=Delete'",
+            "open 'file:///tmp/run.command'", "open 'javascript:alert(1)'",
+            "open https://apple.com; rm -rf /tmp/example",
+            "open https://apple.com && touch /tmp/example",
+            "open https://apple.com\nrm /tmp/example",
+            #"open -a "$(touch /tmp/example)""#,
+            "open `touch /tmp/example`", "open https://example.com/*",
+            "open -a 'Unclosed", "open -a ''", "open -a", "open",
+            "open /Applications/../tmp/run.app", "/tmp/open https://apple.com",
+        ] {
+            XCTAssertTrue(CommandModeService.requiresConfirmation(command), command)
+        }
+    }
+
+    func testCommandModeVerificationOutagePreservesExecutionResultsWithoutRetryOrFocus() async throws {
+        for commandSucceeded in [true, false] {
+            let directory = try TestSupport.makeTemporaryDirectory(prefix: "CommandModeVerification")
+            defer { TestSupport.remove(directory) }
+            let workflowService = WorkflowService(appSupportDirectory: directory)
+            let workflow = try XCTUnwrap(workflowService.addWorkflow(
+                name: "Command Mode", template: .commandMode, trigger: .manual()
+            ))
+            let store = CommandModeConversationStore(appSupportDirectory: directory)
+            var providerCalls = 0
+            var executions = 0
+            var approvals = 0
+            var presentations: [Bool] = []
+            let service = CommandModeService(
+                promptProcessingService: PromptProcessingService(),
+                workflowService: workflowService,
+                store: store,
+                contextCoordinator: CommandModeContextCoordinator(providers: [], applicationProvider: { nil }),
+                approvalOverride: { _ in approvals += 1; return true },
+                promptRunner: { _, _, _, _ in
+                    providerCalls += 1
+                    if providerCalls == 1 {
+                        return #"{"type":"run","command":"open -a 'Google Chrome' https://apple.com","purpose":"Open Apple in Chrome."}"#
+                    }
+                    throw NSError(domain: "Provider", code: 429, userInfo: [NSLocalizedDescriptionKey: "Rate limit exceeded."])
+                },
+                shellRunner: { action in
+                    executions += 1
+                    return CommandModeShellResult(
+                        success: commandSucceeded, command: action.command, output: "",
+                        error: commandSucceeded ? nil : "Launch failed", exitCode: commandSucceeded ? 0 : 1,
+                        timedOut: false
+                    )
+                },
+                presentWindow: { presentations.append($0) }
+            )
+            let outcome = try await service.process(request: "Open Apple in Chrome", workflow: workflow, progress: { _ in })
+            XCTAssertEqual(providerCalls, 2)
+            XCTAssertEqual(executions, 1)
+            XCTAssertEqual(approvals, 0)
+            XCTAssertEqual(presentations, [false])
+            XCTAssertEqual(store.selectedConversation?.state, .verificationUnavailable)
+            XCTAssertFalse(store.hasActiveConversation)
+            XCTAssertTrue(outcome.message.contains("Final verification unavailable: Rate limit exceeded."))
+            XCTAssertTrue(outcome.message.contains(commandSucceeded ? "exited successfully" : "1 failed"))
+            let sequence = try XCTUnwrap(store.selectedConversation?.items.first(where: { $0.sequence != nil })?.sequence)
+            XCTAssertEqual(sequence.approvalState, .notRequired)
+            XCTAssertEqual(sequence.commands.first?.state, commandSucceeded ? .succeeded : .failed)
+        }
+    }
+
+    func testCommandModePlanningProviderErrorAllowsNextTurnWithoutForegrounding() async throws {
+        let directory = try TestSupport.makeTemporaryDirectory(prefix: "CommandModeProviderError")
+        defer { TestSupport.remove(directory) }
+        let workflowService = WorkflowService(appSupportDirectory: directory)
+        let workflow = try XCTUnwrap(workflowService.addWorkflow(
+            name: "Command Mode", template: .commandMode, trigger: .manual()
+        ))
+        let store = CommandModeConversationStore(appSupportDirectory: directory)
+        var calls = 0
+        var presentations: [Bool] = []
+        let service = CommandModeService(
+            promptProcessingService: PromptProcessingService(), store: store,
+            contextCoordinator: CommandModeContextCoordinator(providers: [], applicationProvider: { nil }),
+            promptRunner: { _, _, _, _ in
+                calls += 1
+                if calls == 1 {
+                    throw NSError(domain: "Provider", code: 404, userInfo: [NSLocalizedDescriptionKey: "The model does not exist."])
+                }
+                return #"{"type":"done","message":"Ready."}"#
+            },
+            presentWindow: { presentations.append($0) }
+        )
+        do {
+            _ = try await service.process(request: "Open Chrome", workflow: workflow, progress: { _ in })
+            XCTFail("Expected provider error")
+        } catch {
+            XCTAssertEqual(error.localizedDescription, "The model does not exist.")
+        }
+        XCTAssertEqual(store.selectedConversation?.state, .failed)
+        XCTAssertFalse(store.hasActiveConversation)
+        let outcome = try await service.process(request: "Try again", workflow: workflow, progress: { _ in })
+        XCTAssertEqual(outcome.message, "Ready.")
+        XCTAssertEqual(store.selectedConversation?.state, .complete)
+        XCTAssertTrue(presentations.allSatisfy { !$0 })
     }
 
     func testCommandModeParserAcceptsOneJSONDecisionInsideProviderProse() throws {
@@ -1339,6 +1462,7 @@ final class WorkflowServiceTests: XCTestCase {
         ]
         var approvals = 0
         var executed: [String] = []
+        var presentations: [Bool] = []
         let service = CommandModeService(
             promptProcessingService: PromptProcessingService(),
             workflowService: workflowService,
@@ -1357,12 +1481,14 @@ final class WorkflowServiceTests: XCTestCase {
                     exitCode: success ? 0 : 1,
                     timedOut: false
                 )
-            }
+            },
+            presentWindow: { presentations.append($0) }
         )
 
         _ = try await service.process(request: "Run the sequence", workflow: workflow, progress: { _ in })
 
         XCTAssertEqual(approvals, 1)
+        XCTAssertEqual(presentations, [false, true])
         XCTAssertEqual(executed, ["mkdir -- '/tmp/one'", "false"])
         let sequence = try XCTUnwrap(store.selectedConversation?.items.first(where: { $0.sequence != nil })?.sequence)
         XCTAssertEqual(sequence.approvalState, .approved)

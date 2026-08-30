@@ -2,6 +2,21 @@ import AppKit
 import SwiftUI
 import Combine
 
+/// Frame-driven windows must not use NSHostingView as their content view. Even with
+/// sizingOptions disabled, SwiftUI can update window size extrema while handling an
+/// error transition, collapsing the panel and re-entering AppKit's constraint pass.
+@MainActor
+final class FrameDrivenHostingContainer: NSView {
+    init(hostingView: NSView, frame: NSRect) {
+        super.init(frame: frame)
+        hostingView.frame = bounds
+        hostingView.autoresizingMask = [.width, .height]
+        addSubview(hostingView)
+    }
+
+    required init?(coder: NSCoder) { return nil }
+}
+
 /// Observable notch geometry passed from the panel to the SwiftUI view.
 @MainActor
 final class NotchGeometry: ObservableObject {
@@ -112,7 +127,9 @@ class NotchIndicatorPanel: NSPanel {
 
         let hostingView = FirstMouseHostingView(rootView: content(notchGeometry))
         hostingView.sizingOptions = []
-        contentView = hostingView
+        contentView = FrameDrivenHostingContainer(
+            hostingView: hostingView, frame: NSRect(origin: .zero, size: initialSize)
+        )
     }
 
     override var canBecomeKey: Bool { false }

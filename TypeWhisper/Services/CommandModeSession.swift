@@ -12,6 +12,7 @@ enum CommandModeProgressState: String, Codable, CaseIterable, Sendable {
     case verifying
     case clarification
     case complete
+    case verificationUnavailable
     case cancelled
     case failed
 
@@ -19,7 +20,7 @@ enum CommandModeProgressState: String, Codable, CaseIterable, Sendable {
         switch self {
         case .inspectingContext, .planning, .waitingForApproval, .executing, .verifying:
             true
-        case .idle, .clarification, .complete, .cancelled, .failed:
+        case .idle, .clarification, .complete, .verificationUnavailable, .cancelled, .failed:
             false
         }
     }
@@ -34,6 +35,7 @@ enum CommandModeProgressState: String, Codable, CaseIterable, Sendable {
         case .verifying: "Verifying result"
         case .clarification: "Needs clarification"
         case .complete: "Complete"
+        case .verificationUnavailable: "Verification unavailable"
         case .cancelled: "Cancelled"
         case .failed: "Failed"
         }
@@ -761,8 +763,9 @@ final class CommandModeWindowManager {
         if activate {
             window?.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
-        } else {
-            window?.orderFront(nil)
+        } else if let window, !window.isVisible, !window.isMiniaturized {
+            // Keep both the foreground app and existing Command Mode window order.
+            window.orderBack(nil)
         }
     }
 
@@ -800,7 +803,9 @@ final class CommandModeWindowManager {
             onCancel: onCancel
         ))
         hostingView.sizingOptions = []
-        window.contentView = hostingView
+        window.contentView = FrameDrivenHostingContainer(
+            hostingView: hostingView, frame: window.contentLayoutRect
+        )
     }
 }
 
@@ -1076,7 +1081,7 @@ private struct CommandModeWindowView: View {
             ForEach(Array(sequence.commands.enumerated()), id: \.element.id) { index, command in
                 VStack(alignment: .leading, spacing: 5) {
                     Text("\(index + 1). \(command.purpose)").font(.subheadline.bold())
-                    Text(command.requiresApproval ? "Approval required" : "Read-only inspection")
+                    Text(command.requiresApproval ? "Approval required" : "No approval required")
                         .font(.caption2.bold())
                         .foregroundStyle(command.requiresApproval ? .orange : .green)
                     Text(command.command)
@@ -1163,6 +1168,7 @@ private struct CommandModeWindowView: View {
     private func progressIcon(_ state: CommandModeProgressState) -> String {
         switch state {
         case .complete: "checkmark.circle.fill"
+        case .verificationUnavailable: "exclamationmark.circle"
         case .failed: "exclamationmark.triangle.fill"
         case .cancelled: "xmark.circle.fill"
         case .clarification: "questionmark.circle.fill"
@@ -1175,6 +1181,7 @@ private struct CommandModeWindowView: View {
     private func progressColor(_ state: CommandModeProgressState) -> Color {
         switch state {
         case .complete: .green
+        case .verificationUnavailable: .orange
         case .failed, .cancelled: .red
         case .clarification, .waitingForApproval: .orange
         default: .secondary
