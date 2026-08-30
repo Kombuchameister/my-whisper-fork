@@ -312,6 +312,11 @@ final class CommandModeService {
         }
     }
 
+    private enum PreparedDecision {
+        case done(message: String)
+        case run(actions: [CommandModeShellAction], explanation: String?)
+    }
+
     private let promptProcessingService: PromptProcessingService
     private let workflowService: WorkflowService?
     private let store: CommandModeConversationStore
@@ -473,14 +478,21 @@ final class CommandModeService {
                 }
             )
             store.setStreamingText(nil, conversationID: conversationID)
-            let decision: Decision
+            let preparedDecision: PreparedDecision
+            var invalidResponsePhase = "decode"
             do {
-                decision = try Self.parseDecision(response)
+                let decision = try Self.parseDecision(response)
+                invalidResponsePhase = "semantic-validation"
+                preparedDecision = try Self.prepareDecision(
+                    decision,
+                    remainingCommandLimit: 8 - commandCount
+                )
             } catch CommandModeError.invalidResponse {
                 Self.recordInvalidResponseDiagnostic(
                     response,
                     workflow: workflow,
-                    attempt: responseFormatCorrectionCount + 1
+                    attempt: responseFormatCorrectionCount + 1,
+                    phase: invalidResponsePhase
                 )
                 guard responseFormatCorrectionCount < 1 else {
                     throw CommandModeError.invalidResponse
@@ -491,16 +503,13 @@ final class CommandModeService {
                 store.setProgress(.planning, detail: correctionMessage, conversationID: conversationID)
                 context += """
 
-                Format correction: the previous response was not a valid Command Mode JSON object. Do not repeat or explain it. Return exactly one JSON object using one of the two schemas from the system instructions. For a conversational reply or clarification, use {"type":"done","message":"<reply>"}.
+                Format correction: the previous response was not a valid Command Mode decision. Do not repeat or explain it. Return exactly one JSON object using one of the two schemas from the system instructions, including every required non-empty field. Use an existing absolute workingDirectory or null. For a conversational reply or clarification, use {"type":"done","message":"<reply>"}.
                 """
                 continue
             }
 
-            switch decision.type {
-            case .done:
-                guard let message = Self.nonEmpty(decision.message) else {
-                    throw CommandModeError.invalidResponse
-                }
+            switch preparedDecision {
+            case .done(let message):
                 let finalState: CommandModeProgressState = Self.looksLikeClarification(message) ? .clarification : .complete
                 store.append(CommandModeTranscriptItem(kind: .assistant, text: message), to: conversationID)
                 store.setProgress(finalState, detail: message, conversationID: conversationID)
@@ -510,15 +519,7 @@ final class CommandModeService {
                 }
                 return CommandModeOutcome(message: message)
 
-            case .run:
-                let actions = try Self.validatedActions(
-                    Self.actions(from: decision),
-                    remainingCommandLimit: 8 - commandCount
-                )
-                guard !actions.isEmpty, commandCount + actions.count <= 8 else {
-                    throw CommandModeError.invalidResponse
-                }
-
+            case .run(let actions, let explanation):
                 if actions.contains(where: { Self.containsCommandSequence($0.command) }) {
                     guard planCorrectionCount < 2 else {
                         throw CommandModeError.invalidResponse
@@ -533,7 +534,7 @@ final class CommandModeService {
 
                 var sequence = Self.storedSequence(
                     actions,
-                    explanation: Self.nonEmpty(decision.explanation)
+                    explanation: explanation
                 )
                 store.append(
                     CommandModeTranscriptItem(kind: .sequence, text: sequence.explanation, sequence: sequence),
@@ -944,6 +945,25 @@ final class CommandModeService {
         invalidResponseDiagnostic(response)
     }
 
+    private static func prepareDecision(
+        _ decision: Decision,
+        remainingCommandLimit: Int
+    ) throws -> PreparedDecision {
+        switch decision.type {
+        case .done:
+            guard let message = nonEmpty(decision.message) else {
+                throw CommandModeError.invalidResponse
+            }
+            return .done(message: message)
+        case .run:
+            let actions = try validatedActions(
+                actions(from: decision),
+                remainingCommandLimit: remainingCommandLimit
+            )
+            return .run(actions: actions, explanation: nonEmpty(decision.explanation))
+        }
+    }
+
     private static func actions(from decision: Decision) -> [CommandModeShellAction] {
         if let commands = decision.commands, !commands.isEmpty {
             return commands.map { item in
@@ -1055,11 +1075,12 @@ final class CommandModeService {
     private static func recordInvalidResponseDiagnostic(
         _ response: String,
         workflow: Workflow,
-        attempt: Int
+        attempt: Int,
+        phase: String
     ) {
         let provider = nonEmpty(workflow.behavior.providerId) ?? "fallback"
         let model = nonEmpty(workflow.behavior.cloudModel) ?? "provider-default"
-        let message = "Command Mode rejected an LLM response (attempt=\(attempt), provider=\(provider), model=\(model), \(invalidResponseDiagnostic(response))). Response content was not retained."
+        let message = "Command Mode rejected an LLM response (attempt=\(attempt), phase=\(phase), provider=\(provider), model=\(model), \(invalidResponseDiagnostic(response))). Response content was not retained."
         workflowTextProcessingLogger.error("\(message, privacy: .public)")
         if !AppConstants.isRunningTests {
             ServiceContainer.shared.errorLogService.addEntry(message: message, category: "command-mode")
