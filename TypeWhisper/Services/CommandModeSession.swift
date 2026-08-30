@@ -838,8 +838,7 @@ private struct CommandModeWindowView: View {
             if let conversation = store.selectedConversation {
                 commandDetail(conversation)
             } else {
-                ContentUnavailableView("No Command Conversation", systemImage: "terminal")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                emptyConversationView
             }
         }
         .background(panelBackground)
@@ -868,6 +867,30 @@ private struct CommandModeWindowView: View {
             Text("A recoverable JSON copy will remain in Command Mode’s local Trash folder.")
         }
         .accessibilityIdentifier("command-mode.window")
+    }
+
+    private var emptyConversationView: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "terminal")
+                .font(.system(size: 30, weight: .medium))
+                .foregroundStyle(.secondary)
+            Text("No Command Conversation")
+                .font(.title2.weight(.semibold))
+            Text("Start here or use the workflow shortcut to begin by voice.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Button {
+                _ = store.newConversation()
+            } label: {
+                Label("New Command", systemImage: "plus")
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(accent)
+            .accessibilityIdentifier("command-mode.new-command")
+        }
+        .multilineTextAlignment(.center)
+        .padding(36)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var conversationSidebar: some View {
