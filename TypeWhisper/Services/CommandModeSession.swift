@@ -803,9 +803,7 @@ final class CommandModeWindowManager {
             onCancel: onCancel
         ))
         hostingView.sizingOptions = []
-        window.contentView = FrameDrivenHostingContainer(
-            hostingView: hostingView, frame: window.contentLayoutRect
-        )
+        window.contentView = hostingView
     }
 }
 
