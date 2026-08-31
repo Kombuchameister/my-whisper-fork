@@ -15,6 +15,10 @@ final class FrameDrivenHostingContainer: NSView {
     }
 
     required init?(coder: NSCoder) { return nil }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        subviews.first?.acceptsFirstMouse(for: event) ?? false
+    }
 }
 
 /// Observable notch geometry passed from the panel to the SwiftUI view.
