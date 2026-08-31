@@ -1414,6 +1414,109 @@ final class WorkflowServiceTests: XCTestCase {
         ]))
     }
 
+    func testCommandModeExpandsQuotedHomePathOperandsButPreservesWrittenText() throws {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let cases = [
+            (#"mkdir -p "~/Desktop/command mode test""#, "mkdir -p \"\(home)/Desktop/command mode test\""),
+            ("touch '~/Desktop/test file.txt'", "touch '\(home)/Desktop/test file.txt'"),
+            (#"echo "command mode works" > "~/Desktop/test.txt""#, "echo \"command mode works\" > \"\(home)/Desktop/test.txt\""),
+            (#"printf '%s' '~/literal text' > "~/Desktop/test.txt""#, "printf '%s' '~/literal text' > \"\(home)/Desktop/test.txt\""),
+            (#"echo "~/literal text""#, #"echo "~/literal text""#),
+            (#"echo '>' '~/literal text'"#, #"echo '>' '~/literal text'"#),
+            (#"echo '|' > "~/Desktop/test.txt""#, "echo '|' > \"\(home)/Desktop/test.txt\""),
+            (#"cat /tmp/input | grep "~/literal pattern""#, #"cat /tmp/input | grep "~/literal pattern""#),
+            (#"cat << "~/literal marker""#, #"cat << "~/literal marker""#),
+        ]
+        for (input, expected) in cases {
+            let action = try XCTUnwrap(CommandModeService.validatedActionsForTesting([
+                CommandModeShellAction(command: input, workingDirectory: nil, purpose: "Test path preparation.")
+            ]).first)
+            XCTAssertEqual(action.command, expected)
+            XCTAssertEqual(CommandModeService.requiresConfirmation(action.command), CommandModeService.requiresConfirmation(input))
+            if input.hasPrefix("printf") {
+                XCTAssertEqual(action.resolvedTargetPaths, [home + "/Desktop/test.txt"])
+            }
+        }
+        XCTAssertEqual(CommandModeService.resolvedTargetPathsForTesting(
+            #"touch "~/Desktop/test.txt""#, workingDirectory: "/tmp"
+        ), ["/tmp/~/Desktop/test.txt"], "Unprepared quoted tilde must not be falsely displayed as an expanded home path")
+        XCTAssertEqual(CommandModeService.resolvedTargetPathsForTesting(
+            "touch ~/Desktop/test.txt", workingDirectory: "/tmp"
+        ), [home + "/Desktop/test.txt"])
+    }
+
+    func testCommandModeReallyCreatesFolderAndFileAtTheApprovedHomePath() async throws {
+        for quote in ["\"", "'"] {
+            let directory = try TestSupport.makeTemporaryDirectory(prefix: "CommandModeRealFilesystem")
+            defer { TestSupport.remove(directory) }
+            let home = FileManager.default.homeDirectoryForCurrentUser
+            let rootName = ".typewhisper-path-test-\(UUID().uuidString)"
+            let root = home.appendingPathComponent(rootName, isDirectory: true)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+            defer { TestSupport.remove(root) }
+            let folderName = "command mode test ü ' \" $"
+            let folder = root.appendingPathComponent(folderName, isDirectory: true)
+            let file = folder.appendingPathComponent("test.txt")
+            func quoted(_ path: String) -> String {
+                if quote == "'" { return "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'" }
+                let escaped = path.reduce(into: "") { result, character in
+                    if "\\\"$`".contains(character) { result.append("\\") }
+                    result.append(character)
+                }
+                return "\"" + escaped + "\""
+            }
+            let relativeFolder = "~/\(rootName)/\(folderName)"
+            let commands = [
+                "mkdir -p \(quoted(relativeFolder))",
+                "touch \(quoted(relativeFolder + "/test.txt"))",
+                "echo \"command mode works\" > \(quoted(relativeFolder + "/test.txt"))",
+            ]
+            let plan = try JSONSerialization.data(withJSONObject: [
+                "type": "run",
+                "commands": commands.enumerated().map { index, command in
+                    ["command": command, "workingDirectory": directory.path, "purpose": "Filesystem step \(index + 1)."]
+                }
+            ])
+            let workflowService = WorkflowService(appSupportDirectory: directory)
+            let workflow = try XCTUnwrap(workflowService.addWorkflow(name: "Command Mode", template: .commandMode, trigger: .manual()))
+            let store = CommandModeConversationStore(appSupportDirectory: directory)
+            var calls = 0
+            var approvals = 0
+            var approvedCommands: [String] = []
+            let service = CommandModeService(
+                promptProcessingService: PromptProcessingService(), store: store,
+                contextCoordinator: CommandModeContextCoordinator(providers: [], applicationProvider: { nil }),
+                approvalOverride: { sequence in
+                    approvals += 1
+                    approvedCommands = sequence.commands.map(\.command)
+                    XCTAssertEqual(approvedCommands, [
+                        "mkdir -p \(quoted(folder.path))",
+                        "touch \(quoted(file.path))",
+                        "echo \"command mode works\" > \(quoted(file.path))",
+                    ])
+                    XCTAssertEqual(sequence.commands.map(\.resolvedTargetPaths), [[folder.path], [file.path], [file.path]])
+                    return true
+                },
+                promptRunner: { _, context, _, _ in
+                    calls += 1
+                    XCTAssertTrue(context.contains(home.path))
+                    return String(decoding: plan, as: UTF8.self)
+                },
+                // Intentionally use the production shell executor, not a mock.
+                presentWindow: { _ in }
+            )
+            let outcome = try await service.process(request: "Create the folder, test.txt, and write command mode works", workflow: workflow, progress: { _ in })
+            XCTAssertEqual(outcome.message, "3 commands exited successfully.")
+            XCTAssertEqual(calls, 1)
+            XCTAssertEqual(approvals, 1)
+            XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), "command mode works\n")
+            XCTAssertFalse(FileManager.default.fileExists(atPath: directory.appendingPathComponent("~").path))
+            let executed = try XCTUnwrap(store.selectedConversation?.items.compactMap(\.sequence).first)
+            XCTAssertEqual(executed.commands.map(\.command), approvedCommands)
+            XCTAssertTrue(executed.commands.allSatisfy { $0.state == .succeeded && $0.result?.exitCode == 0 })
+        }
+    }
+
     func testCommandModeStreamingOnlyExposesAssistantMessageField() {
         XCTAssertNil(CommandModeService.visibleStreamingMessageForTesting(
             #"{"type":"run","commands":[{"command":"rm -rf /tmp/x"}]}"#
