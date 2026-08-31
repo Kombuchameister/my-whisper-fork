@@ -1034,6 +1034,102 @@ final class WorkflowServiceTests: XCTestCase {
         }
     }
 
+
+    func testCommandModeDoesNotClaimAnUnexecutedActionCompleted() async throws {
+        let directory = try TestSupport.makeTemporaryDirectory(prefix: "CommandModeUnexecuted")
+        defer { TestSupport.remove(directory) }
+        let workflows = WorkflowService(appSupportDirectory: directory)
+        var workflow = try XCTUnwrap(workflows.addWorkflow(name: "Command Mode", template: .commandMode, trigger: .manual()))
+        workflow.behavior.fineTuning = "Use the configured browser profile."
+        let store = CommandModeConversationStore(appSupportDirectory: directory)
+        var calls = 0
+        let service = CommandModeService(
+            promptProcessingService: PromptProcessingService(), store: store,
+            contextCoordinator: CommandModeContextCoordinator(providers: [], applicationProvider: { nil }),
+            promptRunner: { prompt, context, _, _ in
+                calls += 1
+                XCTAssertTrue(prompt.contains("Use the configured browser profile."))
+                XCTAssertTrue(context.contains("No commands have run for this request"))
+                return #"{"type":"done","message":"Opened Apple in Chrome."}"#
+            },
+            shellRunner: { _ in XCTFail("No plan was returned"); throw CommandModeError.invalidResponse },
+            presentWindow: { _ in }
+        )
+        let outcome = try await service.process(request: "Open apple.com in Chrome", workflow: workflow, progress: { _ in })
+        XCTAssertEqual(calls, 1)
+        XCTAssertTrue(outcome.message.hasPrefix("No commands executed"))
+        XCTAssertEqual(store.selectedConversation?.state, .idle)
+    }
+
+    func testCommandModeBlocksDuplicateSideEffectsAcrossRoundsAndWithinBatch() async throws {
+        for sameBatch in [false, true] {
+            for succeeded in [false, true] {
+                let directory = try TestSupport.makeTemporaryDirectory(prefix: "CommandModeDuplicate")
+                defer { TestSupport.remove(directory) }
+                let workflows = WorkflowService(appSupportDirectory: directory)
+                let workflow = try XCTUnwrap(workflows.addWorkflow(name: "Command Mode", template: .commandMode, trigger: .manual()))
+                let store = CommandModeConversationStore(appSupportDirectory: directory)
+                var calls = 0
+                var executions = 0
+                let service = CommandModeService(
+                    promptProcessingService: PromptProcessingService(), store: store,
+                    contextCoordinator: CommandModeContextCoordinator(providers: [], applicationProvider: { nil }),
+                    promptRunner: { _, _, _, _ in
+                        calls += 1
+                        // The missing follow-up hint triggered the real six-tab loop.
+                        let first = #"{"command":"open -a 'Google Chrome' 'https://www.facebook.com'","purpose":"Open Facebook"}"#
+                        let duplicate = #"{"command":"/usr/bin/open   -a \"Google Chrome\" https://www.facebook.com","purpose":"Open Facebook again"}"#
+                        return "{\"type\":\"run\",\"commands\":[\(sameBatch ? first + "," + duplicate : (calls == 1 ? first : duplicate))]}"
+                    },
+                    shellRunner: { action in
+                        executions += 1
+                        return CommandModeShellResult(success: succeeded, command: action.command, output: "", error: succeeded ? nil : "Uncertain outcome",
+                            exitCode: succeeded ? 0 : 1, timedOut: !succeeded)
+                    }, presentWindow: { _ in }
+                )
+                let outcome = try await service.process(request: "Open Facebook in Chrome and inspect the title", workflow: workflow, progress: { _ in })
+                XCTAssertEqual(executions, 1)
+                XCTAssertEqual(calls, sameBatch && succeeded ? 1 : 2)
+                XCTAssertTrue(outcome.message.contains("Stopped a repeated command"))
+                XCTAssertEqual(store.selectedConversation?.state, .verificationUnavailable)
+                XCTAssertTrue(store.selectedConversation?.items.compactMap(\.sequence).last?.commands.contains { $0.state == .skipped } ?? false)
+                if succeeded && !sameBatch {
+                    _ = try await service.process(request: "Open Facebook again", workflow: workflow, progress: { _ in })
+                    XCTAssertEqual(executions, 2, "A new user turn may explicitly repeat the action")
+                }
+            }
+        }
+    }
+
+    func testCommandModeDuplicateGuardDoesNotBlockReadOnlyVerification() async throws {
+        let directory = try TestSupport.makeTemporaryDirectory(prefix: "CommandModeReadOnlyRepeat")
+        defer { TestSupport.remove(directory) }
+        let workflows = WorkflowService(appSupportDirectory: directory)
+        let workflow = try XCTUnwrap(workflows.addWorkflow(name: "Command Mode", template: .commandMode, trigger: .manual()))
+        var replies = [
+            #"{"type":"run","command":"ls /tmp","purpose":"Inspect folder"}"#,
+            #"{"type":"run","command":"mkdir /tmp/example","purpose":"Create folder"}"#,
+            #"{"type":"run","command":"ls /tmp","purpose":"Verify folder"}"#,
+            #"{"type":"done","message":"Created and checked the folder."}"#,
+        ]
+        var executions = 0
+        var approvals = 0
+        let service = CommandModeService(
+            promptProcessingService: PromptProcessingService(), store: CommandModeConversationStore(appSupportDirectory: directory),
+            contextCoordinator: CommandModeContextCoordinator(providers: [], applicationProvider: { nil }),
+            approvalOverride: { _ in approvals += 1; return true },
+            promptRunner: { _, _, _, _ in replies.removeFirst() },
+            shellRunner: { action in
+                executions += 1
+                return CommandModeShellResult(success: true, command: action.command, output: "", error: nil, exitCode: 0, timedOut: false)
+            }, presentWindow: { _ in }
+        )
+        let outcome = try await service.process(request: "Create and check the folder", workflow: workflow, progress: { _ in })
+        XCTAssertEqual(outcome.message, "Created and checked the folder.")
+        XCTAssertEqual(executions, 3)
+        XCTAssertEqual(approvals, 1)
+    }
+
     func testCommandModeCompletesSelfContainedLaunchesWithOneProviderCall() async throws {
         for commands in [
             #"[{"command":"open -a 'Google Chrome' https://apple.com","purpose":"Open Apple in Chrome."}]"#,
@@ -1208,8 +1304,8 @@ final class WorkflowServiceTests: XCTestCase {
         XCTAssertEqual(store.selectedConversation?.state, .failed)
         XCTAssertFalse(store.hasActiveConversation)
         let outcome = try await service.process(request: "Try again", workflow: workflow, progress: { _ in })
-        XCTAssertEqual(outcome.message, "Ready.")
-        XCTAssertEqual(store.selectedConversation?.state, .complete)
+        XCTAssertEqual(outcome.message, "No commands executed. Planner reply: Ready.")
+        XCTAssertEqual(store.selectedConversation?.state, .idle)
         XCTAssertTrue(presentations.allSatisfy { !$0 })
     }
 
@@ -1668,7 +1764,7 @@ final class WorkflowServiceTests: XCTestCase {
             progress: { _ in }
         )
 
-        XCTAssertEqual(outcome.message, "Ready.")
+        XCTAssertEqual(outcome.message, "No commands executed. Planner reply: Ready.")
         XCTAssertEqual(receivedContexts.count, 2)
         XCTAssertTrue(receivedContexts[1].contains("Format correction:"))
         XCTAssertTrue(executedCommands.isEmpty)
@@ -1716,7 +1812,7 @@ final class WorkflowServiceTests: XCTestCase {
             progress: { _ in }
         )
 
-        XCTAssertEqual(outcome.message, "Ready.")
+        XCTAssertEqual(outcome.message, "No commands executed. Planner reply: Ready.")
         XCTAssertEqual(receivedContexts.count, 2)
         XCTAssertTrue(receivedContexts[1].contains("including every required non-empty field"))
     }
