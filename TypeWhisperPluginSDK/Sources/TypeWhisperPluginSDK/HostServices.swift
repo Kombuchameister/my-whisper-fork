@@ -1116,6 +1116,18 @@ public enum PluginChatError: LocalizedError, Sendable {
     }
 }
 
+/// Per-operation budget, inherited by asynchronous provider calls. No persisted
+/// provider setting or plugin protocol changes are needed, so existing installed
+/// plugins using the shared helper also honour the host's budget.
+public enum PluginLLMRequestBudget {
+    @TaskLocal public static var maxOutputTokens: Int?
+
+    static func capped(_ providerLimit: Int?) -> Int? {
+        guard let limit = maxOutputTokens else { return providerLimit }
+        return min(providerLimit ?? Int.max, max(1, limit))
+    }
+}
+
 public struct PluginOpenAIChatHelper: Sendable {
     public let baseURL: String
     public let chatEndpoint: String
@@ -1274,6 +1286,10 @@ public struct PluginOpenAIChatHelper: Sendable {
             throw PluginChatError.apiError("Failed to parse response")
         }
 
+        if PluginLLMRequestBudget.maxOutputTokens != nil, first["finish_reason"] as? String == "length" {
+            // Do not execute a truncated plan or spend another call repairing it.
+            throw PluginChatError.apiError("The model reached the requested output limit. Try a simpler request.")
+        }
         return content.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
@@ -1427,8 +1443,8 @@ public struct PluginOpenAIChatHelper: Sendable {
             requestBody["temperature"] = temperature
         }
 
-        if let maxOutputTokens {
-            requestBody[maxOutputTokenParameter] = maxOutputTokens
+        if let limit = PluginLLMRequestBudget.capped(maxOutputTokens) {
+            requestBody[maxOutputTokenParameter] = limit
         }
 
         if let reasoningEffort, !reasoningEffort.isEmpty {

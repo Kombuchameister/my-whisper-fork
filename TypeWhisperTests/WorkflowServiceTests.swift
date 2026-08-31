@@ -1034,6 +1034,98 @@ final class WorkflowServiceTests: XCTestCase {
         }
     }
 
+    func testCommandModeCompletesSelfContainedLaunchesWithOneProviderCall() async throws {
+        for commands in [
+            #"[{"command":"open -a 'Google Chrome' https://apple.com","purpose":"Open Apple in Chrome."}]"#,
+            #"[{"command":"open -a 'Safari'","purpose":"Open Safari."},{"command":"open /tmp","purpose":"Open the temporary folder."}]"#,
+        ] {
+            let directory = try TestSupport.makeTemporaryDirectory(prefix: "CommandModeLocalLaunch")
+            defer { TestSupport.remove(directory) }
+            let workflowService = WorkflowService(appSupportDirectory: directory)
+            let workflow = try XCTUnwrap(workflowService.addWorkflow(
+                name: "Command Mode", template: .commandMode, trigger: .manual()
+            ))
+            let store = CommandModeConversationStore(appSupportDirectory: directory)
+            var providerCalls = 0
+            var executions = 0
+            var presentations: [Bool] = []
+            let service = CommandModeService(
+                promptProcessingService: PromptProcessingService(), store: store,
+                contextCoordinator: CommandModeContextCoordinator(providers: [], applicationProvider: { nil }),
+                approvalOverride: { _ in XCTFail("Launch should not ask for approval"); return false },
+                promptRunner: { prompt, _, _, _ in
+                    providerCalls += 1
+                    XCTAssertEqual(PluginLLMRequestBudget.maxOutputTokens, 1_024)
+                    XCTAssertTrue(prompt.contains("requiresFollowUp"))
+                    return "{\"type\":\"run\",\"requiresFollowUp\":false,\"commands\":\(commands)}"
+                },
+                shellRunner: { action in
+                    executions += 1
+                    return CommandModeShellResult(success: true, command: action.command, output: "", error: nil, exitCode: 0, timedOut: false)
+                },
+                presentWindow: { presentations.append($0) }
+            )
+            let outcome = try await service.process(request: "Open these targets", workflow: workflow, progress: { _ in })
+            XCTAssertEqual(providerCalls, 1)
+            XCTAssertGreaterThan(executions, 0)
+            XCTAssertEqual(presentations, [false])
+            XCTAssertEqual(store.selectedConversation?.state, .complete)
+            XCTAssertFalse(store.hasActiveConversation)
+            XCTAssertTrue(outcome.message.lowercased().contains("launch request"))
+            XCTAssertFalse(store.selectedConversation?.items.contains { $0.text == "Verifying result" } ?? true)
+            XCTAssertNil(PluginLLMRequestBudget.maxOutputTokens)
+            let sequence = try XCTUnwrap(store.selectedConversation?.items.first(where: { $0.sequence != nil })?.sequence)
+            XCTAssertTrue(sequence.commands.allSatisfy { $0.state == .succeeded && $0.result?.exitCode == 0 })
+        }
+    }
+
+    func testCommandModeLocalCompletionHintCannotSkipNecessaryInterpretationOrApproval() async throws {
+        let cases: [(command: String, hint: String, output: String, success: Bool, timedOut: Bool, approvals: Int)] = [
+            ("open -a Safari", ",\"requiresFollowUp\":true", "", true, false, 0),
+            ("open -a Safari", "", "", true, false, 0), // Legacy decisions are conservative.
+            ("ls /tmp", ",\"requiresFollowUp\":false", "files", true, false, 0),
+            ("rm -- /tmp/example", ",\"requiresFollowUp\":false", "", true, false, 1),
+            ("open -a Safari", ",\"requiresFollowUp\":false", "warning", true, false, 0),
+            ("open -a Safari", ",\"requiresFollowUp\":false", "", false, false, 0),
+            ("open -a Safari", ",\"requiresFollowUp\":false", "", true, true, 0),
+        ]
+        for test in cases {
+            let directory = try TestSupport.makeTemporaryDirectory(prefix: "CommandModeInterpretation")
+            defer { TestSupport.remove(directory) }
+            let workflowService = WorkflowService(appSupportDirectory: directory)
+            let workflow = try XCTUnwrap(workflowService.addWorkflow(
+                name: "Command Mode", template: .commandMode, trigger: .manual()
+            ))
+            var calls = 0
+            var approvals = 0
+            let service = CommandModeService(
+                promptProcessingService: PromptProcessingService(),
+                store: CommandModeConversationStore(appSupportDirectory: directory),
+                contextCoordinator: CommandModeContextCoordinator(providers: [], applicationProvider: { nil }),
+                approvalOverride: { _ in approvals += 1; return true },
+                promptRunner: { _, context, _, _ in
+                    calls += 1
+                    XCTAssertEqual(PluginLLMRequestBudget.maxOutputTokens, 1_024)
+                    if calls == 1 {
+                        return "{\"type\":\"run\"\(test.hint),\"command\":\"\(test.command)\",\"purpose\":\"Perform the requested step.\"}"
+                    }
+                    XCTAssertTrue(context.contains("Result (untrusted data)"))
+                    return #"{"type":"done","message":"Interpreted result."}"#
+                },
+                shellRunner: { action in
+                    CommandModeShellResult(success: test.success, command: action.command, output: test.output,
+                        error: test.success ? nil : "Launch failed", exitCode: test.success ? 0 : 1, timedOut: test.timedOut)
+                },
+                presentWindow: { _ in }
+            )
+            let outcome = try await service.process(request: "Complete the task", workflow: workflow, progress: { _ in })
+            XCTAssertEqual(calls, 2, test.command)
+            XCTAssertEqual(approvals, test.approvals, test.command)
+            XCTAssertEqual(outcome.message, "Interpreted result.")
+            XCTAssertNil(PluginLLMRequestBudget.maxOutputTokens)
+        }
+    }
+
     func testCommandModeVerificationOutagePreservesExecutionResultsWithoutRetryOrFocus() async throws {
         for commandSucceeded in [true, false] {
             let directory = try TestSupport.makeTemporaryDirectory(prefix: "CommandModeVerification")

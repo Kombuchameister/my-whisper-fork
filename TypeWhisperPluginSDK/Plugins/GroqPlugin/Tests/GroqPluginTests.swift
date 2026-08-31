@@ -5,6 +5,56 @@ import TypeWhisperPluginSDK
 @testable import GroqPlugin
 
 final class GroqPluginTests: XCTestCase {
+    func testCommandBudgetReachesGroqWithoutChangingOrdinaryWorkflowRequests() async throws {
+        let host = try PluginTestHostServices(secrets: ["api-key": "test-key"])
+        let plugin = GroqPlugin()
+        plugin.activate(host: host)
+        let store = PluginHTTPClientSessionStore()
+        PluginHTTPClientTestHarness.configure { _ in
+            store.makeSession(outcomes: (0..<2).map { _ in
+                .success(Data(#"{"choices":[{"message":{"content":"Ready"},"finish_reason":"stop"}]}"#.utf8),
+                    Self.httpResponse(url: "https://api.groq.com/openai/v1/chat/completions", statusCode: 200))
+            })
+        }
+        _ = try await PluginLLMRequestBudget.$maxOutputTokens.withValue(1_024) {
+            try await plugin.process(systemPrompt: "Plan", userText: "Open Safari", model: "openai/gpt-oss-20b")
+        }
+        _ = try await plugin.process(systemPrompt: "Cleanup", userText: "hello", model: "openai/gpt-oss-20b")
+        let requests = store.sessions.flatMap(\.requestedRequests)
+        XCTAssertEqual(requests.count, 2)
+        let bodies = try requests.map { try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap($0.httpBody)) as? [String: Any]) }
+        XCTAssertEqual(bodies[0]["max_tokens"] as? Int, 1_024)
+        XCTAssertEqual(bodies[1]["max_tokens"] as? Int, 4_096)
+        XCTAssertEqual(bodies[0]["reasoning_effort"] as? String, "medium")
+        XCTAssertNil(PluginLLMRequestBudget.maxOutputTokens)
+    }
+
+    func testBudgetedGroqErrorsAndTruncationDoNotRetry() async throws {
+        for status in [200, 429] {
+            PluginHTTPClientTestHarness.reset()
+            let host = try PluginTestHostServices(secrets: ["api-key": "test-key"])
+            let plugin = GroqPlugin()
+            plugin.activate(host: host)
+            let store = PluginHTTPClientSessionStore()
+            PluginHTTPClientTestHarness.configure { _ in
+                store.makeSession(outcomes: [.success(
+                    Data(#"{"choices":[{"message":{"content":"partial plan"},"finish_reason":"length"}]}"#.utf8),
+                    Self.httpResponse(url: "https://api.groq.com/openai/v1/chat/completions", statusCode: status)
+                )])
+            }
+            do {
+                _ = try await PluginLLMRequestBudget.$maxOutputTokens.withValue(1_024) {
+                    try await plugin.process(systemPrompt: "Plan", userText: "Open Safari", model: "openai/gpt-oss-20b")
+                }
+                XCTFail("Expected an error")
+            } catch {
+                XCTAssertTrue(error.localizedDescription.contains(status == 429 ? "Rate limit" : "output limit"))
+            }
+            XCTAssertEqual(store.sessions.flatMap(\.requestedRequests).count, 1)
+            XCTAssertNil(PluginLLMRequestBudget.maxOutputTokens)
+        }
+    }
+
     override func tearDown() {
         PluginHTTPClientTestHarness.reset()
         super.tearDown()
