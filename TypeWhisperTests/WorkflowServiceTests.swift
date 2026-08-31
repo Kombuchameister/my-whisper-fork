@@ -1039,7 +1039,7 @@ final class WorkflowServiceTests: XCTestCase {
         let directory = try TestSupport.makeTemporaryDirectory(prefix: "CommandModeUnexecuted")
         defer { TestSupport.remove(directory) }
         let workflows = WorkflowService(appSupportDirectory: directory)
-        var workflow = try XCTUnwrap(workflows.addWorkflow(name: "Command Mode", template: .commandMode, trigger: .manual()))
+        let workflow = try XCTUnwrap(workflows.addWorkflow(name: "Command Mode", template: .commandMode, trigger: .manual()))
         workflow.behavior.fineTuning = "Use the configured browser profile."
         let store = CommandModeConversationStore(appSupportDirectory: directory)
         var calls = 0
