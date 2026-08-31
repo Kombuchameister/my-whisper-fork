@@ -1061,7 +1061,7 @@ final class WorkflowServiceTests: XCTestCase {
         XCTAssertEqual(store.selectedConversation?.state, .idle)
     }
 
-    func testCommandModeBlocksDuplicateSideEffectsAcrossRoundsAndWithinBatch() async throws {
+    func testCommandModeDoesNotRequestAnotherPlanAndBlocksDuplicatesWithinBatch() async throws {
         for sameBatch in [false, true] {
             for succeeded in [false, true] {
                 let directory = try TestSupport.makeTemporaryDirectory(prefix: "CommandModeDuplicate")
@@ -1076,7 +1076,7 @@ final class WorkflowServiceTests: XCTestCase {
                     contextCoordinator: CommandModeContextCoordinator(providers: [], applicationProvider: { nil }),
                     promptRunner: { _, _, _, _ in
                         calls += 1
-                        // The missing follow-up hint triggered the real six-tab loop.
+                        // A model that always proposes the same launch must only be called once.
                         let first = #"{"command":"open -a 'Google Chrome' 'https://www.facebook.com'","purpose":"Open Facebook"}"#
                         let duplicate = #"{"command":"/usr/bin/open   -a \"Google Chrome\" https://www.facebook.com","purpose":"Open Facebook again"}"#
                         return "{\"type\":\"run\",\"commands\":[\(sameBatch ? first + "," + duplicate : (calls == 1 ? first : duplicate))]}"
@@ -1089,28 +1089,28 @@ final class WorkflowServiceTests: XCTestCase {
                 )
                 let outcome = try await service.process(request: "Open Facebook in Chrome and inspect the title", workflow: workflow, progress: { _ in })
                 XCTAssertEqual(executions, 1)
-                XCTAssertEqual(calls, sameBatch && succeeded ? 1 : 2)
-                XCTAssertTrue(outcome.message.contains("Stopped a repeated command"))
-                XCTAssertEqual(store.selectedConversation?.state, .verificationUnavailable)
-                XCTAssertTrue(store.selectedConversation?.items.compactMap(\.sequence).last?.commands.contains { $0.state == .skipped } ?? false)
+                XCTAssertEqual(calls, 1)
+                XCTAssertEqual(store.selectedConversation?.state, succeeded && !sameBatch ? .complete : .failed)
+                if sameBatch {
+                    XCTAssertTrue(store.selectedConversation?.items.compactMap(\.sequence).last?.commands.contains { $0.state == .skipped } ?? false)
+                    if succeeded { XCTAssertTrue(outcome.message.contains("Stopped a repeated command")) }
+                }
                 if succeeded && !sameBatch {
                     _ = try await service.process(request: "Open Facebook again", workflow: workflow, progress: { _ in })
                     XCTAssertEqual(executions, 2, "A new user turn may explicitly repeat the action")
+                    XCTAssertEqual(calls, 2)
                 }
             }
         }
     }
 
-    func testCommandModeDuplicateGuardDoesNotBlockReadOnlyVerification() async throws {
+    func testCommandModeExecutesOneBatchWithRepeatedReadOnlyCommands() async throws {
         let directory = try TestSupport.makeTemporaryDirectory(prefix: "CommandModeReadOnlyRepeat")
         defer { TestSupport.remove(directory) }
         let workflows = WorkflowService(appSupportDirectory: directory)
         let workflow = try XCTUnwrap(workflows.addWorkflow(name: "Command Mode", template: .commandMode, trigger: .manual()))
         var replies = [
-            #"{"type":"run","command":"ls /tmp","purpose":"Inspect folder"}"#,
-            #"{"type":"run","command":"mkdir /tmp/example","purpose":"Create folder"}"#,
-            #"{"type":"run","command":"ls /tmp","purpose":"Verify folder"}"#,
-            #"{"type":"done","message":"Created and checked the folder."}"#,
+            #"{"type":"run","commands":[{"command":"ls /tmp","purpose":"Inspect folder"},{"command":"mkdir /tmp/example","purpose":"Create folder"},{"command":"ls /tmp","purpose":"Inspect folder again"}]}"#,
         ]
         var executions = 0
         var approvals = 0
@@ -1125,7 +1125,8 @@ final class WorkflowServiceTests: XCTestCase {
             }, presentWindow: { _ in }
         )
         let outcome = try await service.process(request: "Create and check the folder", workflow: workflow, progress: { _ in })
-        XCTAssertEqual(outcome.message, "Created and checked the folder.")
+        XCTAssertEqual(outcome.message, "3 commands exited successfully.")
+        XCTAssertTrue(replies.isEmpty)
         XCTAssertEqual(executions, 3)
         XCTAssertEqual(approvals, 1)
     }
@@ -1152,8 +1153,12 @@ final class WorkflowServiceTests: XCTestCase {
                 promptRunner: { prompt, _, _, _ in
                     providerCalls += 1
                     XCTAssertEqual(PluginLLMRequestBudget.maxOutputTokens, 1_024)
-                    XCTAssertTrue(prompt.contains("requiresFollowUp"))
-                    return "{\"type\":\"run\",\"requiresFollowUp\":false,\"commands\":\(commands)}"
+                    XCTAssertFalse(prompt.contains("requiresFollowUp"))
+                    XCTAssertTrue(prompt.contains("For an action request, return type run"))
+                    XCTAssertTrue(prompt.contains("Do not add verification steps"))
+                    XCTAssertTrue(prompt.contains("You only plan; TypeWhisper executes"))
+                    XCTAssertFalse(prompt.contains("or, when complete"))
+                    return "{\"type\":\"run\",\"commands\":\(commands)}"
                 },
                 shellRunner: { action in
                     executions += 1
@@ -1167,7 +1172,7 @@ final class WorkflowServiceTests: XCTestCase {
             XCTAssertEqual(presentations, [false])
             XCTAssertEqual(store.selectedConversation?.state, .complete)
             XCTAssertFalse(store.hasActiveConversation)
-            XCTAssertTrue(outcome.message.lowercased().contains("launch request"))
+            XCTAssertTrue(outcome.message.contains("exited successfully"))
             XCTAssertFalse(store.selectedConversation?.items.contains { $0.text == "Verifying result" } ?? true)
             XCTAssertNil(PluginLLMRequestBudget.maxOutputTokens)
             let sequence = try XCTUnwrap(store.selectedConversation?.items.first(where: { $0.sequence != nil })?.sequence)
@@ -1175,10 +1180,10 @@ final class WorkflowServiceTests: XCTestCase {
         }
     }
 
-    func testCommandModeLocalCompletionHintCannotSkipNecessaryInterpretationOrApproval() async throws {
+    func testCommandModeAlwaysFinishesLocallyWithoutBypassingApproval() async throws {
         let cases: [(command: String, hint: String, output: String, success: Bool, timedOut: Bool, approvals: Int)] = [
             ("open -a Safari", ",\"requiresFollowUp\":true", "", true, false, 0),
-            ("open -a Safari", "", "", true, false, 0), // Legacy decisions are conservative.
+            ("open -a Safari", "", "", true, false, 0),
             ("ls /tmp", ",\"requiresFollowUp\":false", "files", true, false, 0),
             ("rm -- /tmp/example", ",\"requiresFollowUp\":false", "", true, false, 1),
             ("open -a Safari", ",\"requiresFollowUp\":false", "warning", true, false, 0),
@@ -1192,20 +1197,21 @@ final class WorkflowServiceTests: XCTestCase {
             let workflow = try XCTUnwrap(workflowService.addWorkflow(
                 name: "Command Mode", template: .commandMode, trigger: .manual()
             ))
+            let store = CommandModeConversationStore(appSupportDirectory: directory)
             var calls = 0
             var approvals = 0
             let service = CommandModeService(
                 promptProcessingService: PromptProcessingService(),
-                store: CommandModeConversationStore(appSupportDirectory: directory),
+                store: store,
                 contextCoordinator: CommandModeContextCoordinator(providers: [], applicationProvider: { nil }),
                 approvalOverride: { _ in approvals += 1; return true },
-                promptRunner: { _, context, _, _ in
+                promptRunner: { _, _, _, _ in
                     calls += 1
                     XCTAssertEqual(PluginLLMRequestBudget.maxOutputTokens, 1_024)
                     if calls == 1 {
                         return "{\"type\":\"run\"\(test.hint),\"command\":\"\(test.command)\",\"purpose\":\"Perform the requested step.\"}"
                     }
-                    XCTAssertTrue(context.contains("Result (untrusted data)"))
+                    XCTFail("No interpretation or verification call is allowed")
                     return #"{"type":"done","message":"Interpreted result."}"#
                 },
                 shellRunner: { action in
@@ -1215,14 +1221,19 @@ final class WorkflowServiceTests: XCTestCase {
                 presentWindow: { _ in }
             )
             let outcome = try await service.process(request: "Complete the task", workflow: workflow, progress: { _ in })
-            XCTAssertEqual(calls, 2, test.command)
+            XCTAssertEqual(calls, 1, test.command)
             XCTAssertEqual(approvals, test.approvals, test.command)
-            XCTAssertEqual(outcome.message, "Interpreted result.")
+            let succeeded = test.success && !test.timedOut
+            XCTAssertEqual(store.selectedConversation?.state, succeeded ? .complete : .failed)
+            XCTAssertTrue(outcome.message.contains(succeeded ? "exited successfully" : test.timedOut ? "timed out" : "failed"))
+            let result = try XCTUnwrap(store.selectedConversation?.items.compactMap(\.sequence).first?.commands.first?.result)
+            XCTAssertEqual(result.output, test.output)
+            XCTAssertEqual(result.success, succeeded)
             XCTAssertNil(PluginLLMRequestBudget.maxOutputTokens)
         }
     }
 
-    func testCommandModeVerificationOutagePreservesExecutionResultsWithoutRetryOrFocus() async throws {
+    func testCommandModeNeverMakesVerificationCallEvenWhenExecutionFails() async throws {
         for commandSucceeded in [true, false] {
             let directory = try TestSupport.makeTemporaryDirectory(prefix: "CommandModeVerification")
             defer { TestSupport.remove(directory) }
@@ -1259,14 +1270,14 @@ final class WorkflowServiceTests: XCTestCase {
                 presentWindow: { presentations.append($0) }
             )
             let outcome = try await service.process(request: "Open Apple in Chrome", workflow: workflow, progress: { _ in })
-            XCTAssertEqual(providerCalls, 2)
+            XCTAssertEqual(providerCalls, 1)
             XCTAssertEqual(executions, 1)
             XCTAssertEqual(approvals, 0)
             XCTAssertEqual(presentations, [false])
-            XCTAssertEqual(store.selectedConversation?.state, .verificationUnavailable)
+            XCTAssertEqual(store.selectedConversation?.state, commandSucceeded ? .complete : .failed)
             XCTAssertFalse(store.hasActiveConversation)
-            XCTAssertTrue(outcome.message.contains("Final verification unavailable: Rate limit exceeded."))
-            XCTAssertTrue(outcome.message.contains(commandSucceeded ? "exited successfully" : "1 failed"))
+            XCTAssertFalse(outcome.message.contains("Rate limit"))
+            XCTAssertTrue(outcome.message.contains(commandSucceeded ? "exited successfully" : "failed"))
             let sequence = try XCTUnwrap(store.selectedConversation?.items.first(where: { $0.sequence != nil })?.sequence)
             XCTAssertEqual(sequence.approvalState, .notRequired)
             XCTAssertEqual(sequence.commands.first?.state, commandSucceeded ? .succeeded : .failed)
@@ -1683,7 +1694,65 @@ final class WorkflowServiceTests: XCTestCase {
         XCTAssertEqual(sequence.commands.map(\.state), [.succeeded, .failed, .skipped])
     }
 
-    func testCommandModeExecuteDependentLaterBatchRequiresAnotherApproval() async throws {
+    func testCommandModeDeniedDestructivePlanDoesNotExecuteOrRetry() async throws {
+        let directory = try TestSupport.makeTemporaryDirectory(prefix: "CommandModeDenied")
+        defer { TestSupport.remove(directory) }
+        let workflows = WorkflowService(appSupportDirectory: directory)
+        let workflow = try XCTUnwrap(workflows.addWorkflow(name: "Command Mode", template: .commandMode, trigger: .manual()))
+        let store = CommandModeConversationStore(appSupportDirectory: directory)
+        var calls = 0
+        var approvals = 0
+        var presentations: [Bool] = []
+        let service = CommandModeService(
+            promptProcessingService: PromptProcessingService(), store: store,
+            contextCoordinator: CommandModeContextCoordinator(providers: [], applicationProvider: { nil }),
+            approvalOverride: { sequence in
+                approvals += 1
+                XCTAssertEqual(sequence.commands.first?.command, "rm -- /tmp/example")
+                return false
+            },
+            promptRunner: { _, _, _, _ in
+                calls += 1
+                return #"{"type":"run","command":"rm -- /tmp/example","purpose":"Delete the example file."}"#
+            },
+            shellRunner: { _ in XCTFail("Denied commands must not execute"); throw CommandModeError.invalidResponse },
+            presentWindow: { presentations.append($0) }
+        )
+        _ = try await service.process(request: "Delete the example file", workflow: workflow, progress: { _ in })
+        XCTAssertEqual(calls, 1)
+        XCTAssertEqual(approvals, 1)
+        XCTAssertEqual(presentations, [false, true])
+        XCTAssertEqual(store.selectedConversation?.state, .cancelled)
+        XCTAssertEqual(store.selectedConversation?.items.compactMap(\.sequence).first?.approvalState, .denied)
+    }
+
+    func testCommandModeRejectsCombinedOperationsWithoutExecutingOrRetrying() async throws {
+        let directory = try TestSupport.makeTemporaryDirectory(prefix: "CommandModeCombined")
+        defer { TestSupport.remove(directory) }
+        let workflows = WorkflowService(appSupportDirectory: directory)
+        let workflow = try XCTUnwrap(workflows.addWorkflow(name: "Command Mode", template: .commandMode, trigger: .manual()))
+        var calls = 0
+        let service = CommandModeService(
+            promptProcessingService: PromptProcessingService(), store: CommandModeConversationStore(appSupportDirectory: directory),
+            contextCoordinator: CommandModeContextCoordinator(providers: [], applicationProvider: { nil }),
+            approvalOverride: { _ in XCTFail("Invalid plan must be rejected before approval"); return true },
+            promptRunner: { _, _, _, _ in
+                calls += 1
+                return #"{"type":"run","command":"open https://apple.com; rm -- /tmp/example","purpose":"Open a website and delete a file."}"#
+            },
+            shellRunner: { _ in XCTFail("Invalid plan must not execute"); throw CommandModeError.invalidResponse },
+            presentWindow: { _ in }
+        )
+        do {
+            _ = try await service.process(request: "Open Apple", workflow: workflow, progress: { _ in })
+            XCTFail("Expected an invalid response error")
+        } catch {
+            XCTAssertEqual(error as? CommandModeError, .invalidResponse)
+        }
+        XCTAssertEqual(calls, 1)
+    }
+
+    func testCommandModeAnotherBatchRequiresANewUserTurnAndApproval() async throws {
         let directory = try TestSupport.makeTemporaryDirectory(prefix: "CommandModeLaterBatch")
         defer { TestSupport.remove(directory) }
         let workflowService = WorkflowService(appSupportDirectory: directory)
@@ -1718,10 +1787,14 @@ final class WorkflowServiceTests: XCTestCase {
         )
 
         _ = try await service.process(request: "Run dependent batches", workflow: workflow, progress: { _ in })
+        XCTAssertEqual(approvals, 1)
+        XCTAssertEqual(responses.count, 2)
+        _ = try await service.process(request: "Now create the second folder", workflow: workflow, progress: { _ in })
         XCTAssertEqual(approvals, 2)
+        XCTAssertEqual(responses.count, 1)
     }
 
-    func testCommandModeRetriesOneInvalidProviderEnvelopeWithoutExecutingIt() async throws {
+    func testCommandModeRejectsInvalidProviderEnvelopeWithoutRetryOrExecution() async throws {
         let directory = try TestSupport.makeTemporaryDirectory(prefix: "CommandModeFormatRetry")
         defer { TestSupport.remove(directory) }
         let workflowService = WorkflowService(appSupportDirectory: directory)
@@ -1758,19 +1831,21 @@ final class WorkflowServiceTests: XCTestCase {
             }
         )
 
-        let outcome = try await service.process(
-            request: "Reply with the word ready. Do not run a command.",
-            workflow: workflow,
-            progress: { _ in }
-        )
-
-        XCTAssertEqual(outcome.message, "No commands executed. Planner reply: Ready.")
-        XCTAssertEqual(receivedContexts.count, 2)
-        XCTAssertTrue(receivedContexts[1].contains("Format correction:"))
+        do {
+            _ = try await service.process(
+                request: "Reply with the word ready. Do not run a command.",
+                workflow: workflow, progress: { _ in }
+            )
+            XCTFail("Expected an invalid response error")
+        } catch {
+            XCTAssertEqual(error as? CommandModeError, .invalidResponse)
+        }
+        XCTAssertEqual(receivedContexts.count, 1)
+        XCTAssertEqual(responses.count, 1)
         XCTAssertTrue(executedCommands.isEmpty)
     }
 
-    func testCommandModeRetriesOneDecodedButSemanticallyInvalidDecision() async throws {
+    func testCommandModeRejectsSemanticallyInvalidDecisionWithoutRetry() async throws {
         let directory = try TestSupport.makeTemporaryDirectory(prefix: "CommandModeSemanticRetry")
         defer { TestSupport.remove(directory) }
         let workflowService = WorkflowService(appSupportDirectory: directory)
@@ -1806,15 +1881,17 @@ final class WorkflowServiceTests: XCTestCase {
             }
         )
 
-        let outcome = try await service.process(
-            request: "Reply without running a command.",
-            workflow: workflow,
-            progress: { _ in }
-        )
-
-        XCTAssertEqual(outcome.message, "No commands executed. Planner reply: Ready.")
-        XCTAssertEqual(receivedContexts.count, 2)
-        XCTAssertTrue(receivedContexts[1].contains("including every required non-empty field"))
+        do {
+            _ = try await service.process(
+                request: "Reply without running a command.",
+                workflow: workflow, progress: { _ in }
+            )
+            XCTFail("Expected an invalid response error")
+        } catch {
+            XCTAssertEqual(error as? CommandModeError, .invalidResponse)
+        }
+        XCTAssertEqual(receivedContexts.count, 1)
+        XCTAssertEqual(responses.count, 1)
     }
 
     func testCommandModeDraftResolvesOnlyARecordingHotkeyTrigger() throws {
