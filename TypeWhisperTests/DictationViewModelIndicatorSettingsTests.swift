@@ -881,6 +881,22 @@ final class IndicatorFullscreenSuppressionPolicyTests: XCTestCase {
 }
 
 final class DockIconVisibilityTests: XCTestCase {
+    func testCombinedModeKeepsDockVisibleWithoutWindows() {
+        XCTAssertTrue(DockIconVisibility.shouldShowDockIcon(
+            showMenuBarIcon: true,
+            dockIconBehavior: .alwaysVisible,
+            hasVisibleManagedWindow: false
+        ))
+    }
+
+    func testMenuBarModeShowsDockWhileManagedWindowIsOpen() {
+        XCTAssertTrue(DockIconVisibility.shouldShowDockIcon(
+            showMenuBarIcon: true,
+            dockIconBehavior: .keepVisible,
+            hasVisibleManagedWindow: true
+        ))
+    }
+
     func testDockIconStaysHiddenWhenMenuBarIconIsVisibleAndNoWindowIsOpen() {
         XCTAssertFalse(
             DockIconVisibility.shouldShowDockIcon(
@@ -982,7 +998,7 @@ final class MenuBarGroupingTests: XCTestCase {
     func testMenuBarSectionsContainExpectedItems() {
         XCTAssertEqual(
             MenuBarMenuSection.general.items,
-            [.settings, .history, .errorLog]
+            [.settings, .commandMode, .history, .errorLog]
         )
         XCTAssertEqual(
             MenuBarMenuSection.transcription.items(hasRecoverableRecording: true),

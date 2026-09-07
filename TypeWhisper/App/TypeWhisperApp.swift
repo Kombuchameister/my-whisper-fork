@@ -17,12 +17,14 @@ extension UserDefaults {
 }
 
 extension Notification.Name {
+    static let commandModeWindowVisibilityChanged = Notification.Name("commandModeWindowVisibilityChanged")
     static let openManagedAppWindow = Notification.Name("openManagedAppWindow")
     static let resetSetupWizardWindow = Notification.Name("resetSetupWizardWindow")
 }
 
 enum DockIconBehavior: String, CaseIterable {
     case keepVisible
+    case alwaysVisible
     case onlyWhileWindowOpen
 }
 
@@ -37,6 +39,7 @@ enum DockIconVisibility {
             return true
         }
 
+        if dockIconBehavior == .alwaysVisible { return true }
         guard !showMenuBarIcon else { return false }
         return dockIconBehavior == .keepVisible
     }
@@ -785,7 +788,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUUpdaterDelegate {
             }
         }
 
-        // Observe settings window lifecycle
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(windowWillClose(_:)),
+            name: .commandModeWindowVisibilityChanged,
+            object: nil
+        )
+
+        // Observe managed window lifecycle
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(windowDidBecomeKey(_:)),
@@ -1039,7 +1049,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUUpdaterDelegate {
 
     private func isManagedWindow(_ window: NSWindow) -> Bool {
         if let identifier = window.identifier?.rawValue.lowercased() {
-            if identifier.contains("settings")
+            if identifier == "command-mode.window"
+                || identifier.contains("settings")
                 || identifier.contains("setup")
                 || identifier.contains("history")
                 || identifier.contains("errors") {
@@ -1055,7 +1066,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUUpdaterDelegate {
     }
 
     private var hasVisibleManagedWindow: Bool {
-        NSApp.windows.contains { isManagedWindow($0) && $0.isVisible }
+        NSApp.windows.contains { isManagedWindow($0) && ($0.isVisible || $0.isMiniaturized) }
     }
 
     private func applyActivationPolicy(activate: Bool = false) {

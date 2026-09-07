@@ -13,6 +13,7 @@ struct GeneralSettingsView: View {
     private enum AppVisibilityMode: String, CaseIterable {
         case menuBar
         case dock
+        case dockAndMenuBar
         case dockWhileWindowOpen
     }
 
@@ -57,7 +58,7 @@ struct GeneralSettingsView: View {
     private var appVisibilityMode: AppVisibilityMode {
         get {
             if showMenuBarIcon {
-                return .menuBar
+                return dockIconBehavior == .alwaysVisible ? .dockAndMenuBar : .menuBar
             }
 
             return dockIconBehavior == .keepVisible ? .dock : .dockWhileWindowOpen
@@ -67,6 +68,9 @@ struct GeneralSettingsView: View {
             case .menuBar:
                 showMenuBarIcon = true
                 dockIconBehavior = .keepVisible
+            case .dockAndMenuBar:
+                showMenuBarIcon = true
+                dockIconBehavior = .alwaysVisible
             case .dock:
                 showMenuBarIcon = false
                 dockIconBehavior = .keepVisible
@@ -81,6 +85,8 @@ struct GeneralSettingsView: View {
         switch appVisibilityMode {
         case .menuBar:
             "TypeWhisper stays in the menu bar and hides its Dock icon while no window is open."
+        case .dockAndMenuBar:
+            "TypeWhisper stays accessible via both the Dock and menu bar icons."
         case .dock:
             "TypeWhisper stays accessible via the Dock icon."
         case .dockWhileWindowOpen:
@@ -174,6 +180,7 @@ struct GeneralSettingsView: View {
                 )) {
                     Text(String(localized: "Menu bar icon")).tag(AppVisibilityMode.menuBar)
                     Text(String(localized: "Dock icon")).tag(AppVisibilityMode.dock)
+                    Text(String(localized: "Dock and menu bar icons")).tag(AppVisibilityMode.dockAndMenuBar)
                     Text(String(localized: "Dock icon only while a window is open")).tag(AppVisibilityMode.dockWhileWindowOpen)
                 }
 

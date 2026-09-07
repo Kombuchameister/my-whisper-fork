@@ -761,12 +761,14 @@ final class CommandModeWindowManager {
     func present(activate: Bool = true) {
         if window == nil { createWindow() }
         if activate {
+            if window?.isMiniaturized == true { window?.deminiaturize(nil) }
             window?.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
         } else if let window, !window.isVisible, !window.isMiniaturized {
             // Keep both the foreground app and existing Command Mode window order.
             window.orderBack(nil)
         }
+        NotificationCenter.default.post(name: .commandModeWindowVisibilityChanged, object: window)
     }
 
     private func createWindow() {
@@ -811,6 +813,7 @@ final class CommandModeWindowManager {
 private final class CommandModeWindowDelegate: NSObject, NSWindowDelegate {
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         sender.orderOut(nil)
+        NotificationCenter.default.post(name: .commandModeWindowVisibilityChanged, object: sender)
         return false
     }
 }
