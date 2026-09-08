@@ -266,35 +266,31 @@ final class AudioEngineRecoverySupportTests: XCTestCase {
         ))
     }
 
-    func testAirPodsInputPreparationRequiresExplicitOptInAndAirPodsBluetoothRoute() {
-        let airPodsID = AudioDeviceID(5)
+    func testBluetoothInputPreparationRequiresExplicitOptInAndBluetoothRoute() {
+        let deviceID = AudioDeviceID(5)
 
-        XCTAssertTrue(AirPodsRecordingInputPreparationPolicy.isEligible(
+        XCTAssertTrue(BluetoothRecordingInputPreparationPolicy.isEligible(
             hasMicrophonePermission: true,
             isEnabled: true,
-            selectedDeviceID: airPodsID,
-            selectedDeviceName: "AirPods Pro von Marco - Find My",
+            selectedDeviceID: deviceID,
             usesBluetoothTransport: true
         ))
-        XCTAssertFalse(AirPodsRecordingInputPreparationPolicy.isEligible(
+        XCTAssertFalse(BluetoothRecordingInputPreparationPolicy.isEligible(
             hasMicrophonePermission: true,
             isEnabled: false,
-            selectedDeviceID: airPodsID,
-            selectedDeviceName: "AirPods Pro",
+            selectedDeviceID: deviceID,
             usesBluetoothTransport: true
         ))
-        XCTAssertFalse(AirPodsRecordingInputPreparationPolicy.isEligible(
-            hasMicrophonePermission: true,
+        XCTAssertFalse(BluetoothRecordingInputPreparationPolicy.isEligible(
+            hasMicrophonePermission: false,
             isEnabled: true,
-            selectedDeviceID: airPodsID,
-            selectedDeviceName: "Jabra PRO 930",
+            selectedDeviceID: deviceID,
             usesBluetoothTransport: true
         ))
-        XCTAssertFalse(AirPodsRecordingInputPreparationPolicy.isEligible(
+        XCTAssertFalse(BluetoothRecordingInputPreparationPolicy.isEligible(
             hasMicrophonePermission: true,
             isEnabled: true,
-            selectedDeviceID: airPodsID,
-            selectedDeviceName: "AirPods Pro",
+            selectedDeviceID: deviceID,
             usesBluetoothTransport: false
         ))
     }
@@ -422,7 +418,34 @@ final class AudioEngineRecoverySupportTests: XCTestCase {
         XCTAssertEqual(formats.count, 0)
     }
 
+    func testInputFormatStabilizerCancelsBeforeTheNextPoll() throws {
+        let staleFormat = try XCTUnwrap(AVAudioFormat(
+            commonFormat: .pcmFormatFloat32,
+            sampleRate: 48_000,
+            channels: 1,
+            interleaved: false
+        ))
+        var now: TimeInterval = 0
+        var cancelled = false
+
+        XCTAssertThrowsError(try AudioInputFormatStabilizer.waitForSettledFormat(
+            label: "test",
+            expectedHardwareFormat: AudioInputHardwareFormat(sampleRate: 16_000, channelCount: 1),
+            now: { now },
+            shouldCancel: { cancelled },
+            readFormat: { staleFormat },
+            sleep: {
+                now += $0
+                cancelled = true
+            }
+        )) { error in
+            XCTAssertTrue(error is CancellationError)
+        }
+        XCTAssertEqual(now, AudioInputFormatStabilizer.defaultPollInterval)
+    }
+
     func testInputFormatStabilizerThrowsRetryableMismatchWhenFormatDoesNotSettle() {
+
         let staleDefaultFormat = AVAudioFormat(
             commonFormat: .pcmFormatFloat32,
             sampleRate: 48_000,
@@ -1366,7 +1389,10 @@ final class AudioDeviceServiceCompatibilityTests: XCTestCase {
         }
     }
 
-    func testResolvedRecordingInputSelectionUsesFirstListedNonBuiltInClamshellFallback() {
+    /// Superseded by physical-input preference: the clamshell fallback used to
+    /// take whichever non-builtIn device CoreAudio listed first, which handed
+    /// recording to a loopback driver while a real microphone sat behind it.
+    func testResolvedRecordingInputSelectionPrefersPhysicalOverListedFirstVirtualClamshellFallback() {
         let builtInDeviceID = AudioDeviceID(730)
         let virtualDeviceID = AudioDeviceID(731)
         let usbDeviceID = AudioDeviceID(732)
@@ -1401,9 +1427,348 @@ final class AudioDeviceServiceCompatibilityTests: XCTestCase {
 
         let selection = service.resolvedRecordingInputSelection()
 
+        XCTAssertEqual(selection.deviceUID, "usb-input")
+        XCTAssertEqual(selection.deviceID, usbDeviceID)
+        XCTAssertEqual(selection.deviceName, "USB Microphone")
+    }
+
+    // MARK: - Clamshell fallback ordering (#1163)
+
+    /// With no priority list the resolver reaches the clamshell fallback branch.
+    /// It must not settle on a virtual loopback driver just because CoreAudio
+    /// enumerates it first; the jack microphone is the real input here.
+    func testClamshellFallbackPrefersPhysicalInputOverVirtualDeviceEnumeratedFirst() {
+        let virtualDeviceID = AudioDeviceID(750)
+        let jackMicID = AudioDeviceID(751)
+        let internalMicID = AudioDeviceID(752)
+        let service = AudioDeviceService(
+            initialInputDevices: [
+                AudioInputDevice(deviceID: virtualDeviceID, name: "Hue Sync Audio", uid: "virtual-input"),
+                AudioInputDevice(deviceID: internalMicID, name: "MacBook Pro Microphone", uid: "BuiltInMicrophoneDevice"),
+                AudioInputDevice(deviceID: jackMicID, name: "External Microphone", uid: "BuiltInHeadphoneInputDevice")
+            ],
+            monitorDeviceChanges: false,
+            probeCompatibilities: false,
+            transportResolver: FakeAudioDeviceTransportResolver(
+                transports: [
+                    virtualDeviceID: kAudioDeviceTransportTypeVirtual,
+                    internalMicID: kAudioDeviceTransportTypeBuiltIn,
+                    jackMicID: kAudioDeviceTransportTypeBuiltIn
+                ]
+            ),
+            clamshellStateProvider: FakeClamshellStateProvider(lidClosed: true),
+            defaultInputDeviceController: FakeAudioInputDeviceDefaultController(
+                defaultInputDeviceID: internalMicID
+            )
+        )
+        service.audioDeviceIDResolverOverride = { uid in
+            switch uid {
+            case "virtual-input": return virtualDeviceID
+            case "BuiltInMicrophoneDevice": return internalMicID
+            case "BuiltInHeadphoneInputDevice": return jackMicID
+            default: return nil
+            }
+        }
+        service.clearInputDevicePriorityList()
+        XCTAssertTrue(service.inputDevicePriorityList.isEmpty, "test must exercise the clamshell fallback branch")
+
+        let selection = service.resolvedRecordingInputSelection()
+
+        XCTAssertEqual(selection.deviceUID, "BuiltInHeadphoneInputDevice")
+        XCTAssertEqual(selection.deviceName, "External Microphone")
+    }
+
+    /// A virtual device is still better than nothing when no physical input
+    /// survives the closed lid.
+    func testClamshellFallbackUsesVirtualDeviceWhenNoPhysicalInputRemains() {
+        let virtualDeviceID = AudioDeviceID(753)
+        let internalMicID = AudioDeviceID(754)
+        let service = AudioDeviceService(
+            initialInputDevices: [
+                AudioInputDevice(deviceID: internalMicID, name: "MacBook Pro Microphone", uid: "BuiltInMicrophoneDevice"),
+                AudioInputDevice(deviceID: virtualDeviceID, name: "Hue Sync Audio", uid: "virtual-input")
+            ],
+            monitorDeviceChanges: false,
+            probeCompatibilities: false,
+            transportResolver: FakeAudioDeviceTransportResolver(
+                transports: [
+                    internalMicID: kAudioDeviceTransportTypeBuiltIn,
+                    virtualDeviceID: kAudioDeviceTransportTypeVirtual
+                ]
+            ),
+            clamshellStateProvider: FakeClamshellStateProvider(lidClosed: true),
+            defaultInputDeviceController: FakeAudioInputDeviceDefaultController(
+                defaultInputDeviceID: internalMicID
+            )
+        )
+        service.audioDeviceIDResolverOverride = { uid in
+            switch uid {
+            case "BuiltInMicrophoneDevice": return internalMicID
+            case "virtual-input": return virtualDeviceID
+            default: return nil
+            }
+        }
+        service.clearInputDevicePriorityList()
+
+        let selection = service.resolvedRecordingInputSelection()
+
         XCTAssertEqual(selection.deviceUID, "virtual-input")
-        XCTAssertEqual(selection.deviceID, virtualDeviceID)
-        XCTAssertEqual(selection.deviceName, "BlackHole 2ch")
+    }
+
+    /// A device whose transport cannot be resolved must not outrank one we can
+    /// positively identify as physical, but must still beat a known virtual one.
+    func testClamshellFallbackRanksUnresolvedTransportBetweenPhysicalAndVirtual() {
+        let internalMicID = AudioDeviceID(755)
+        let unknownDeviceID = AudioDeviceID(756)
+        let virtualDeviceID = AudioDeviceID(757)
+        let usbDeviceID = AudioDeviceID(758)
+
+        func makeService(includeUSB: Bool) -> AudioDeviceService {
+            var devices = [
+                AudioInputDevice(deviceID: virtualDeviceID, name: "Hue Sync Audio", uid: "virtual-input"),
+                AudioInputDevice(deviceID: unknownDeviceID, name: "Mystery Input", uid: "unknown-input"),
+                AudioInputDevice(deviceID: internalMicID, name: "MacBook Pro Microphone", uid: "BuiltInMicrophoneDevice")
+            ]
+            if includeUSB {
+                devices.append(AudioInputDevice(deviceID: usbDeviceID, name: "USB Microphone", uid: "usb-input"))
+            }
+            let service = AudioDeviceService(
+                initialInputDevices: devices,
+                monitorDeviceChanges: false,
+                probeCompatibilities: false,
+                transportResolver: FakeAudioDeviceTransportResolver(
+                    // "unknown-input" is deliberately absent: its transport lookup returns nil.
+                    transports: [
+                        virtualDeviceID: kAudioDeviceTransportTypeVirtual,
+                        internalMicID: kAudioDeviceTransportTypeBuiltIn,
+                        usbDeviceID: kAudioDeviceTransportTypeUSB
+                    ]
+                ),
+                clamshellStateProvider: FakeClamshellStateProvider(lidClosed: true),
+                defaultInputDeviceController: FakeAudioInputDeviceDefaultController(
+                    defaultInputDeviceID: internalMicID
+                )
+            )
+            service.audioDeviceIDResolverOverride = { uid in
+                switch uid {
+                case "virtual-input": return virtualDeviceID
+                case "unknown-input": return unknownDeviceID
+                case "BuiltInMicrophoneDevice": return internalMicID
+                case "usb-input": return usbDeviceID
+                default: return nil
+                }
+            }
+            service.clearInputDevicePriorityList()
+            return service
+        }
+
+        // A positively-identified physical device outranks the unresolved one,
+        // even though the unresolved one is enumerated first.
+        XCTAssertEqual(makeService(includeUSB: true).resolvedRecordingInputSelection().deviceUID, "usb-input")
+
+        // With no physical device available, the unresolved one still beats the
+        // known virtual driver.
+        XCTAssertEqual(makeService(includeUSB: false).resolvedRecordingInputSelection().deviceUID, "unknown-input")
+    }
+
+    /// A device that resolves to `kAudioDeviceTransportTypeUnknown` says nothing
+    /// about being real hardware, so it must rank as unresolved rather than
+    /// physical: it loses to a positively identified microphone enumerated after
+    /// it, and still beats a known virtual driver.
+    func testClamshellFallbackRanksUnknownTransportAsUnresolved() {
+        let internalMicID = AudioDeviceID(795)
+        let unknownDeviceID = AudioDeviceID(796)
+        let virtualDeviceID = AudioDeviceID(797)
+        let usbDeviceID = AudioDeviceID(798)
+
+        func makeService(includeUSB: Bool) -> AudioDeviceService {
+            var devices = [
+                AudioInputDevice(deviceID: virtualDeviceID, name: "Hue Sync Audio", uid: "virtual-input"),
+                AudioInputDevice(deviceID: unknownDeviceID, name: "Mystery Input", uid: "unknown-input"),
+                AudioInputDevice(deviceID: internalMicID, name: "MacBook Pro Microphone", uid: "BuiltInMicrophoneDevice")
+            ]
+            if includeUSB {
+                devices.append(AudioInputDevice(deviceID: usbDeviceID, name: "USB Microphone", uid: "usb-input"))
+            }
+            let service = AudioDeviceService(
+                initialInputDevices: devices,
+                monitorDeviceChanges: false,
+                probeCompatibilities: false,
+                transportResolver: FakeAudioDeviceTransportResolver(
+                    // Unlike the sibling test above, "unknown-input" resolves: it
+                    // reports CoreAudio's unknown-transport sentinel rather than
+                    // failing the lookup.
+                    transports: [
+                        virtualDeviceID: kAudioDeviceTransportTypeVirtual,
+                        unknownDeviceID: kAudioDeviceTransportTypeUnknown,
+                        internalMicID: kAudioDeviceTransportTypeBuiltIn,
+                        usbDeviceID: kAudioDeviceTransportTypeUSB
+                    ]
+                ),
+                clamshellStateProvider: FakeClamshellStateProvider(lidClosed: true),
+                defaultInputDeviceController: FakeAudioInputDeviceDefaultController(
+                    defaultInputDeviceID: internalMicID
+                )
+            )
+            service.audioDeviceIDResolverOverride = { uid in
+                switch uid {
+                case "virtual-input": return virtualDeviceID
+                case "unknown-input": return unknownDeviceID
+                case "BuiltInMicrophoneDevice": return internalMicID
+                case "usb-input": return usbDeviceID
+                default: return nil
+                }
+            }
+            service.clearInputDevicePriorityList()
+            return service
+        }
+
+        // The USB microphone is enumerated last, so it only wins if the
+        // unknown-transport device ahead of it is not ranked physical.
+        XCTAssertEqual(makeService(includeUSB: true).resolvedRecordingInputSelection().deviceUID, "usb-input")
+
+        // With no positively identified microphone, the unknown-transport device
+        // still outranks the virtual driver enumerated before it.
+        XCTAssertEqual(makeService(includeUSB: false).resolvedRecordingInputSelection().deviceUID, "unknown-input")
+    }
+
+    /// An automatically created aggregate wraps other devices rather than being
+    /// hardware itself, exactly like a user-built one, so it ranks with the
+    /// aggregates and not as physical.
+    func testClamshellFallbackRanksAutoAggregateWithAggregates() {
+        let internalMicID = AudioDeviceID(805)
+        let autoAggregateID = AudioDeviceID(806)
+        let usbDeviceID = AudioDeviceID(807)
+
+        func makeService(includeUSB: Bool) -> AudioDeviceService {
+            var devices = [
+                AudioInputDevice(deviceID: autoAggregateID, name: "Aggregate Device", uid: "auto-aggregate-input"),
+                AudioInputDevice(deviceID: internalMicID, name: "MacBook Pro Microphone", uid: "BuiltInMicrophoneDevice")
+            ]
+            if includeUSB {
+                devices.append(AudioInputDevice(deviceID: usbDeviceID, name: "USB Microphone", uid: "usb-input"))
+            }
+            let service = AudioDeviceService(
+                initialInputDevices: devices,
+                monitorDeviceChanges: false,
+                probeCompatibilities: false,
+                transportResolver: FakeAudioDeviceTransportResolver(
+                    transports: [
+                        autoAggregateID: kAudioDeviceTransportTypeAutoAggregate,
+                        internalMicID: kAudioDeviceTransportTypeBuiltIn,
+                        usbDeviceID: kAudioDeviceTransportTypeUSB
+                    ]
+                ),
+                clamshellStateProvider: FakeClamshellStateProvider(lidClosed: true),
+                defaultInputDeviceController: FakeAudioInputDeviceDefaultController(
+                    defaultInputDeviceID: internalMicID
+                )
+            )
+            service.audioDeviceIDResolverOverride = { uid in
+                switch uid {
+                case "auto-aggregate-input": return autoAggregateID
+                case "BuiltInMicrophoneDevice": return internalMicID
+                case "usb-input": return usbDeviceID
+                default: return nil
+                }
+            }
+            service.clearInputDevicePriorityList()
+            return service
+        }
+
+        // The auto-aggregate is enumerated first, but a real microphone wins.
+        XCTAssertEqual(makeService(includeUSB: true).resolvedRecordingInputSelection().deviceUID, "usb-input")
+
+        // Demotion is a preference, not an exclusion: with nothing better left,
+        // the auto-aggregate is still selected.
+        XCTAssertEqual(makeService(includeUSB: false).resolvedRecordingInputSelection().deviceUID, "auto-aggregate-input")
+    }
+
+    /// Reaches the clamshell fallback with a NON-empty priority list: the sole
+    /// priority entry is the internal mic, which the candidate loop rejects, so
+    /// resolution must continue into the fallback and pick a device that was
+    /// never a candidate.
+    func testClamshellFallbackIsReachedWhenEveryPriorityCandidateIsRejected() throws {
+        let internalMicID = AudioDeviceID(759)
+        let virtualDeviceID = AudioDeviceID(760)
+        let usbDeviceID = AudioDeviceID(761)
+        UserDefaults.standard.set(
+            try JSONEncoder().encode([
+                AudioInputDevicePriorityItem(uid: "BuiltInMicrophoneDevice", name: "MacBook Pro Microphone")
+            ]),
+            forKey: UserDefaultsKeys.inputDevicePriorityList
+        )
+        let service = AudioDeviceService(
+            initialInputDevices: [
+                AudioInputDevice(deviceID: virtualDeviceID, name: "Hue Sync Audio", uid: "virtual-input"),
+                AudioInputDevice(deviceID: internalMicID, name: "MacBook Pro Microphone", uid: "BuiltInMicrophoneDevice"),
+                AudioInputDevice(deviceID: usbDeviceID, name: "USB Microphone", uid: "usb-input")
+            ],
+            monitorDeviceChanges: false,
+            probeCompatibilities: false,
+            transportResolver: FakeAudioDeviceTransportResolver(
+                transports: [
+                    virtualDeviceID: kAudioDeviceTransportTypeVirtual,
+                    internalMicID: kAudioDeviceTransportTypeBuiltIn,
+                    usbDeviceID: kAudioDeviceTransportTypeUSB
+                ]
+            ),
+            clamshellStateProvider: FakeClamshellStateProvider(lidClosed: true),
+            defaultInputDeviceController: FakeAudioInputDeviceDefaultController(
+                defaultInputDeviceID: internalMicID
+            )
+        )
+        service.audioDeviceIDResolverOverride = { uid in
+            switch uid {
+            case "virtual-input": return virtualDeviceID
+            case "BuiltInMicrophoneDevice": return internalMicID
+            case "usb-input": return usbDeviceID
+            default: return nil
+            }
+        }
+        XCTAssertEqual(service.inputDevicePriorityList.map(\.uid), ["BuiltInMicrophoneDevice"])
+
+        let selection = service.resolvedRecordingInputSelection()
+
+        XCTAssertEqual(selection.deviceUID, "usb-input")
+        XCTAssertEqual(selection.deviceName, "USB Microphone")
+    }
+
+    // MARK: - Internal microphone classification reported in diagnostics (#1163)
+
+    func testInternalMicrophoneClassificationMatchesRoutingIdentity() {
+        XCTAssertTrue(
+            AudioDeviceService.isInternalMicrophone(
+                deviceUID: AudioDeviceService.internalMicrophoneDeviceUID,
+                transportType: kAudioDeviceTransportTypeBuiltIn
+            )
+        )
+        // The 3.5mm jack shares the builtIn transport but is a different device.
+        XCTAssertFalse(
+            AudioDeviceService.isInternalMicrophone(
+                deviceUID: "BuiltInHeadphoneInputDevice",
+                transportType: kAudioDeviceTransportTypeBuiltIn
+            )
+        )
+        // Transport still matters: a non-builtIn device is never the internal mic.
+        XCTAssertFalse(
+            AudioDeviceService.isInternalMicrophone(
+                deviceUID: AudioDeviceService.internalMicrophoneDeviceUID,
+                transportType: kAudioDeviceTransportTypeUSB
+            )
+        )
+        XCTAssertFalse(
+            AudioDeviceService.isInternalMicrophone(deviceUID: nil, transportType: nil)
+        )
+    }
+
+    func testFourCCStringRendersDataSourceValues() {
+        // 'imic' and 'emic', the values Apple reports for the internal capsule
+        // and the 3.5mm jack input respectively.
+        XCTAssertEqual(AudioDeviceService.fourCCString(0x696D_6963), "imic")
+        XCTAssertEqual(AudioDeviceService.fourCCString(0x656D_6963), "emic")
+        // Non-printable values fall back to a decimal rendering.
+        XCTAssertEqual(AudioDeviceService.fourCCString(1), "1")
     }
 
     func testResolvedRecordingInputSelectionKeepsExternalSystemDefaultWhenLidIsClosed() {
@@ -2345,6 +2710,71 @@ final class AudioRecordingServiceSelectedDeviceTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(engineRunningProbeCalls, 2)
     }
 
+    func testPreparedBluetoothClaimTransfersActivationOwnershipAcrossDictations() {
+        let preferenceKey = UserDefaultsKeys.airPodsInstantStartEnabled
+        let originalPreference = UserDefaults.standard.object(forKey: preferenceKey)
+        UserDefaults.standard.set(true, forKey: preferenceKey)
+        defer {
+            if let originalPreference {
+                UserDefaults.standard.set(originalPreference, forKey: preferenceKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: preferenceKey)
+            }
+        }
+        let controller = FakeAudioInputDeviceDefaultController(defaultInputDeviceID: 1)
+        let activation = AudioInputDeviceActivationGuard(controller: controller)
+        let service = AudioRecordingService(inputActivationGuard: activation)
+        service.hasMicrophonePermissionOverride = true
+        service.configureInputSelection(
+            deviceID: 2,
+            hasExplicitDeviceSelection: true,
+            usesBluetoothTransport: true
+        )
+        XCTAssertTrue(activation.activate(deviceID: 2, reason: "preparation"))
+
+        for _ in 0..<3 {
+            XCTAssertTrue(activation.activate(deviceID: 2, reason: "recording-start"))
+            XCTAssertTrue(service.testingClaimPreparedBluetoothInput(RunningAudioEngine(), deviceID: 2))
+            XCTAssertEqual(controller.setCalls, [2])
+            service.testingSetAudioEngine(nil)
+        }
+
+        activation.restore(reason: "preparation-invalidated")
+        XCTAssertEqual(controller.setCalls, [2, 1])
+        XCTAssertTrue(activation.activate(deviceID: 3, reason: "different-input"))
+        activation.restore(reason: "test-finished")
+    }
+
+    func testPreparedBluetoothInputWaitsForFreshSilentBuffer() throws {
+
+        let clock = FakeReadinessClock()
+        let tracker = BluetoothInputStartupTracker(now: { clock.now })
+        let oldGeneration = tracker.beginGeneration()
+        _ = tracker.consume(samples: [0.8], inputRMS: 0.8, generation: oldGeneration)
+        tracker.disarm(generation: oldGeneration)
+        let generation = try XCTUnwrap(tracker.armExistingGeneration(oldGeneration))
+        let checker = BluetoothInputReadinessChecker(
+            silentFallback: 0,
+            requiredSignalBufferCount: 1,
+            now: { clock.now },
+            sleep: { delay in
+                clock.now += delay
+                _ = tracker.consume(samples: [0], inputRMS: 0, generation: generation)
+            }
+        )
+
+        try checker.waitForInitialInput(
+            label: "prepared-test",
+            deadline: nil,
+            readinessSnapshot: { tracker.snapshot(for: generation) },
+            isEngineRunning: { true },
+            shouldCancel: { false }
+        )
+
+        XCTAssertEqual(clock.now, 0.01, accuracy: 0.001)
+        XCTAssertEqual(tracker.promoteCurrentGeneration()?.samples, [0])
+    }
+
     func testBluetoothInputReadinessRejectsReadyCandidateAfterRouteChange() {
         let checker = BluetoothInputReadinessChecker()
 
@@ -2803,6 +3233,7 @@ final class AudioRecordingServiceSelectedDeviceTests: XCTestCase {
             hasExplicitDeviceSelection: true,
             usesBluetoothTransport: false
         )
+        service.prepareRecordingInputIfEligible()
         await fulfillment(of: [prepared], timeout: 1.0)
         inputCaptureFactory.prepareHook = nil
         let didStorePreparedInput = await waitUntil(timeout: 1.0) {
@@ -2847,6 +3278,7 @@ final class AudioRecordingServiceSelectedDeviceTests: XCTestCase {
             hasExplicitDeviceSelection: true,
             usesBluetoothTransport: false
         )
+        service.prepareRecordingInputIfEligible()
         await fulfillment(of: [prepared], timeout: 1.0)
         inputCaptureFactory.prepareHook = nil
         let didStorePreparedInput = await waitUntil(timeout: 1.0) {
@@ -3967,6 +4399,10 @@ private final class FakeCoreAudioHALInputOperations: CoreAudioHALInputOperating,
         var timestamp = AudioTimeStamp()
         return inputProc(inputProcRefCon, &flags, &timestamp, 1, frameCount, nil)
     }
+}
+
+private final class RunningAudioEngine: AVAudioEngine {
+    override var isRunning: Bool { true }
 }
 
 private final class FakeReadinessClock: @unchecked Sendable {

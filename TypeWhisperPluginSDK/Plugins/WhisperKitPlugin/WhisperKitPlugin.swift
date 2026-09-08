@@ -3,10 +3,21 @@ import SwiftUI
 import WhisperKit
 import TypeWhisperPluginSDK
 
+// Keep this policy plugin-local because the SDK network guard was added after TypeWhisper 1.6.0.
+enum WhisperKitNetworkAccessPolicy {
+    static func ensureAccessIsAllowed(
+        arguments: [String] = ProcessInfo.processInfo.arguments
+    ) throws {
+        guard !arguments.contains("--store-screenshots") else {
+            throw URLError(.notConnectedToInternet)
+        }
+    }
+}
+
 // MARK: - Plugin Entry Point
 
 @objc(WhisperKitPlugin)
-final class WhisperKitPlugin: NSObject, SourceProgressTranscriptionEnginePlugin, TranscriptionModelCatalogProviding, DictionaryTermsCapabilityProviding, DictionaryTermsBudgetProviding, PluginSettingsActivityReporting, PluginDownloadedModelManaging, HostModelLifecyclePolicyAwarePlugin, @unchecked Sendable {
+final class WhisperKitPlugin: NSObject, SourceProgressTranscriptionEnginePlugin, TranscriptionModelCatalogProviding, DictionaryTermsCapabilityProviding, DictionaryTermsBudgetProviding, PluginSettingsActivityReporting, PluginDownloadedModelManaging, HostModelLifecyclePolicyAwarePlugin, PassiveModelRestoreProviding, @unchecked Sendable {
     static let pluginId = "com.typewhisper.whisperkit"
     static let pluginName = "WhisperKit"
     private static let maxConditioningPromptChars = 500
@@ -31,6 +42,16 @@ final class WhisperKitPlugin: NSObject, SourceProgressTranscriptionEnginePlugin,
     private(set) var restoreLoadedModelInvocationCountForTesting = 0
     #endif
 
+    private let passiveRestoreController = PluginPassiveModelRestoreController()
+    private let modelLoadGate = PluginLocalInferenceGate()
+
+    func requestPassiveModelRestore() {
+        passiveRestoreController.request { [weak self] in
+            guard let self else { return }
+            await self.restoreLoadedModel(allowDownloads: false, passively: true)
+        }
+    }
+
     required override init() {
         super.init()
     }
@@ -47,11 +68,12 @@ final class WhisperKitPlugin: NSObject, SourceProgressTranscriptionEnginePlugin,
             }
         }
         if shouldRestoreLoadedModelsPassively {
-            Task { await restoreLoadedModel(allowDownloads: false) }
+            requestPassiveModelRestore()
         }
     }
 
     func deactivate() {
+        passiveRestoreController.cancel()
         invalidateModelLoad()
         releaseWhisperKitResources()
         whisperKit = nil
@@ -529,7 +551,18 @@ final class WhisperKitPlugin: NSObject, SourceProgressTranscriptionEnginePlugin,
         return modelStorageRoots[0].appendingPathComponent(modelDef.id)
     }
 
-    fileprivate func loadModel(_ modelDef: WhisperModelDef) async {
+    fileprivate func loadModel(_ modelDef: WhisperModelDef, passively: Bool = false) async {
+        try? await modelLoadGate.withLock { [self] in
+            guard host != nil else { return }
+            if passively {
+                guard host?.shouldRestoreLoadedModelsPassively == true, !isConfigured else { return }
+            }
+            guard !(isConfigured && loadedModelId == modelDef.id) else { return }
+            await performModelLoad(modelDef, allowDownloads: !passively)
+        }
+    }
+
+    private func performModelLoad(_ modelDef: WhisperModelDef, allowDownloads: Bool) async {
         beginModelUse()
         defer { endModelUse() }
 
@@ -549,12 +582,17 @@ final class WhisperKitPlugin: NSObject, SourceProgressTranscriptionEnginePlugin,
                 downloadProgress = 0.80
                 modelFolder = modelPath
             } else {
+                guard allowDownloads else {
+                    clearLoadingModelIfCurrent(modelDef.id, generation: loadGeneration)
+                    modelState = .notLoaded
+                    return
+                }
                 removeIncompleteModelIfNeeded(at: modelPath)
                 modelState = .downloading
                 downloadProgress = 0.05
 
                 var lastProgress = 0.0
-                try PluginHTTPClient.ensureNetworkAccessIsAllowed()
+                try WhisperKitNetworkAccessPolicy.ensureAccessIsAllowed()
                 modelFolder = try await WhisperKit.download(
                     variant: modelDef.id,
                     downloadBase: downloadBase,
@@ -568,7 +606,9 @@ final class WhisperKitPlugin: NSObject, SourceProgressTranscriptionEnginePlugin,
                 }
             }
             guard isCurrentModelLoad(loadGeneration) else { return }
-            try await repairDownloadedModelIfNeeded(at: modelFolder, variant: modelDef.id)
+            if allowDownloads {
+                try await repairDownloadedModelIfNeeded(at: modelFolder, variant: modelDef.id)
+            }
             guard isCurrentModelLoad(loadGeneration) else { return }
 
             // Load
@@ -640,8 +680,12 @@ final class WhisperKitPlugin: NSObject, SourceProgressTranscriptionEnginePlugin,
             whisperKit = nil
             loadedModelId = nil
             clearLoadingModelIfCurrent(modelDef.id, generation: loadGeneration)
-            modelState = .error(error.localizedDescription)
             downloadProgress = 0
+            guard allowDownloads else {
+                modelState = .notLoaded
+                return
+            }
+            modelState = .error(error.localizedDescription)
             host?.setUserDefault(nil, forKey: "loadedModel")
             host?.notifyCapabilitiesChanged()
         }
@@ -741,11 +785,16 @@ final class WhisperKitPlugin: NSObject, SourceProgressTranscriptionEnginePlugin,
         }
     }
 
-    func restoreLoadedModel(allowDownloads: Bool = true) async {
-        await restoreLoadedModel(allowDownloads: allowDownloads, preferredModelId: nil)
+    func restoreLoadedModel(allowDownloads: Bool = true, passively: Bool = false) async {
+        guard !Task.isCancelled else { return }
+        if passively {
+            guard host?.shouldRestoreLoadedModelsPassively == true, !isConfigured else { return }
+        }
+        await restoreLoadedModel(allowDownloads: allowDownloads, preferredModelId: nil, passively: passively)
     }
 
-    func restoreLoadedModel(allowDownloads: Bool = true, preferredModelId: String?) async {
+    func restoreLoadedModel(allowDownloads: Bool = true, preferredModelId: String?, passively: Bool = false) async {
+        guard !Task.isCancelled else { return }
         #if DEBUG
         restoreLoadedModelInvocationCountForTesting += 1
         #endif
@@ -754,7 +803,7 @@ final class WhisperKitPlugin: NSObject, SourceProgressTranscriptionEnginePlugin,
             allowDownloads: allowDownloads,
             preferredModelId: preferredModelId
         ) else { return }
-        await loadModel(modelDef)
+        await loadModel(modelDef, passively: passively)
     }
 
     private func modelDefinitionForRestore(
@@ -902,7 +951,7 @@ final class WhisperKitPlugin: NSObject, SourceProgressTranscriptionEnginePlugin,
         relativePath: String,
         destination: URL
     ) async throws {
-        try PluginHTTPClient.ensureNetworkAccessIsAllowed()
+        try WhisperKitNetworkAccessPolicy.ensureAccessIsAllowed()
         var url = URL(string: Self.modelEndpoint)!
         for component in Self.modelRepo.split(separator: "/") {
             url.append(path: String(component))
@@ -1341,7 +1390,7 @@ private struct WhisperKitSettingsView: View {
                 modelState = .loading(phase: "loading")
                 isPolling = true
                 Task {
-                    await plugin.restoreLoadedModel(allowDownloads: false)
+                    await plugin.restoreLoadedModel(allowDownloads: false, passively: true)
                     syncViewStateFromPlugin()
                 }
             }

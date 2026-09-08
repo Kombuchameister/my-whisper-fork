@@ -20,6 +20,7 @@ extension Notification.Name {
     static let commandModeWindowVisibilityChanged = Notification.Name("commandModeWindowVisibilityChanged")
     static let openManagedAppWindow = Notification.Name("openManagedAppWindow")
     static let resetSetupWizardWindow = Notification.Name("resetSetupWizardWindow")
+    static let iOSCompanionPromoRequested = Notification.Name("iOSCompanionPromoRequested")
 }
 
 enum DockIconBehavior: String, CaseIterable {
@@ -229,6 +230,57 @@ enum MenuBarIconState {
     }
 }
 
+@MainActor
+final class FinderTranscriptionService: NSObject {
+    typealias EnqueueFiles = @MainActor ([URL]) -> Void
+    typealias PresentFileTranscription = @MainActor () -> Void
+
+    private let enqueueFiles: EnqueueFiles
+    private let presentFileTranscription: PresentFileTranscription
+
+    init(
+        enqueueFiles: @escaping EnqueueFiles = { FileTranscriptionViewModel.shared.addFiles($0) },
+        presentFileTranscription: @escaping PresentFileTranscription = {
+            SettingsNavigationCoordinator.shared.navigate(to: .fileTranscription)
+            ManagedAppWindowOpener.shared.open(id: "settings")
+        }
+    ) {
+        self.enqueueFiles = enqueueFiles
+        self.presentFileTranscription = presentFileTranscription
+    }
+
+    static func fileURLs(from pasteboard: NSPasteboard) -> [URL] {
+        let objects = pasteboard.readObjects(
+            forClasses: [NSURL.self],
+            options: [.urlReadingFileURLsOnly: true]
+        ) as? [NSURL]
+        return FileTranscriptionViewModel.supportedFileURLs(objects?.map { $0 as URL } ?? [])
+    }
+
+    @discardableResult
+    func handle(_ pasteboard: NSPasteboard) -> String? {
+        let urls = Self.fileURLs(from: pasteboard)
+        guard !urls.isEmpty else {
+            return "No supported audio or video files were selected."
+        }
+
+        enqueueFiles(urls)
+        presentFileTranscription()
+        return nil
+    }
+
+    @objc(transcribeFiles:userData:error:)
+    func transcribeFiles(
+        _ pasteboard: NSPasteboard,
+        userData _: String?,
+        error errorPointer: AutoreleasingUnsafeMutablePointer<NSString?>?
+    ) {
+        if let errorMessage = handle(pasteboard) {
+            errorPointer?.pointee = errorMessage as NSString
+        }
+    }
+}
+
 private struct MenuBarExtraLabel: View {
     @Environment(\.openWindow) private var openWindow
     @ObservedObject private var dictation = DictationViewModel.shared
@@ -337,6 +389,10 @@ struct TypeWhisperApp<WindowConfiguration: ManagedAppWindowSceneConfiguration>: 
         PostUpdatePromptCoordinator.shared
     }
 
+    private var iOSCompanionPromoCoordinator: IOSCompanionPromoCoordinator {
+        IOSCompanionPromoCoordinator.shared
+    }
+
     private var settingsNavigation: SettingsNavigationCoordinator {
         SettingsNavigationCoordinator.shared
     }
@@ -384,6 +440,12 @@ struct TypeWhisperApp<WindowConfiguration: ManagedAppWindowSceneConfiguration>: 
                     switch route {
                     case .welcome:
                         WelcomeSheet()
+                    case .iOSCompanion:
+                        IOSCompanionPromoView(
+                            appStoreURL: AppConstants.IOSCompanion.appStoreURL,
+                            onOpenAppStore: handleOpenIOSAppStore,
+                            onDismiss: handleIOSCompanionDismissal
+                        )
                     case .postUpdateLicensing:
                         PostUpdateLicensePromptView(
                             onPersonalOSS: handlePersonalOSSSelection,
@@ -395,6 +457,9 @@ struct TypeWhisperApp<WindowConfiguration: ManagedAppWindowSceneConfiguration>: 
                     }
                 }
                 .task {
+                    refreshStartupSheet()
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .iOSCompanionPromoRequested)) { _ in
                     refreshStartupSheet()
                 }
         }
@@ -434,6 +499,7 @@ struct TypeWhisperApp<WindowConfiguration: ManagedAppWindowSceneConfiguration>: 
         let serviceContainer = ServiceContainer.shared
         SettingsNavigationCoordinator.shared = SettingsNavigationCoordinator()
         WorkflowsNavigationCoordinator.shared = WorkflowsNavigationCoordinator()
+        IOSCompanionPromoCoordinator.shared = IOSCompanionPromoCoordinator()
         PostUpdatePromptCoordinator.shared = PostUpdatePromptCoordinator()
 
         #if DEBUG
@@ -465,6 +531,9 @@ struct TypeWhisperApp<WindowConfiguration: ManagedAppWindowSceneConfiguration>: 
         let nextRoute: StartupSheetRoute?
         if LicenseService.shared.needsWelcomeSheet {
             nextRoute = .welcome
+        } else if iOSCompanionPromoCoordinator.consumeManualPresentationRequest()
+                    || iOSCompanionPromoCoordinator.shouldPresentPrompt {
+            nextRoute = .iOSCompanion
         } else {
             nextRoute = postUpdatePromptCoordinator.activeSheetRoute
         }
@@ -479,6 +548,18 @@ struct TypeWhisperApp<WindowConfiguration: ManagedAppWindowSceneConfiguration>: 
         let dismissedRoute = lastPresentedStartupSheet
         defer {
             lastPresentedStartupSheet = nil
+        }
+
+        if dismissedRoute == .iOSCompanion {
+            if ignoreNextStartupSheetDismiss {
+                ignoreNextStartupSheetDismiss = false
+            } else {
+                iOSCompanionPromoCoordinator.acknowledgeCurrentCampaign()
+            }
+
+            // Avoid replacing the promo immediately with another startup sheet.
+            // Any remaining prompt can appear the next time Settings is opened.
+            return
         }
 
         if dismissedRoute == .postUpdateLicensing {
@@ -528,6 +609,19 @@ struct TypeWhisperApp<WindowConfiguration: ManagedAppWindowSceneConfiguration>: 
     private func handlePromptDismissalAction() {
         dismissStartupPrompt {
             postUpdatePromptCoordinator.handleNotNowSelection()
+        }
+    }
+
+    private func handleOpenIOSAppStore() {
+        dismissStartupPrompt {
+            iOSCompanionPromoCoordinator.acknowledgeCurrentCampaign()
+            NSWorkspace.shared.open(AppConstants.IOSCompanion.appStoreURL)
+        }
+    }
+
+    private func handleIOSCompanionDismissal() {
+        dismissStartupPrompt {
+            iOSCompanionPromoCoordinator.acknowledgeCurrentCampaign()
         }
     }
 }
@@ -644,6 +738,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUUpdaterDelegate {
     private var workspaceWakeObserver: NSObjectProtocol?
     private var hasInteractiveForegroundContent = false
     private var pluginScreenshotCaptureController: PluginSettingsScreenshotCaptureController?
+    private let finderTranscriptionService = FinderTranscriptionService()
     private lazy var updaterController = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: self, userDriverDelegate: nil)
 
     var updateChecker: UpdateChecker {
@@ -702,6 +797,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUUpdaterDelegate {
         ServiceContainer.shared.calendarMeetingAutomationController
             .installNotificationRouterIfNeeded()
 
+        NSApp.servicesProvider = finderTranscriptionService
+        NSUpdateDynamicServices()
+
         UpdateChecker.shared = updateChecker
         applyActivationPolicy()
 
@@ -739,18 +837,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUUpdaterDelegate {
 
         let initialWindowPresentation = InitialWindowPresentationPolicy.presentation(
             setupWizardRequired: HomeViewModel.shared.showSetupWizard,
-            postUpdatePromptPending: PostUpdatePromptCoordinator.shared.shouldPresentPrompt
+            postUpdatePromptPending: PostUpdatePromptCoordinator.shared.shouldPresentPrompt,
+            iOSCompanionPromptPending: IOSCompanionPromoCoordinator.shared.shouldPresentPrompt
         )
 
-        // Auto-open only the standalone setup assistant while first-run setup is incomplete.
-        // Post-update prompts wait until the user opens Settings interactively.
-        if initialWindowPresentation == .setup {
+        switch initialWindowPresentation {
+        case .setup:
             UserDefaults.standard.set(false, forKey: UserDefaultsKeys.setupWizardCompleted)
             HomeViewModel.shared.showSetupWizard = true
             NSApp.setActivationPolicy(.regular)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 self.openSetupWindow()
             }
+        case .settings:
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                self.openSettingsWindow()
+            }
+        case .none:
+            break
         }
 
         // Observe appearance preference changes
