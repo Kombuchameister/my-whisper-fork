@@ -142,28 +142,30 @@ final class DictationViewModelIndicatorSettingsTests: XCTestCase {
         XCTAssertTrue(DictationViewModel.loadTranscribeShortQuietClipsAggressively(defaults: defaults))
     }
 
-    func testRecordingCancelConfirmationDefaultsToEnabled() {
-        XCTAssertTrue(DictationViewModel.loadRequireSecondEscapeToCancelRecording(defaults: defaults))
+    func testCancellationBehaviorDefaultsToDoubleEscape() {
+        XCTAssertEqual(DictationViewModel.loadCancellationBehavior(defaults: defaults), .doubleEscape)
     }
 
-    func testRecordingCancelConfirmationPersistsWhenDisabled() {
-        DictationViewModel.persistRequireSecondEscapeToCancelRecording(false, defaults: defaults)
-
-        XCTAssertEqual(
-            defaults.object(forKey: UserDefaultsKeys.requireSecondEscapeToCancelRecording) as? Bool,
-            false
-        )
-        XCTAssertFalse(DictationViewModel.loadRequireSecondEscapeToCancelRecording(defaults: defaults))
+    func testCancellationBehaviorMigratesLegacyPreference() {
+        for enabled in [true, false] {
+            defaults.set(enabled, forKey: UserDefaultsKeys.requireSecondEscapeToCancelRecording)
+            XCTAssertEqual(DictationViewModel.loadCancellationBehavior(defaults: defaults), enabled ? .doubleEscape : .singleEscape)
+        }
     }
 
-    func testRecordingCancelConfirmationPersistsWhenEnabled() {
-        DictationViewModel.persistRequireSecondEscapeToCancelRecording(true, defaults: defaults)
+    func testCancellationBehaviorPersistsAllModesAndOverridesLegacyPreference() {
+        defaults.set(false, forKey: UserDefaultsKeys.requireSecondEscapeToCancelRecording)
+        for behavior in CancellationBehavior.allCases {
+            DictationViewModel.persistCancellationBehavior(behavior, defaults: defaults)
+            XCTAssertEqual(DictationViewModel.loadCancellationBehavior(defaults: defaults), behavior)
+        }
+    }
 
-        XCTAssertEqual(
-            defaults.object(forKey: UserDefaultsKeys.requireSecondEscapeToCancelRecording) as? Bool,
-            true
-        )
-        XCTAssertTrue(DictationViewModel.loadRequireSecondEscapeToCancelRecording(defaults: defaults))
+    func testInvalidCancellationBehaviorFallsBackToLegacyOrDefault() {
+        defaults.set("unknown", forKey: UserDefaultsKeys.cancellationBehavior)
+        XCTAssertEqual(DictationViewModel.loadCancellationBehavior(defaults: defaults), .doubleEscape)
+        defaults.set(false, forKey: UserDefaultsKeys.requireSecondEscapeToCancelRecording)
+        XCTAssertEqual(DictationViewModel.loadCancellationBehavior(defaults: defaults), .singleEscape)
     }
 
     func testMicrophoneBoostDefaultsToDisabled() {
@@ -988,6 +990,22 @@ final class ManagedAppWindowRestorationTests: XCTestCase {
 }
 
 final class MenuBarGroupingTests: XCTestCase {
+    @MainActor
+    func testMenuBarActionDispatcherDefersUntilTheCurrentActionReturns() async {
+        let probe = MenuBarActionInvocationProbe()
+
+        await withCheckedContinuation { continuation in
+            MenuBarActionDispatcher.performAfterMenuDismissal {
+                probe.invocationCount += 1
+                continuation.resume()
+            }
+
+            XCTAssertEqual(probe.invocationCount, 0)
+        }
+
+        XCTAssertEqual(probe.invocationCount, 1)
+    }
+
     func testMenuBarSectionsUseExpectedOrderAndLocalizedKeys() {
         XCTAssertEqual(
             MenuBarMenuSection.allCases.map(\.titleLocalizationKey),
@@ -1009,6 +1027,11 @@ final class MenuBarGroupingTests: XCTestCase {
             [.toggleDictationHotkeysPause, .transcribeFile, .lastTranscription]
         )
     }
+}
+
+@MainActor
+private final class MenuBarActionInvocationProbe {
+    var invocationCount = 0
 }
 
 final class MenuBarIconStateTests: XCTestCase {
@@ -1065,7 +1088,7 @@ final class IndicatorPresentationStateTests: XCTestCase {
             actionFeedbackMessage: nil,
             actionFeedbackIcon: nil,
             actionFeedbackIsError: false,
-            actionFeedbackUndoTitle: nil,
+            actionFeedbackActionTitle: nil,
             actionFeedbackRemainingFraction: nil,
             actionFeedbackIsPaused: false,
             externalStreamingDisplayCount: 0
@@ -1090,7 +1113,7 @@ final class IndicatorPresentationStateTests: XCTestCase {
             actionFeedbackMessage: "Saved",
             actionFeedbackIcon: "checkmark.circle.fill",
             actionFeedbackIsError: false,
-            actionFeedbackUndoTitle: "Undo",
+            actionFeedbackActionTitle: "Undo",
             actionFeedbackRemainingFraction: remainingFraction,
             actionFeedbackIsPaused: isPaused,
             externalStreamingDisplayCount: 0
@@ -1703,6 +1726,41 @@ final class NotchIndicatorPanelLifecycleTests: XCTestCase {
         XCTAssertTrue(panel.isVisible)
 
         panel.dismiss()
+        panel.show()
+        try await Task.sleep(for: .milliseconds(300))
+
+        XCTAssertTrue(panel.isVisible)
+    }
+
+    func testFeedbackInteractionChangeDoesNotCancelInFlightDismissal() async throws {
+        let panel = try makePanel()
+        defer { panel.orderOut(nil) }
+
+        panel.show()
+        await Task.yield()
+        panel.updateFeedbackInteraction(isInteractive: true)
+        XCTAssertTrue(panel.isVisible)
+
+        // Dictation ends while an action-feedback toast is up: the state sink
+        // dismisses, then the feedback sink flips interaction back off inside
+        // the dismissal animation window. That second callback must not
+        // resurrect the panel — previously it cancelled the pending orderOut
+        // and left a blank window stuck over the notch.
+        panel.dismiss()
+        panel.updateFeedbackInteraction(isInteractive: false)
+        try await Task.sleep(for: .milliseconds(300))
+
+        XCTAssertFalse(panel.isVisible)
+    }
+
+    func testShowAfterFeedbackInteractionChangeDuringDismissalStillPresents() async throws {
+        let panel = try makePanel()
+        defer { panel.orderOut(nil) }
+
+        panel.show()
+        await Task.yield()
+        panel.dismiss()
+        panel.updateFeedbackInteraction(isInteractive: true)
         panel.show()
         try await Task.sleep(for: .milliseconds(300))
 

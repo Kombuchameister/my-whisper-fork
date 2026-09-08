@@ -43,11 +43,13 @@
 		AA9400000000000000000001 /* SettingsVisualComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB9400000000000000000001 /* SettingsVisualComponents.swift */; };
 		1834537D0CCC21190DB68EBD /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D8AA5F3DBFD9010D09311C40 /* Cocoa.framework */; };
 		1E6EDB8B0D1573A05A610078 /* PluginManifestValidationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDF548E65340A17A3A16590B /* PluginManifestValidationTests.swift */; };
+		7A1018FIX0000000000A001 /* PassiveRestoreSelectedEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A1018FIX0000000000A002 /* PassiveRestoreSelectedEngineTests.swift */; };
 		103600000000000000000001 /* MLXPluginModelStorageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 103600000000000000000002 /* MLXPluginModelStorageTests.swift */; };
 		1F7A2C3D4E5B60718293A4C5 /* PromptWizardComposerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A7B3C4D5E6F708192A3B4C5 /* PromptWizardComposerTests.swift */; };
 		1F7A2C3D4E5B60718293A4C6 /* PromptWizardInferenceServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A7B3C4D5E6F708192A3B4C6 /* PromptWizardInferenceServiceTests.swift */; };
 		1F7A2C3D4E5B60718293A4C7 /* PromptActionsViewModelWizardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A7B3C4D5E6F708192A3B4C7 /* PromptActionsViewModelWizardTests.swift */; };
 		4D980A5CFE1A4217A10C2101 /* WhisperKitPluginLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D980A5CFE1A4217A10C2102 /* WhisperKitPluginLifecycleTests.swift */; };
+		4D980A5CFE1A4217A10C2104 /* WhisperKitPluginCompatibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D980A5CFE1A4217A10C2103 /* WhisperKitPluginCompatibilityTests.swift */; };
 		C42900000000000000000003 /* LiveTranscriptPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB00000000000000000216 /* LiveTranscriptPlugin.swift */; };
 		204C804898EAE1127B62EC98 /* TestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = E808D246301E36546EEB811F /* TestSupport.swift */; };
 		A1F000000000000000000102 /* PostUpdatePromptCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F000000000000000000101 /* PostUpdatePromptCoordinatorTests.swift */; };
@@ -96,6 +98,8 @@
 		AA00000000000000000353 /* PostUpdatePromptCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB00000000000000000353 /* PostUpdatePromptCoordinator.swift */; };
 		AA00000000000000000354 /* SettingsNavigationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB00000000000000000354 /* SettingsNavigationCoordinator.swift */; };
 		AA00000000000000000355 /* PostUpdateLicensePromptView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB00000000000000000355 /* PostUpdateLicensePromptView.swift */; };
+		1F0550000000000000000001 /* IOSCompanionPromoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F0550000000000000000011 /* IOSCompanionPromoView.swift */; };
+		1F0550000000000000000002 /* ios-companion-promo.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = 1F0550000000000000000012 /* ios-companion-promo.mp4 */; };
 		6C7D8E9F0A1B2C3D4E5F6072 /* FloatingPanelSpacePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C7D8E9F0A1B2C3D4E5F6071 /* FloatingPanelSpacePolicy.swift */; };
 		AA00000000000000000356 /* Workflow.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB00000000000000000356 /* Workflow.swift */; };
 		AA00000000000000000357 /* WorkflowService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB00000000000000000357 /* WorkflowService.swift */; };
@@ -358,6 +362,10 @@
 		AA00000000000000000196 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = BB00000000000000000186 /* Assets.xcassets */; };
 		AA00000000000000000197 /* WidgetDataService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB00000000000000000180 /* WidgetDataService.swift */; };
 		AA00000000000000000198 /* TypeWhisperWidgetExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = BB00000000000000000188 /* TypeWhisperWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		E1A000000000000000000001 /* ActionRequestHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1A000000000000000000020 /* ActionRequestHandler.swift */; };
+		E1A000000000000000000002 /* TypeWhisperTranscribeAction.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = E1A000000000000000000023 /* TypeWhisperTranscribeAction.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		E1A000000000000000000003 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = E1A000000000000000000024 /* Assets.xcassets */; };
+		E1A000000000000000000004 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = E1A000000000000000000025 /* InfoPlist.xcstrings */; };
 		5E7A00000000000000000001 /* SpeechAnalyzerPlugin.bundle in Embed Built-In Plugins */ = {isa = PBXBuildFile; fileRef = BB00000000000000000159 /* SpeechAnalyzerPlugin.bundle */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		AA00000000000000000199 /* VoxtralPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB00000000000000000191 /* VoxtralPlugin.swift */; };
 		AA00000000000000000200 /* manifest.json in Resources */ = {isa = PBXBuildFile; fileRef = BB00000000000000000192 /* manifest.json */; };
@@ -428,6 +436,16 @@
 		AA00000000000000000238 /* manifest.json in Resources */ = {isa = PBXBuildFile; fileRef = BB00000000000000000226 /* manifest.json */; };
 		AA0000000000000000023A /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000022A /* Localizable.xcstrings */; };
 		AA00000000000000000239 /* TypeWhisperPluginSDK in Frameworks */ = {isa = PBXBuildFile; productRef = PP00000000000000000031 /* TypeWhisperPluginSDK */; };
+		4D4554410000000000000001 /* MetaPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D4554410000000000000010 /* MetaPlugin.swift */; };
+		4D4554410000000000000002 /* manifest.json in Resources */ = {isa = PBXBuildFile; fileRef = 4D4554410000000000000011 /* manifest.json */; };
+		4D4554410000000000000003 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 4D4554410000000000000012 /* Localizable.xcstrings */; };
+		4D4554410000000000000004 /* TypeWhisperPluginSDK in Frameworks */ = {isa = PBXBuildFile; productRef = 4D4554410000000000000034 /* TypeWhisperPluginSDK */; };
+		4D4554410000000000000005 /* meta.svg in Resources */ = {isa = PBXBuildFile; fileRef = 4D4554410000000000000014 /* meta.svg */; };
+		4D4149000000000000000001 /* MicrosoftAIPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D4149000000000000000010 /* MicrosoftAIPlugin.swift */; };
+		4D4149000000000000000002 /* manifest.json in Resources */ = {isa = PBXBuildFile; fileRef = 4D4149000000000000000011 /* manifest.json */; };
+		4D4149000000000000000003 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 4D4149000000000000000012 /* Localizable.xcstrings */; };
+		4D4149000000000000000004 /* TypeWhisperPluginSDK in Frameworks */ = {isa = PBXBuildFile; productRef = 4D4149000000000000000040 /* TypeWhisperPluginSDK */; };
+		4D4149000000000000000005 /* azure.svg in Resources */ = {isa = PBXBuildFile; fileRef = 4D4149000000000000000014 /* azure.svg */; };
 		AA00000000000000000240 /* MemoryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB00000000000000000228 /* MemoryService.swift */; };
 		AA00000000000000000241 /* FileMemoryPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB00000000000000000229 /* FileMemoryPlugin.swift */; };
 		AA00000000000000000242 /* manifest.json in Resources */ = {isa = PBXBuildFile; fileRef = BB00000000000000000230 /* manifest.json */; };
@@ -529,7 +547,6 @@
 		AA00000000000000000313 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = BB00000000000000000298 /* Localizable.xcstrings */; };
 		AA00000000000000000304 /* TypeWhisperPluginSDK in Frameworks */ = {isa = PBXBuildFile; productRef = PP00000000000000000044 /* TypeWhisperPluginSDK */; };
 		AA00000000000000000305 /* MLXLLM in Frameworks */ = {isa = PBXBuildFile; productRef = PP00000000000000000045 /* MLXLLM */; };
-		AA00000000000000000313 /* MLXVLM in Frameworks */ = {isa = PBXBuildFile; productRef = PP00000000000000000047 /* MLXVLM */; };
 		AA00000000000000000314 /* Transformers in Frameworks */ = {isa = PBXBuildFile; productRef = PP00000000000000000048 /* Transformers */; };
 		AA00000000000000000306 /* SpeechmaticsPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB00000000000000000291 /* SpeechmaticsPlugin.swift */; };
 		AA00000000000000000307 /* manifest.json in Resources */ = {isa = PBXBuildFile; fileRef = BB00000000000000000292 /* manifest.json */; };
@@ -578,6 +595,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = DD00000000000000000014;
 			remoteInfo = TypeWhisperWidgetExtension;
+		};
+		E1A000000000000000000010 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = EE00000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = E1A000000000000000000050;
+			remoteInfo = TypeWhisperTranscribeAction;
 		};
 		5E7A00000000000000000003 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -629,6 +653,7 @@
 			dstSubfolderSpec = 13;
 			files = (
 				AA00000000000000000198 /* TypeWhisperWidgetExtension.appex in Embed App Extensions */,
+				E1A000000000000000000002 /* TypeWhisperTranscribeAction.appex in Embed App Extensions */,
 			);
 			name = "Embed App Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -743,6 +768,8 @@
 		BB00000000000000000353 /* PostUpdatePromptCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostUpdatePromptCoordinator.swift; sourceTree = "<group>"; };
 		BB00000000000000000354 /* SettingsNavigationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsNavigationCoordinator.swift; sourceTree = "<group>"; };
 		BB00000000000000000355 /* PostUpdateLicensePromptView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostUpdateLicensePromptView.swift; sourceTree = "<group>"; };
+		1F0550000000000000000011 /* IOSCompanionPromoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSCompanionPromoView.swift; sourceTree = "<group>"; };
+		1F0550000000000000000012 /* ios-companion-promo.mp4 */ = {isa = PBXFileReference; lastKnownFileType = file; path = "ios-companion-promo.mp4"; sourceTree = "<group>"; };
 		BB00000000000000000356 /* Workflow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Workflow.swift; sourceTree = "<group>"; };
 		BB00000000000000000357 /* WorkflowService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkflowService.swift; sourceTree = "<group>"; };
 		BB00000000000000000359 /* WorkflowsSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkflowsSettingsView.swift; sourceTree = "<group>"; };
@@ -918,6 +945,12 @@
 		BB00000000000000000187 /* TypeWhisperWidgetExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = TypeWhisperWidgetExtension.entitlements; sourceTree = "<group>"; };
 		BB00000000000000000188 /* TypeWhisperWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = TypeWhisperWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		BB00000000000000000189 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		E1A000000000000000000020 /* ActionRequestHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionRequestHandler.swift; sourceTree = "<group>"; };
+		E1A000000000000000000021 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		E1A000000000000000000022 /* TypeWhisperTranscribeAction.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = TypeWhisperTranscribeAction.entitlements; sourceTree = "<group>"; };
+		E1A000000000000000000023 /* TypeWhisperTranscribeAction.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = TypeWhisperTranscribeAction.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		E1A000000000000000000024 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		E1A000000000000000000025 /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
 		BB00000000000000000190 /* VoxtralPlugin.bundle */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VoxtralPlugin.bundle; sourceTree = BUILT_PRODUCTS_DIR; };
 		BB00000000000000000191 /* VoxtralPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoxtralPlugin.swift; sourceTree = "<group>"; };
 		BB00000000000000000192 /* manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = manifest.json; sourceTree = "<group>"; };
@@ -988,6 +1021,16 @@
 		BB00000000000000000226 /* manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = manifest.json; sourceTree = "<group>"; };
 		BB0000000000000000022A /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		BB00000000000000000227 /* CloudflareASRPlugin.bundle */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CloudflareASRPlugin.bundle; sourceTree = BUILT_PRODUCTS_DIR; };
+		4D4554410000000000000010 /* MetaPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetaPlugin.swift; sourceTree = "<group>"; };
+		4D4554410000000000000011 /* manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = manifest.json; sourceTree = "<group>"; };
+		4D4554410000000000000012 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
+		4D4554410000000000000013 /* MetaPlugin.bundle */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MetaPlugin.bundle; sourceTree = BUILT_PRODUCTS_DIR; };
+		4D4554410000000000000014 /* meta.svg */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = meta.svg; sourceTree = "<group>"; };
+		4D4149000000000000000010 /* MicrosoftAIPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MicrosoftAIPlugin.swift; sourceTree = "<group>"; };
+		4D4149000000000000000011 /* manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = manifest.json; sourceTree = "<group>"; };
+		4D4149000000000000000012 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
+		4D4149000000000000000013 /* MicrosoftAIPlugin.bundle */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MicrosoftAIPlugin.bundle; sourceTree = BUILT_PRODUCTS_DIR; };
+		4D4149000000000000000014 /* azure.svg */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = azure.svg; sourceTree = "<group>"; };
 		BB00000000000000000228 /* MemoryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryService.swift; sourceTree = "<group>"; };
 		BB00000000000000000229 /* FileMemoryPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileMemoryPlugin.swift; sourceTree = "<group>"; };
 		BB00000000000000000230 /* manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = manifest.json; sourceTree = "<group>"; };
@@ -1041,6 +1084,7 @@
 		BB00000000000000000246 /* AccessibilityAnnouncementService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityAnnouncementService.swift; sourceTree = "<group>"; };
 		BB00000000000000000247 /* SpeechFeedbackService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechFeedbackService.swift; sourceTree = "<group>"; };
 		BDF548E65340A17A3A16590B /* PluginManifestValidationTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PluginManifestValidationTests.swift; sourceTree = "<group>"; };
+		7A1018FIX0000000000A002 /* PassiveRestoreSelectedEngineTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PassiveRestoreSelectedEngineTests.swift; sourceTree = "<group>"; };
 		103600000000000000000002 /* MLXPluginModelStorageTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MLXPluginModelStorageTests.swift; sourceTree = "<group>"; };
 		BE6B6611B899F649B097A726 /* SnippetServiceTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SnippetServiceTests.swift; sourceTree = "<group>"; };
 		B2D4F6A8C0E2143F9B7D5C1A /* PromptActionTemperaturePersistenceTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PromptActionTemperaturePersistenceTests.swift; sourceTree = "<group>"; };
@@ -1054,6 +1098,7 @@
 		CE5852D6767C5FA955B84C55 /* PunctuationRulesLoaderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PunctuationRulesLoaderTests.swift; sourceTree = "<group>"; };
 		CE5852D6767C5FA955B84C56 /* PunctuationStrategyResolverTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PunctuationStrategyResolverTests.swift; sourceTree = "<group>"; };
 		4D980A5CFE1A4217A10C2102 /* WhisperKitPluginLifecycleTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WhisperKitPluginLifecycleTests.swift; sourceTree = "<group>"; };
+		4D980A5CFE1A4217A10C2103 /* WhisperKitPluginCompatibilityTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WhisperKitPluginCompatibilityTests.swift; sourceTree = "<group>"; };
 		D63A42880A0BA4C84F36E873 /* DictionaryServiceTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DictionaryServiceTests.swift; sourceTree = "<group>"; };
 		D8AA5F3DBFD9010D09311C40 /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/System/Library/Frameworks/Cocoa.framework; sourceTree = DEVELOPER_DIR; };
 		DD00000000000000000098 /* typewhisper-cli */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = "typewhisper-cli"; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -1444,6 +1489,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		4D4554410000000000000032 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4D4554410000000000000004 /* TypeWhisperPluginSDK in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		4D4149000000000000000032 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4D4149000000000000000004 /* TypeWhisperPluginSDK in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		FF00000000000000000116 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -1579,7 +1640,6 @@
 			files = (
 				AA00000000000000000304 /* TypeWhisperPluginSDK in Frameworks */,
 				AA00000000000000000305 /* MLXLLM in Frameworks */,
-				AA00000000000000000313 /* MLXVLM in Frameworks */,
 				AA00000000000000000314 /* Transformers in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -1589,6 +1649,13 @@
 			buildActionMask = 2147483647;
 			files = (
 				AA00000000000000000309 /* TypeWhisperPluginSDK in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E1A000000000000000000040 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1655,6 +1722,8 @@
 				CC00000000000000000032 /* LiveTranscriptPlugin */,
 				CC00000000000000000033 /* GranitePlugin */,
 				CC00000000000000000034 /* CloudflareASRPlugin */,
+				4D4554410000000000000020 /* MetaPlugin */,
+				4D4149000000000000000020 /* MicrosoftAIPlugin */,
 				CC00000000000000000035 /* FileMemoryPlugin */,
 				C10000000000000000000001 /* SystemTTSPlugin */,
 				D20200000000000000000001 /* SupertonicPlugin */,
@@ -1674,6 +1743,7 @@
 				CC00000000000000000044 /* Gemma4Plugin */,
 				CC00000000000000000045 /* SpeechmaticsPlugin */,
 				CC00000000000000000025 /* TypeWhisperWidgetExtension */,
+				E1A000000000000000000030 /* TypeWhisperTranscribeAction */,
 				CC00000000000000000026 /* TypeWhisperWidgetShared */,
 				CC00000000000000000090 /* Products */,
 				573FF8BBD9BCC48AA1BBD1CD /* Frameworks */,
@@ -1929,6 +1999,7 @@
 				BB00000000000000000250 /* AboutSettingsView.swift */,
 				BB00000000000000000287 /* LicenseSettingsView.swift */,
 				BB00000000000000000288 /* WelcomeSheet.swift */,
+				1F0550000000000000000011 /* IOSCompanionPromoView.swift */,
 				BB00000000000000000355 /* PostUpdateLicensePromptView.swift */,
 				BB00000000000000000289 /* SupporterBadgeView.swift */,
 			);
@@ -1948,6 +2019,7 @@
 				BB00000000000000000339 /* it.json */,
 				BB00000000000000000341 /* ja.json */,
 				BB00000000000000000072 /* Assets.xcassets */,
+				1F0550000000000000000012 /* ios-companion-promo.mp4 */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -2101,9 +2173,19 @@
 				BB00000000000000000154 /* WhisperKitPlugin.swift */,
 				BB00000000000000000155 /* manifest.json */,
 				BB00000000000000000168 /* Localizable.xcstrings */,
+				4D980A5CFE1A4217A10C2105 /* Tests */,
 			);
 			name = WhisperKitPlugin;
 			path = TypeWhisperPluginSDK/Plugins/WhisperKitPlugin;
+			sourceTree = "<group>";
+		};
+		4D980A5CFE1A4217A10C2105 /* Tests */ = {
+			isa = PBXGroup;
+			children = (
+				4D980A5CFE1A4217A10C2103 /* WhisperKitPluginCompatibilityTests.swift */,
+				4D980A5CFE1A4217A10C2102 /* WhisperKitPluginLifecycleTests.swift */,
+			);
+			path = Tests;
 			sourceTree = "<group>";
 		};
 		CC00000000000000000022 /* ParakeetPlugin */ = {
@@ -2166,6 +2248,18 @@
 				BB00000000000000000189 /* Info.plist */,
 			);
 			path = TypeWhisperWidgetExtension;
+			sourceTree = "<group>";
+		};
+		E1A000000000000000000030 /* TypeWhisperTranscribeAction */ = {
+			isa = PBXGroup;
+			children = (
+				E1A000000000000000000020 /* ActionRequestHandler.swift */,
+				E1A000000000000000000024 /* Assets.xcassets */,
+				E1A000000000000000000025 /* InfoPlist.xcstrings */,
+				E1A000000000000000000022 /* TypeWhisperTranscribeAction.entitlements */,
+				E1A000000000000000000021 /* Info.plist */,
+			);
+			path = TypeWhisperTranscribeAction;
 			sourceTree = "<group>";
 		};
 		CC00000000000000000026 /* TypeWhisperWidgetShared */ = {
@@ -2343,6 +2437,30 @@
 			path = TypeWhisperPluginSDK/Plugins/CloudflareASRPlugin;
 			sourceTree = "<group>";
 		};
+		4D4554410000000000000020 /* MetaPlugin */ = {
+			isa = PBXGroup;
+			children = (
+				4D4554410000000000000010 /* MetaPlugin.swift */,
+				4D4554410000000000000011 /* manifest.json */,
+				4D4554410000000000000012 /* Localizable.xcstrings */,
+				4D4554410000000000000014 /* meta.svg */,
+			);
+			name = MetaPlugin;
+			path = TypeWhisperPluginSDK/Plugins/MetaPlugin;
+			sourceTree = "<group>";
+		};
+		4D4149000000000000000020 /* MicrosoftAIPlugin */ = {
+			isa = PBXGroup;
+			children = (
+				4D4149000000000000000010 /* MicrosoftAIPlugin.swift */,
+				4D4149000000000000000011 /* manifest.json */,
+				4D4149000000000000000012 /* Localizable.xcstrings */,
+				4D4149000000000000000014 /* azure.svg */,
+			);
+			name = MicrosoftAIPlugin;
+			path = TypeWhisperPluginSDK/Plugins/MicrosoftAIPlugin;
+			sourceTree = "<group>";
+		};
 		CC00000000000000000035 /* FileMemoryPlugin */ = {
 			isa = PBXGroup;
 			children = (
@@ -2512,9 +2630,18 @@
 				9A584149706C7567496E0210 /* XAIPlugin.swift */,
 				9A584149706C7567496E0211 /* manifest.json */,
 				9A584149706C7567496E0212 /* Localizable.xcstrings */,
+				9A584149706C7567496E0102 /* Tests */,
 			);
 			name = XAIPlugin;
 			path = TypeWhisperPluginSDK/Plugins/XAIPlugin;
+			sourceTree = "<group>";
+		};
+		9A584149706C7567496E0102 /* Tests */ = {
+			isa = PBXGroup;
+			children = (
+				9A584149706C7567496E0101 /* XAIPluginTests.swift */,
+			);
+			path = Tests;
 			sourceTree = "<group>";
 		};
 		CC00000000000000000043 /* CoherePlugin */ = {
@@ -2595,6 +2722,8 @@
 				BB00000000000000000219 /* LiveTranscriptPlugin.bundle */,
 				BB00000000000000000224 /* GranitePlugin.bundle */,
 				BB00000000000000000227 /* CloudflareASRPlugin.bundle */,
+				4D4554410000000000000013 /* MetaPlugin.bundle */,
+				4D4149000000000000000013 /* MicrosoftAIPlugin.bundle */,
 				BB00000000000000000231 /* FileMemoryPlugin.bundle */,
 				B10000000000000000000003 /* SystemTTSPlugin.bundle */,
 				D20100000000000000000006 /* SupertonicPlugin.bundle */,
@@ -2615,6 +2744,7 @@
 				BB00000000000000000294 /* SpeechmaticsPlugin.bundle */,
 				RESS00000000000000004 /* Reson8Plugin.bundle */,
 				BB00000000000000000188 /* TypeWhisperWidgetExtension.appex */,
+				E1A000000000000000000023 /* TypeWhisperTranscribeAction.appex */,
 				5CA4DB761B06383B5B8CF082 /* GoogleCloudSTTPlugin.bundle */,
 				E6F8E5940EF4832A7B8D735D /* TypeWhisperTests.xctest */,
 			);
@@ -2683,6 +2813,7 @@
 				C50700000000000000000002 /* MemoryServiceTests.swift */,
 				A1F000000000000000000101 /* PostUpdatePromptCoordinatorTests.swift */,
 				BDF548E65340A17A3A16590B /* PluginManifestValidationTests.swift */,
+				7A1018FIX0000000000A002 /* PassiveRestoreSelectedEngineTests.swift */,
 				103600000000000000000002 /* MLXPluginModelStorageTests.swift */,
 				91B4D7E2C5A809F1632E4B7D /* PluginRegistryServiceTests.swift */,
 				545000000000000000000001 /* SetupWizardRecommendationAvailabilityTests.swift */,
@@ -2698,8 +2829,6 @@
 				BE6B6611B899F649B097A726 /* SnippetServiceTests.swift */,
 				D4A100000000000000000004 /* RecorderTranscriptionBufferTests.swift */,
 				91B4D7E2C5A809F1632E4B7F /* StreamingHandlerTests.swift */,
-				9A584149706C7567496E0101 /* XAIPluginTests.swift */,
-				4D980A5CFE1A4217A10C2102 /* WhisperKitPluginLifecycleTests.swift */,
 				B26D2C342D877030A62CE027 /* Support */,
 				05313C25F9E79BCFC02899F2 /* TextDiffServiceTests.swift */,
 			);
@@ -2756,6 +2885,7 @@
 			dependencies = (
 				GG00000000000000000001 /* PBXTargetDependency */,
 				GG00000000000000000009 /* PBXTargetDependency */,
+				E1A000000000000000000060 /* PBXTargetDependency */,
 				5E7A00000000000000000004 /* PBXTargetDependency */,
 				1C1000000000000000000045 /* PBXTargetDependency */,
 			);
@@ -3085,6 +3215,23 @@
 			productReference = BB00000000000000000188 /* TypeWhisperWidgetExtension.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		E1A000000000000000000050 /* TypeWhisperTranscribeAction */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = E1A000000000000000000080 /* Build configuration list for PBXNativeTarget "TypeWhisperTranscribeAction" */;
+			buildPhases = (
+				E1A000000000000000000042 /* Sources */,
+				E1A000000000000000000040 /* Frameworks */,
+				E1A000000000000000000041 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = TypeWhisperTranscribeAction;
+			productName = TypeWhisperTranscribeAction;
+			productReference = E1A000000000000000000023 /* TypeWhisperTranscribeAction.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 		DD00000000000000000015 /* VoxtralPlugin */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = FF00000000000000000083 /* Build configuration list for PBXNativeTarget "VoxtralPlugin" */;
@@ -3387,6 +3534,46 @@
 			);
 			productName = CloudflareASRPlugin;
 			productReference = BB00000000000000000227 /* CloudflareASRPlugin.bundle */;
+			productType = "com.apple.product-type.bundle";
+		};
+		4D4554410000000000000030 /* MetaPlugin */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 4D4554410000000000000042 /* Build configuration list for PBXNativeTarget "MetaPlugin" */;
+			buildPhases = (
+				4D4554410000000000000031 /* Sources */,
+				4D4554410000000000000032 /* Frameworks */,
+				4D4554410000000000000033 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = MetaPlugin;
+			packageProductDependencies = (
+				4D4554410000000000000034 /* TypeWhisperPluginSDK */,
+			);
+			productName = MetaPlugin;
+			productReference = 4D4554410000000000000013 /* MetaPlugin.bundle */;
+			productType = "com.apple.product-type.bundle";
+		};
+		4D4149000000000000000030 /* MicrosoftAIPlugin */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 4D4149000000000000000043 /* Build configuration list for PBXNativeTarget "MicrosoftAIPlugin" */;
+			buildPhases = (
+				4D4149000000000000000031 /* Sources */,
+				4D4149000000000000000032 /* Frameworks */,
+				4D4149000000000000000033 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = MicrosoftAIPlugin;
+			packageProductDependencies = (
+				4D4149000000000000000040 /* TypeWhisperPluginSDK */,
+			);
+			productName = MicrosoftAIPlugin;
+			productReference = 4D4149000000000000000013 /* MicrosoftAIPlugin.bundle */;
 			productType = "com.apple.product-type.bundle";
 		};
 		DD00000000000000000023 /* FileMemoryPlugin */ = {
@@ -3726,7 +3913,6 @@
 			packageProductDependencies = (
 				PP00000000000000000044 /* TypeWhisperPluginSDK */,
 				PP00000000000000000045 /* MLXLLM */,
-				PP00000000000000000047 /* MLXVLM */,
 				PP00000000000000000048 /* Transformers */,
 			);
 			productName = Gemma4Plugin;
@@ -3792,6 +3978,9 @@
 					DD00000000000000000002 = {
 						CreatedOnToolsVersion = 16.0;
 					};
+					E1A000000000000000000050 = {
+						CreatedOnToolsVersion = 26.0;
+					};
 					D10000000000000000000001 = {
 						CreatedOnToolsVersion = 16.0;
 					};
@@ -3808,6 +3997,7 @@
 				en,
 				de,
 				ja,
+				"zh-Hans",
 				Base,
 			);
 			mainGroup = CC00000000000000000001;
@@ -3858,6 +4048,8 @@
 				DD00000000000000000020 /* LiveTranscriptPlugin */,
 				DD00000000000000000021 /* GranitePlugin */,
 				DD00000000000000000022 /* CloudflareASRPlugin */,
+				4D4554410000000000000030 /* MetaPlugin */,
+				4D4149000000000000000030 /* MicrosoftAIPlugin */,
 				DD00000000000000000023 /* FileMemoryPlugin */,
 				D10000000000000000000001 /* SystemTTSPlugin */,
 				D20300000000000000000001 /* SupertonicPlugin */,
@@ -3878,6 +4070,7 @@
 				DD00000000000000000034 /* SpeechmaticsPlugin */,
 				RESN00000000000000001 /* Reson8Plugin */,
 				DD00000000000000000014 /* TypeWhisperWidgetExtension */,
+				E1A000000000000000000050 /* TypeWhisperTranscribeAction */,
 				40F22D3F350BA09ADEFBD2CB /* TypeWhisperTests */,
 				F3E17BDD5CED7E75F4153E95 /* GoogleCloudSTTPlugin */,
 			);
@@ -3913,6 +4106,7 @@
 				AA00000000000000000088 /* transcription_success.wav in Resources */,
 				AA00000000000000000089 /* error.wav in Resources */,
 				AA00000000000000000108 /* PrivacyInfo.xcprivacy in Resources */,
+				1F0550000000000000000002 /* ios-companion-promo.mp4 in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -4173,6 +4367,26 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		4D4554410000000000000033 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4D4554410000000000000002 /* manifest.json in Resources */,
+				4D4554410000000000000003 /* Localizable.xcstrings in Resources */,
+				4D4554410000000000000005 /* meta.svg in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		4D4149000000000000000033 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4D4149000000000000000002 /* manifest.json in Resources */,
+				4D4149000000000000000003 /* Localizable.xcstrings in Resources */,
+				4D4149000000000000000005 /* azure.svg in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		FF00000000000000000117 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -4340,6 +4554,15 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		E1A000000000000000000041 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E1A000000000000000000003 /* Assets.xcassets in Resources */,
+				E1A000000000000000000004 /* InfoPlist.xcstrings in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -4417,6 +4640,7 @@
 				C23000000000000000000004 /* Gemma4SettingsView.swift in Sources */,
 				C42900000000000000000003 /* LiveTranscriptPlugin.swift in Sources */,
 				1E6EDB8B0D1573A05A610078 /* PluginManifestValidationTests.swift in Sources */,
+				7A1018FIX0000000000A001 /* PassiveRestoreSelectedEngineTests.swift in Sources */,
 				103600000000000000000001 /* MLXPluginModelStorageTests.swift in Sources */,
 				F18A00000000000000000006 /* FillerWordsPlugin.swift in Sources */,
 				91B4D7E2C5A809F1632E4B7C /* PluginRegistryServiceTests.swift in Sources */,
@@ -4439,6 +4663,7 @@
 				204C804898EAE1127B62EC98 /* TestSupport.swift in Sources */,
 				76858B5B28A121356A5D9599 /* TextDiffServiceTests.swift in Sources */,
 				4D980A5CFE1A4217A10C2101 /* WhisperKitPluginLifecycleTests.swift in Sources */,
+				4D980A5CFE1A4217A10C2104 /* WhisperKitPluginCompatibilityTests.swift in Sources */,
 				E2DA879FDEFA04FBD013E837 /* OutputFormatter.swift in Sources */,
 				BA68B1E282D5D714132FEA24 /* PortDiscovery.swift in Sources */,
 			);
@@ -4660,6 +4885,7 @@
 				AA00000000000000000353 /* PostUpdatePromptCoordinator.swift in Sources */,
 				AA00000000000000000354 /* SettingsNavigationCoordinator.swift in Sources */,
 				AA00000000000000000355 /* PostUpdateLicensePromptView.swift in Sources */,
+				1F0550000000000000000001 /* IOSCompanionPromoView.swift in Sources */,
 				AA00000000000000000303 /* SupporterBadgeView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -4924,6 +5150,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		4D4554410000000000000031 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4D4554410000000000000001 /* MetaPlugin.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		4D4149000000000000000031 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4D4149000000000000000001 /* MicrosoftAIPlugin.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		FF00000000000000000115 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -5071,6 +5313,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		E1A000000000000000000042 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E1A000000000000000000001 /* ActionRequestHandler.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -5094,6 +5344,11 @@
 			isa = PBXTargetDependency;
 			target = DD00000000000000000014 /* TypeWhisperWidgetExtension */;
 			targetProxy = HH00000000000000000009 /* PBXContainerItemProxy */;
+		};
+		E1A000000000000000000060 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = E1A000000000000000000050 /* TypeWhisperTranscribeAction */;
+			targetProxy = E1A000000000000000000010 /* PBXContainerItemProxy */;
 		};
 		5E7A00000000000000000004 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
@@ -6068,6 +6323,60 @@
 			};
 			name = Release;
 		};
+		E1A000000000000000000070 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = TypeWhisperTranscribeAction/TypeWhisperTranscribeAction.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = "$(MARKETING_VERSION)";
+				DEAD_CODE_STRIPPING = YES;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = TypeWhisperTranscribeAction/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MARKETING_VERSION = 1.7.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.typewhisper.mac.dev.transcribe-action;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_STRICT_CONCURRENCY = targeted;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		E1A000000000000000000071 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = TypeWhisperTranscribeAction/TypeWhisperTranscribeAction.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = "$(MARKETING_VERSION)";
+				DEAD_CODE_STRIPPING = YES;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = TypeWhisperTranscribeAction/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MARKETING_VERSION = 1.7.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.typewhisper.mac.transcribe-action;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_STRICT_CONCURRENCY = targeted;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
 		XX00000000000000000057 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -6870,6 +7179,102 @@
 			};
 			name = Release;
 		};
+		4D4554410000000000000040 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Meta;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSPrincipalClass = MetaPlugin;
+				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Bundles";
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.typewhisper.meta;
+				PRODUCT_NAME = MetaPlugin;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 6.0;
+				WRAPPER_EXTENSION = bundle;
+			};
+			name = Debug;
+		};
+		4D4554410000000000000041 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Meta;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSPrincipalClass = MetaPlugin;
+				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Bundles";
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.typewhisper.meta;
+				PRODUCT_NAME = MetaPlugin;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 6.0;
+				WRAPPER_EXTENSION = bundle;
+			};
+			name = Release;
+		};
+		4D4149000000000000000041 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Microsoft AI";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSPrincipalClass = MicrosoftAIPlugin;
+				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Bundles";
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.typewhisper.microsoft-ai";
+				PRODUCT_NAME = MicrosoftAIPlugin;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 6.0;
+				WRAPPER_EXTENSION = bundle;
+			};
+			name = Debug;
+		};
+		4D4149000000000000000042 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Microsoft AI";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSPrincipalClass = MicrosoftAIPlugin;
+				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Bundles";
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.typewhisper.microsoft-ai";
+				PRODUCT_NAME = MicrosoftAIPlugin;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 6.0;
+				WRAPPER_EXTENSION = bundle;
+			};
+			name = Release;
+		};
 		XX00000000000000000093 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -7577,7 +7982,7 @@
 				INFOPLIST_KEY_NSPrincipalClass = Gemma4Plugin;
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Bundles";
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.1.6;
 				PRODUCT_BUNDLE_IDENTIFIER = com.typewhisper.gemma4;
 				PRODUCT_NAME = Gemma4Plugin;
 				SDKROOT = macosx;
@@ -7601,7 +8006,7 @@
 				INFOPLIST_KEY_NSPrincipalClass = Gemma4Plugin;
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Bundles";
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.1.6;
 				PRODUCT_BUNDLE_IDENTIFIER = com.typewhisper.gemma4;
 				PRODUCT_NAME = Gemma4Plugin;
 				SDKROOT = macosx;
@@ -7939,6 +8344,15 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		E1A000000000000000000080 /* Build configuration list for PBXNativeTarget "TypeWhisperTranscribeAction" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				E1A000000000000000000070 /* Debug */,
+				E1A000000000000000000071 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		FF00000000000000000083 /* Build configuration list for PBXNativeTarget "VoxtralPlugin" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -8070,6 +8484,24 @@
 			buildConfigurations = (
 				XX00000000000000000089 /* Debug */,
 				XX00000000000000000090 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		4D4554410000000000000042 /* Build configuration list for PBXNativeTarget "MetaPlugin" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				4D4554410000000000000040 /* Debug */,
+				4D4554410000000000000041 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		4D4149000000000000000043 /* Build configuration list for PBXNativeTarget "MicrosoftAIPlugin" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				4D4149000000000000000041 /* Debug */,
+				4D4149000000000000000042 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
@@ -8500,6 +8932,10 @@
 			isa = XCSwiftPackageProductDependency;
 			productName = TypeWhisperPluginSDK;
 		};
+		4D4554410000000000000034 /* TypeWhisperPluginSDK */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = TypeWhisperPluginSDK;
+		};
 		PP00000000000000000032 /* TypeWhisperPluginSDK */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = TypeWhisperPluginSDK;
@@ -8545,6 +8981,10 @@
 			productName = TypeWhisperPluginSDK;
 		};
 		PP00000000000000000041 /* TypeWhisperPluginSDK */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = TypeWhisperPluginSDK;
+		};
+		4D4149000000000000000040 /* TypeWhisperPluginSDK */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = TypeWhisperPluginSDK;
 		};

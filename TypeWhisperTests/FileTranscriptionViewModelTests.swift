@@ -1,10 +1,57 @@
 import Foundation
+import AppKit
 import TypeWhisperPluginSDK
 import XCTest
 @testable import TypeWhisper
 
 @MainActor
 final class FileTranscriptionViewModelTests: XCTestCase {
+    func testFinderTranscriptionServiceFiltersAndRoutesSupportedFiles() {
+        let audioURL = makeTemporaryFile(named: "meeting.MP3")
+        let videoURL = makeTemporaryFile(named: "recording.mov")
+        let unsupportedURL = makeTemporaryFile(named: "notes.txt")
+        let pasteboard = NSPasteboard.withUniqueName()
+        pasteboard.clearContents()
+        pasteboard.writeObjects([
+            audioURL as NSURL,
+            unsupportedURL as NSURL,
+            videoURL as NSURL,
+            audioURL as NSURL,
+        ])
+
+        var enqueuedURLs: [URL] = []
+        var presentationCount = 0
+        let service = FinderTranscriptionService(
+            enqueueFiles: { enqueuedURLs = $0 },
+            presentFileTranscription: { presentationCount += 1 }
+        )
+
+        let error = service.handle(pasteboard)
+
+        XCTAssertNil(error)
+        XCTAssertEqual(enqueuedURLs, [audioURL, videoURL].map { $0.standardizedFileURL })
+        XCTAssertEqual(presentationCount, 1)
+    }
+
+    func testFinderTranscriptionServiceRejectsSelectionWithoutSupportedMedia() {
+        let pasteboard = NSPasteboard.withUniqueName()
+        pasteboard.clearContents()
+        pasteboard.writeObjects([makeTemporaryFile(named: "notes.txt") as NSURL])
+
+        var didEnqueue = false
+        var didPresent = false
+        let service = FinderTranscriptionService(
+            enqueueFiles: { _ in didEnqueue = true },
+            presentFileTranscription: { didPresent = true }
+        )
+
+        let error = service.handle(pasteboard)
+
+        XCTAssertEqual(error, "No supported audio or video files were selected.")
+        XCTAssertFalse(didEnqueue)
+        XCTAssertFalse(didPresent)
+    }
+
     func testImportedPluginMediaCanBeAddedToTranscriptionQueue() throws {
         let previousPluginManager = PluginManager.shared
         let appSupportDirectory = try TestSupport.makeTemporaryDirectory()
@@ -842,7 +889,7 @@ final class FileTranscriptionViewModelTests: XCTestCase {
         XCTAssertEqual(capturedTask, .translate)
         XCTAssertEqual(capturedEngineOverrideId, "parakeet")
         XCTAssertEqual(capturedModelOverrideId, "parakeet-large")
-        let historyRecord = try XCTUnwrap(historyService.records.first)
+        let historyRecord = try XCTUnwrap(historyService.recentRecords.first)
         XCTAssertEqual(historyRecord.rawText, "Recovered dictation")
         XCTAssertEqual(historyRecord.finalText, "Recovered dictation")
         XCTAssertEqual(historyRecord.language, "de")
@@ -886,7 +933,7 @@ final class FileTranscriptionViewModelTests: XCTestCase {
         viewModel.transcribe()
         try await waitForRecoveryToSave(viewModel, historyService: historyService)
 
-        let historyRecord = try XCTUnwrap(historyService.records.first)
+        let historyRecord = try XCTUnwrap(historyService.recentRecords.first)
         XCTAssertNil(historyService.audioFileURL(for: historyRecord))
         XCTAssertFalse(FileManager.default.fileExists(atPath: recoveryURL.path))
         XCTAssertTrue(viewModel.recoveries.isEmpty)
@@ -1157,7 +1204,7 @@ final class FileTranscriptionViewModelTests: XCTestCase {
         historyService: HistoryService
     ) async throws {
         for _ in 0..<50 {
-            if viewModel.lastSavedHistoryRecordID != nil, !historyService.records.isEmpty {
+            if viewModel.lastSavedHistoryRecordID != nil, !historyService.recentRecords.isEmpty {
                 return
             }
             try await Task.sleep(for: .milliseconds(20))

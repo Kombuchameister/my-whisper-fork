@@ -972,6 +972,14 @@ private struct WorkflowRow: View {
                         tint: .secondary.opacity(0.12),
                         foreground: .secondary
                     )
+                    if workflow.usesInlineCommands {
+                        WorkflowBadge(
+                            title: String(localized: "Inline Commands"),
+                            compact: true,
+                            tint: .secondary.opacity(0.12),
+                            foreground: .secondary
+                        )
+                    }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1277,6 +1285,10 @@ private struct WorkflowEditorPage: View {
                 if draft.template == .dictation || draft.template == .commandMode {
                     workflowInputLanguageEditor
                     workflowTranscriptionEngineSection
+                }
+
+                if draft.template == .dictation {
+                    workflowInlineCommandsSection
                 }
 
                 if draft.template == .commandMode {
@@ -1606,6 +1618,34 @@ private struct WorkflowEditorPage: View {
             .font(.caption)
             .foregroundStyle(.secondary)
         }
+    }
+
+    private var workflowInlineCommandsSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Toggle(String(localized: "Inline Commands"), isOn: workflowInlineCommandsBinding)
+
+            Text(
+                draft.inlineCommandsEnabled == true
+                    ? localizedAppText(
+                        "A spoken instruction like \"write this as a friendly email\" is detected, removed, and applied to the dictation.",
+                        de: "Eine gesprochene Anweisung wie \"schreib das als freundliche E-Mail\" wird erkannt, entfernt und auf das Diktat angewendet."
+                    )
+                    : localizedAppText(
+                        "Dictated text is inserted unchanged. Turn on to detect a spoken transformation instruction in the dictation.",
+                        de: "Diktierter Text wird unverändert eingefügt. Aktivieren, um eine gesprochene Umwandlungsanweisung im Diktat zu erkennen."
+                    )
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var workflowInlineCommandsBinding: Binding<Bool> {
+        Binding(
+            get: { draft.inlineCommandsEnabled ?? false },
+            set: { draft.inlineCommandsEnabled = $0 }
+        )
     }
 
     private var workflowInputLanguageEditor: some View {
@@ -2957,6 +2997,7 @@ struct WorkflowDraft {
     var transcriptionEngineId: String?
     var transcriptionModelId: String?
     var microphoneBoostOverride: Bool?
+    var inlineCommandsEnabled: Bool?
 
     private var preservedBehaviorSettings: [String: String]
     var providerId: String?
@@ -3000,6 +3041,7 @@ struct WorkflowDraft {
         self.transcriptionEngineId = nil
         self.transcriptionModelId = nil
         self.microphoneBoostOverride = nil
+        self.inlineCommandsEnabled = nil
         self.preservedBehaviorSettings = [:]
         self.providerId = nil
         self.cloudModel = nil
@@ -3034,6 +3076,7 @@ struct WorkflowDraft {
         self.transcriptionEngineId = usesRecordingShortcut ? behavior.transcriptionEngineId : nil
         self.transcriptionModelId = usesRecordingShortcut ? behavior.transcriptionModelId : nil
         self.microphoneBoostOverride = behavior.microphoneBoostOverride
+        self.inlineCommandsEnabled = workflow.template == .dictation ? behavior.inlineCommandsEnabled : nil
         self.hotkeyBehavior = .startDictation
         self.preservedBehaviorSettings = behavior.settings
         self.providerId = behavior.providerId
@@ -3106,7 +3149,7 @@ struct WorkflowDraft {
     }
 
     var usesLLMProcessing: Bool {
-        !usesAppleTranslate && template != .dictation
+        !usesAppleTranslate && (template != .dictation || inlineCommandsEnabled == true)
     }
 
     var reviewText: String {
@@ -3180,6 +3223,7 @@ struct WorkflowDraft {
         } else {
             transcriptionEngineId = nil
             transcriptionModelId = nil
+            inlineCommandsEnabled = nil
             if newTemplate == .speakToWindow {
                 triggerMode = .automatic
                 isHotkeyTriggerEnabled = true
@@ -3421,6 +3465,7 @@ struct WorkflowDraft {
             transcriptionEngineId: trimmedTranscriptionEngineId,
             transcriptionModelId: trimmedTranscriptionEngineId != nil ? Self.trimmedOptional(transcriptionModelId) : nil,
             microphoneBoostOverride: microphoneBoostOverride,
+            inlineCommandsEnabled: template == .dictation ? inlineCommandsEnabled : nil,
             temperatureModeRaw: temperatureModeRaw,
             temperatureValue: temperatureValue
         )
