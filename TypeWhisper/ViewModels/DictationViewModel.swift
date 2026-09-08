@@ -270,13 +270,11 @@ final class DictationViewModel: ObservableObject {
     @Published private(set) var actionFeedbackIsPaused = false
 
     var actionFeedbackLayoutText: String? {
-        guard let actionFeedbackMessage else { return nil }
-        guard actionFeedbackExpanded,
-              let actionFeedbackCommandModeContext,
-              !actionFeedbackCommandModeContext.isEmpty else {
-            return actionFeedbackMessage
-        }
-        return actionFeedbackCommandModeContext + "\n" + actionFeedbackMessage
+        IndicatorFeedbackPanelLayout.feedbackLayoutText(
+            message: actionFeedbackMessage,
+            context: actionFeedbackCommandModeContext,
+            expanded: actionFeedbackExpanded
+        )
     }
     @Published var activeAppIcon: NSImage?
     private var actionDisplayDuration: TimeInterval = 3.5
@@ -2012,7 +2010,7 @@ final class DictationViewModel: ObservableObject {
                 // Route to action plugin or insert text
                 if handledCommandMode {
                     cancelLiveFieldTranscriptSession()
-                    actionFeedbackCommandModeContext = "Request: \(result.text)\nStatus: Complete"
+                    actionFeedbackCommandModeContext = "Request: \(result.text)"
                     actionFeedbackMessage = text
                     actionFeedbackIcon = "terminal.fill"
                     actionFeedbackShowsCommandModeDetails = true

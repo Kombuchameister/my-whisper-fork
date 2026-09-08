@@ -2,6 +2,24 @@ import XCTest
 @testable import TypeWhisperPluginSDK
 
 final class OpenAIChatHelperTests: XCTestCase {
+    func testRequestBudgetCapsOnlyTheCurrentOperationAndPreservesSmallerLimits() {
+        let helper = PluginOpenAIChatHelper(baseURL: "https://example.com")
+        func body(_ limit: Int?) -> [String: Any] {
+            helper.requestBody(model: "test", systemPrompt: "Plan", userText: "Open Safari",
+                maxOutputTokens: limit, maxOutputTokenParameter: "max_completion_tokens",
+                reasoningEffort: "medium", temperature: 0)
+        }
+        XCTAssertNil(PluginLLMRequestBudget.maxOutputTokens)
+        PluginLLMRequestBudget.$maxOutputTokens.withValue(1_024) {
+            XCTAssertEqual(body(4_096)["max_completion_tokens"] as? Int, 1_024)
+            XCTAssertEqual(body(nil)["max_completion_tokens"] as? Int, 1_024)
+            XCTAssertEqual(body(512)["max_completion_tokens"] as? Int, 512)
+            XCTAssertEqual(body(4_096)["reasoning_effort"] as? String, "medium")
+        }
+        XCTAssertEqual(body(4_096)["max_completion_tokens"] as? Int, 4_096)
+        XCTAssertNil(body(nil)["max_completion_tokens"])
+    }
+
     func testRequestBodyUsesMaxTokensByDefault() {
         let helper = PluginOpenAIChatHelper(baseURL: "https://example.com")
 
