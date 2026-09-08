@@ -632,6 +632,7 @@ class PromptProcessingService: ObservableObject {
                             prompt: effectivePrompt,
                             text: attemptText,
                             temperatureDirective: temperatureDirective,
+                            onPartialResult: onPartialResult,
                             onLocalProviderUsed: { provider in
                                 let identity = ObjectIdentifier(provider)
                                 guard localProviderIdentities.insert(identity).inserted else { return }
@@ -716,6 +717,7 @@ class PromptProcessingService: ObservableObject {
                     prompt: effectivePrompt,
                     text: inputText(for: processingKind, providerId: retryProviderId, fallbackText: text),
                     temperatureDirective: temperatureDirective,
+                    onPartialResult: onPartialResult,
                     onLocalProviderUsed: { provider in
                         let identity = ObjectIdentifier(provider)
                         guard localProviderIdentities.insert(identity).inserted else { return }
