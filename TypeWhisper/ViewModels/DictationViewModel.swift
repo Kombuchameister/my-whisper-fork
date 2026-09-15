@@ -233,6 +233,7 @@ final class DictationViewModel: ObservableObject {
     @Published var state: State = .idle {
         didSet {
             hotkeyService.isCancellationAvailable = cancelWarningTargetForCurrentState() != nil
+            updateSubmitOnEnterAvailability()
             clearCancelWarningIfStateNoLongerMatches()
         }
     }
@@ -394,6 +395,7 @@ final class DictationViewModel: ObservableObject {
     private let settingsHandler: DictationSettingsHandler
     private var transcriptionTask: Task<Void, Never>?
     private var recordingStartTask: Task<Void, Never>?
+    private var submitAvailabilityMonitor: Task<Void, Never>?
     // A new capture must wait until the previous recorder has stopped and discarded its audio.
     private var recordingCleanupTask: Task<Void, Never>?
     private var stopFinalizationTask: Task<Void, Never>?
@@ -1154,6 +1156,15 @@ final class DictationViewModel: ObservableObject {
             self?.processWorkflowHotkeyText(workflowId: workflowId)
         }
 
+        hotkeyService.onSubmitDictationPressed = { [weak self] sessionID in
+            // The event handler already captured eligibility with this recording ID.
+            // A URL workflow update before main-queue delivery must not revoke the press.
+            guard let self, self.activeDictationSessionID == sessionID,
+                  self.state == .recording else { return }
+            self.hotkeyService.cancelDictation()
+            self.stopDictation(submitRequested: true)
+        }
+
         hotkeyService.onCancelPressed = { [weak self] in
             self?.handleCancelHotkey()
         }
@@ -1282,6 +1293,12 @@ final class DictationViewModel: ObservableObject {
         let cancelledMessage = String(localized: "Cancelled")
         clearCancelWarning()
 
+        if state == .processing, recordingStartTask != nil, !isStopInFlight {
+            abortActiveRecordingImmediately(sessionMessage: cancelledMessage)
+            finishCancellation(message: cancelledMessage)
+            return
+        }
+
         switch state {
         case .recording:
             guard !isStopInFlight else { return }
@@ -1393,7 +1410,33 @@ final class DictationViewModel: ObservableObject {
         prepareRecordingStartCue(playsSound: !selectedInputUsesBluetooth)
         let audioStartTimestamp = DispatchTime.now().uptimeNanoseconds
 
-        beginRecordingPreparation()
+        // Only the physical-submit mode needs context before microphone startup.
+        // Preserve audio-first startup for existing workflows.
+        let needsEarlyWorkflowMatch = initialForcedWorkflow.map { $0.output.autoEnterMode == .duringDictation }
+            ?? workflowService.workflows.contains { $0.isEnabled && $0.output.autoEnterMode == .duringDictation }
+        let initialActiveApp: (name: String?, bundleId: String?, url: String?) = needsEarlyWorkflowMatch
+            ? (pendingLiveFieldCapture?.activeApp ?? textInsertionService.captureActiveApp())
+            : (nil, nil, nil)
+        if needsEarlyWorkflowMatch {
+            let initialWorkflowMatch = initialForcedWorkflow.map { workflowService.forcedWorkflowMatch(for: $0) }
+                ?? workflowService.matchWorkflow(bundleIdentifier: initialActiveApp.bundleId, url: nil)
+            applyWorkflowMatch(initialWorkflowMatch, activeApp: initialActiveApp)
+        }
+
+        let resolveWebsiteBeforeRecording = initialForcedWorkflow == nil && workflowService.workflows.contains { workflow in
+            guard workflow.isEnabled,
+                  workflow.output.autoEnterMode == .duringDictation || effectiveAutoEnterMode == .duringDictation,
+                  let trigger = workflow.trigger, !trigger.websitePatterns.isEmpty else { return false }
+            return trigger.appBundleIdentifiers.isEmpty
+                || trigger.appBundleIdentifiers.contains(initialActiveApp.bundleId ?? "")
+        }
+        if resolveWebsiteBeforeRecording {
+            state = .processing
+            processingPhase = localizedAppText("Checking website…", de: "Website wird geprüft …")
+        } else {
+            guard ensureSubmitKeySuppressionAvailable() else { return }
+            beginRecordingPreparation()
+        }
         let requestToFeedbackMs = Self.elapsedMilliseconds(
             from: requestUptimeNanoseconds,
             to: DispatchTime.now().uptimeNanoseconds
@@ -1415,6 +1458,34 @@ final class DictationViewModel: ObservableObject {
                 await previousCleanup?.value
                 try Task.checkCancellation()
                 guard self.activeDictationSessionID == sessionID else { return }
+                var resolvedStartupApp: (name: String?, bundleId: String?, url: String?)? = needsEarlyWorkflowMatch
+                    ? initialActiveApp : nil
+                if resolveWebsiteBeforeRecording {
+                    let resolvedURL: String?
+                    if let bundleID = initialActiveApp.bundleId {
+                        resolvedURL = await self.textInsertionService.resolveBrowserURL(bundleId: bundleID)
+                    } else {
+                        resolvedURL = nil
+                    }
+                    try Task.checkCancellation()
+                    guard self.activeDictationSessionID == sessionID else { return }
+                    let app = (name: initialActiveApp.name, bundleId: initialActiveApp.bundleId, url: resolvedURL)
+                    resolvedStartupApp = app
+                    self.applyWorkflowMatch(
+                        self.workflowService.matchWorkflow(bundleIdentifier: app.bundleId, url: app.url),
+                        activeApp: app
+                    )
+                    guard self.ensureSubmitKeySuppressionAvailable() else { return }
+                    self.processingPhase = nil
+                    self.beginRecordingPreparation()
+                }
+                // Keep the application used for early workflow assignment fixed through startup.
+                if resolvedStartupApp != nil,
+                   self.textInsertionService.captureActiveApp().bundleId != initialActiveApp.bundleId {
+                    self.abortActiveRecordingImmediately(sessionMessage: String(localized: "Cancelled"))
+                    self.finishCancellation(message: String(localized: "Cancelled"))
+                    return
+                }
                 try await self.audioRecordingService.startRecordingAsync(
                     requestUptimeNanoseconds: requestUptimeNanoseconds
                 )
@@ -1423,6 +1494,20 @@ final class DictationViewModel: ObservableObject {
                       self.state == .recording else {
                     return
                 }
+                if let resolvedStartupApp {
+                    var currentURL = resolvedStartupApp.url
+                    if resolveWebsiteBeforeRecording, let bundleID = resolvedStartupApp.bundleId {
+                        currentURL = await self.textInsertionService.resolveBrowserURL(bundleId: bundleID)
+                    }
+                    try Task.checkCancellation()
+                    guard self.activeDictationSessionID == sessionID, self.state == .recording else { return }
+                    guard self.textInsertionService.captureActiveApp().bundleId == resolvedStartupApp.bundleId,
+                          currentURL == resolvedStartupApp.url else {
+                        self.abortActiveRecordingImmediately(sessionMessage: String(localized: "Cancelled"))
+                        self.finishCancellation(message: String(localized: "Cancelled"))
+                        return
+                    }
+                }
                 self.completeRecordingStart(
                     forcedWorkflowId: forcedWorkflowId,
                     sessionID: sessionID,
@@ -1430,7 +1515,9 @@ final class DictationViewModel: ObservableObject {
                     startTimestamp: startTimestamp,
                     audioStartTimestamp: audioStartTimestamp,
                     selectedInputUsesBluetooth: selectedInputUsesBluetooth,
-                    initialForcedWorkflow: initialForcedWorkflow
+                    initialForcedWorkflow: initialForcedWorkflow,
+                    resolvedStartupApp: resolvedStartupApp,
+                    websiteResolvedBeforeRecording: resolveWebsiteBeforeRecording
                 )
             } catch is CancellationError {
                 logger.info("Recording preparation cancelled")
@@ -1496,7 +1583,9 @@ final class DictationViewModel: ObservableObject {
         startTimestamp: TimeInterval,
         audioStartTimestamp: UInt64,
         selectedInputUsesBluetooth: Bool,
-        initialForcedWorkflow: Workflow?
+        initialForcedWorkflow: Workflow?,
+        resolvedStartupApp: (name: String?, bundleId: String?, url: String?)? = nil,
+        websiteResolvedBeforeRecording: Bool = false
     ) {
         guard activeDictationSessionID == sessionID else { return }
 
@@ -1538,7 +1627,9 @@ final class DictationViewModel: ObservableObject {
         pendingLiveFieldCapture = nil
         let currentActiveApp = textInsertionService.captureActiveApp()
         let activeApp: (name: String?, bundleId: String?, url: String?)
-        if let liveFieldCapture,
+        if let resolvedStartupApp {
+            activeApp = resolvedStartupApp
+        } else if let liveFieldCapture,
            textInsertionService.pinnedInsertionTargetIsFocused(
             liveFieldCapture.pinnedTarget,
             knownActiveBundleIdentifier: currentActiveApp.bundleId
@@ -1554,11 +1645,12 @@ final class DictationViewModel: ObservableObject {
 
         if let forcedWorkflow = initialForcedWorkflow {
             applyWorkflowMatch(workflowService.forcedWorkflowMatch(for: forcedWorkflow), activeApp: activeApp)
-        } else if let workflowMatch = workflowService.matchWorkflow(bundleIdentifier: activeApp.bundleId, url: nil) {
+        } else if let workflowMatch = workflowService.matchWorkflow(bundleIdentifier: activeApp.bundleId, url: activeApp.url) {
             applyWorkflowMatch(workflowMatch, activeApp: activeApp)
         } else {
             clearActiveRuleState()
         }
+        guard ensureSubmitKeySuppressionAvailable() else { return }
         beginTargetAppAccessibilityObservationIfNeeded(
             bundleIdentifier: activeApp.bundleId
         )
@@ -1583,7 +1675,8 @@ final class DictationViewModel: ObservableObject {
         )
         scheduleDeferredRecordingMetadataCapture(
             activeApp: activeApp,
-            forcedWorkflowId: forcedWorkflowId
+            forcedWorkflowId: forcedWorkflowId,
+            resolveURL: !websiteResolvedBeforeRecording
         )
 
         let totalStartMs = (CFAbsoluteTimeGetCurrent() - startTimestamp) * 1000
@@ -1623,7 +1716,8 @@ final class DictationViewModel: ObservableObject {
 
     private func scheduleDeferredRecordingMetadataCapture(
         activeApp: (name: String?, bundleId: String?, url: String?),
-        forcedWorkflowId: UUID?
+        forcedWorkflowId: UUID?,
+        resolveURL: Bool = true
     ) {
         let metadataStartTimestamp = CFAbsoluteTimeGetCurrent()
 
@@ -1651,7 +1745,7 @@ final class DictationViewModel: ObservableObject {
         // Resolve browser URL asynchronously after recording has already started.
         // If a more specific URL workflow matches, update the active rule on the fly.
         // Skip URL resolution when a forced workflow is set (manual shortcut overrides app matching).
-        guard forcedWorkflowId == nil, let bundleId = activeApp.bundleId else { return }
+        guard resolveURL, forcedWorkflowId == nil, let bundleId = activeApp.bundleId else { return }
         urlResolutionTask = Task { [weak self] in
             guard let self else { return }
             logger.info("URL resolution: starting for bundleId=\(bundleId)")
@@ -1768,7 +1862,43 @@ final class DictationViewModel: ObservableObject {
             || !PluginManager.shared.postProcessors.isEmpty
     }
 
-    private func stopDictation() {
+    private func updateSubmitOnEnterAvailability() {
+        hotkeyService.submitOnEnterSessionID = state == .recording && effectiveAutoEnterMode == .duringDictation
+            ? activeDictationSessionID : nil
+        submitAvailabilityMonitor?.cancel()
+        submitAvailabilityMonitor = nil
+        guard let sessionID = hotkeyService.submitOnEnterSessionID else { return }
+        // Secure Input and event-tap loss can happen without delivering a key event.
+        submitAvailabilityMonitor = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: .milliseconds(100))
+                } catch {
+                    return
+                }
+                guard let self, self.activeDictationSessionID == sessionID,
+                      self.state == .recording, self.effectiveAutoEnterMode == .duringDictation else { return }
+                guard self.ensureSubmitKeySuppressionAvailable() else { return }
+            }
+        }
+    }
+
+    private func ensureSubmitKeySuppressionAvailable() -> Bool {
+        guard effectiveAutoEnterMode == .duringDictation, !hotkeyService.canSuppressExternalKeyEvents else { return true }
+        let message = localizedAppText(
+            "Enter submission is unavailable. Check Accessibility access and restart TypeWhisper, or choose another Enter option.",
+            de: "Absenden mit Enter ist nicht verfügbar. Prüfe die Bedienungshilfen und starte TypeWhisper neu oder wähle eine andere Enter-Option."
+        )
+        abortActiveRecordingImmediately(sessionMessage: message)
+        showError(message, category: "recording")
+        return false
+    }
+
+    private func stopDictation(submitRequested: Bool = false) {
+        if state == .processing, recordingStartTask != nil, !isStopInFlight {
+            cancelCurrentOperation()
+            return
+        }
         guard state == .recording, !isStopInFlight else { return }
         clearCancelWarning()
         if recordingStartTask != nil, !isRecordingInputReady {
@@ -1787,11 +1917,11 @@ final class DictationViewModel: ObservableObject {
         markActiveDictationSessionProcessingIfNeeded()
         stopFinalizationTask = Task { [weak self] in
             guard let self else { return }
-            await finalizeStopDictation()
+            await finalizeStopDictation(submitRequested: submitRequested)
         }
     }
 
-    private func finalizeStopDictation() async {
+    private func finalizeStopDictation(submitRequested: Bool) async {
         var didStartTranscriptionTask = false
         defer {
             if Task.isCancelled {
@@ -2031,10 +2161,12 @@ final class DictationViewModel: ObservableObject {
                 }
 
                 let actionPluginId = self.effectiveActionPluginId
-                let autoEnterMode = self.effectiveAutoEnterMode
+                // An accepted physical submit survives a later browser URL workflow match.
+                let autoEnterMode: WorkflowAutoEnterMode = submitRequested ? .duringDictation : self.effectiveAutoEnterMode
                 let autoEnterResolution = WorkflowAutoEnterResolver.resolve(
                     text: text,
-                    mode: autoEnterMode
+                    mode: autoEnterMode,
+                    submitRequested: submitRequested
                 )
                 text = autoEnterResolution.text
                 if autoEnterMode == .spokenCommand, autoEnterResolution.shouldPressEnter {
@@ -2969,6 +3101,7 @@ final class DictationViewModel: ObservableObject {
     ) {
         activeWorkflowMatch = match
         matchedWorkflow = match?.workflow
+        updateSubmitOnEnterAvailability()
         activeRuleName = match?.workflow.name
         activeRuleReasonLabel = match?.kind.label
         activeRuleExplanation = match.map { workflowExplanation(for: $0, activeApp: activeApp) }
@@ -3216,6 +3349,7 @@ final class DictationViewModel: ObservableObject {
 
     private func clearActiveRuleState() {
         matchedWorkflow = nil
+        updateSubmitOnEnterAvailability()
         activeWorkflowMatch = nil
         forcedWorkflowId = nil
         activeRuleName = nil

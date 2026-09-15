@@ -212,6 +212,17 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
     var onWorkflowDictationStart: ((UUID, UInt64) -> Void)?
     var onWorkflowTextProcessing: ((UUID) -> Void)?
     var onCancelPressed: (() -> Void)?
+    var onSubmitDictationPressed: ((UUID) -> Void)?
+    // Capture the recording identity before dispatching from the event tap.
+    private let submitOnEnterSession = OSAllocatedUnfairLock<UUID?>(initialState: nil)
+    var submitOnEnterSessionID: UUID? {
+        get { submitOnEnterSession.withLock { $0 } }
+        set { submitOnEnterSession.withLock { $0 = newValue } }
+    }
+    // Accessed by the event tap and NSEvent monitors on the main run loop.
+    private var suppressedSubmitKeyCodes: Set<UInt16> = []
+    private static let returnKeyCodes: Set<UInt16> = [0x24, 0x4C]
+
     // Mirror the view model's cancellable state without entering MainActor from the event tap.
     private let cancellationAvailable = OSAllocatedUnfairLock(initialState: false)
     var isCancellationAvailable: Bool {
@@ -362,6 +373,19 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
     private var capsLockOriginSuppressionUntil: Date?
 
     var accessibilityTrustedProvider: () -> Bool = { AXIsProcessTrusted() }
+    var secureInputEnabledProvider: () -> Bool = { IsSecureEventInputEnabled() }
+
+    var canSuppressExternalKeyEvents: Bool {
+        guard !secureInputEnabledProvider() else { return false }
+#if DEBUG
+        if let externalKeySuppressionAvailableOverride { return externalKeySuppressionAvailableOverride }
+#endif
+        return eventTap.map { CGEvent.tapIsEnabled(tap: $0) } ?? false
+    }
+
+#if DEBUG
+    var externalKeySuppressionAvailableOverride: Bool?
+#endif
 
     private let logger = Logger(subsystem: AppConstants.loggerSubsystem, category: "HotkeyService")
 
@@ -665,17 +689,22 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
         let mask = eventMonitorMask(includeMouse: includeMouse)
 
         globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: mask) { [weak self] event in
-            _ = self?.handleEvent(event, source: .monitor)
+            self?.handleGlobalMonitorEvent(event)
         }
 
         installLocalEventMonitor(includeMouse: includeMouse)
+    }
+
+    private func handleGlobalMonitorEvent(_ event: NSEvent) {
+        // Global monitors observe events after delivery and cannot consume Return.
+        _ = handleEvent(event, source: .monitor, canSuppressSubmit: false)
     }
 
     private func handleLocalMonitorEvent(_ event: NSEvent) -> NSEvent? {
         let shouldSuppress = handleEvent(event, source: .monitor)
         if shouldSuppress,
            event.type == .keyDown || event.type == .keyUp,
-           event.keyCode == Self.escapeKeyCode {
+           (event.keyCode == Self.escapeKeyCode || Self.returnKeyCodes.contains(event.keyCode)) {
             return nil
         }
         return event
@@ -693,6 +722,7 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
     private func tearDownMonitor() {
         cancelPendingHybridModifierHold()
         isEscapeKeySuppressed = false
+        suppressedSubmitKeyCodes.removeAll()
         tearDownCarbonHotkeys()
 
         if let monitor = globalMonitor {
@@ -1141,7 +1171,28 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
     // MARK: - NSEvent Fallback
 
     @discardableResult
-    private func handleEvent(_ event: NSEvent, source: HotkeyEventSource) -> Bool {
+    private func handleEvent(_ event: NSEvent, source: HotkeyEventSource, canSuppressSubmit: Bool = true) -> Bool {
+        if event.type == .keyDown || event.type == .keyUp, Self.returnKeyCodes.contains(event.keyCode) {
+            // A submitted Return must pass even while the physical key is held.
+            if event.cgEvent?.getIntegerValueField(.eventSourceUserData) == TextInsertionService.simulatedReturnEventMarker {
+                return false
+            }
+            if canSuppressSubmit, event.type == .keyUp, suppressedSubmitKeyCodes.remove(event.keyCode) != nil {
+                return true
+            }
+            if canSuppressSubmit, event.type == .keyDown {
+                if suppressedSubmitKeyCodes.contains(event.keyCode) { return true }
+                if let sessionID = submitOnEnterSessionID, !event.isARepeat, !matchesConfiguredHotkey(event) {
+                    suppressedSubmitKeyCodes.insert(event.keyCode)
+                    // Consume before the extra-key interruption check for push-to-talk.
+                    performHotkeyAction(source: source) { [weak self] in
+                        self?.onSubmitDictationPressed?(sessionID)
+                    }
+                    return true
+                }
+            }
+        }
+
         // Own the entire Escape press, including repeats and key-up after cancellation.
         if event.type == .keyUp && event.keyCode == Self.escapeKeyCode && isEscapeKeySuppressed {
             isEscapeKeySuppressed = false
@@ -1555,6 +1606,29 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
         }
     }
 
+    private func matchesConfiguredHotkey(_ event: NSEvent) -> Bool {
+        func matches(_ hotkey: UnifiedHotkey, keyWasDown: Bool) -> Bool {
+            detectKeyEvent(event, hotkey: hotkey, fnWasDown: false,
+                           modifierWasDown: false, keyWasDown: keyWasDown) != .none
+        }
+        for slotType in HotkeySlotType.allCases {
+            if dictationHotkeysPaused && slotType.startsDictation { continue }
+            for state in slots[slotType] ?? [] {
+                if let hotkey = state.hotkey, matches(hotkey, keyWasDown: state.keyWasDown) { return true }
+            }
+        }
+        if !dictationHotkeysPaused,
+           profileSlots.values.contains(where: { matches($0.hotkey, keyWasDown: $0.keyWasDown) }) {
+            return true
+        }
+        return workflowSlots.values.contains { states in
+            states.contains {
+                !(dictationHotkeysPaused && $0.behavior == .startDictation)
+                    && matches($0.hotkey, keyWasDown: $0.keyWasDown)
+            }
+        }
+    }
+
     private func signalPushToTalkInterruptionIfNeeded(for event: NSEvent) {
         guard discardPushToTalkRecordingOnExtraKeyPress,
               !pushToTalkInterruptionSignaled,
@@ -1610,6 +1684,7 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
     }
 
     private func recoverReleasedActiveHotkeyAfterEventTapDisable() {
+        suppressedSubmitKeyCodes = suppressedSubmitKeyCodes.filter { keyStateProvider($0) }
         if isEscapeKeySuppressed, !keyStateProvider(Self.escapeKeyCode) {
             isEscapeKeySuppressed = false
         }
@@ -1688,6 +1763,10 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
     @discardableResult
     func processEventForTesting(_ event: NSEvent, source: HotkeyEventSource) -> Bool {
         handleEvent(event, source: source)
+    }
+
+    func processGlobalEventForTesting(_ event: NSEvent) {
+        handleGlobalMonitorEvent(event)
     }
 
     func processLocalEventForTesting(_ event: NSEvent) -> NSEvent? {
