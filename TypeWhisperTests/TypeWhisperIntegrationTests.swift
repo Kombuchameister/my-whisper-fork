@@ -1639,19 +1639,26 @@ final class TypeWhisperIntegrationTests: XCTestCase {
     @MainActor
     private final class MockMediaPlaybackService: MediaPlaybackService {
         let onPause: () -> Void
+        let onImmediatePause: @MainActor () async -> Void
         let onResume: () -> Void
 
         init(
             onPause: @escaping () -> Void = {},
+            onImmediatePause: (@MainActor () async -> Void)? = nil,
             onResume: @escaping () -> Void = {}
         ) {
             self.onPause = onPause
+            self.onImmediatePause = onImmediatePause ?? { onPause() }
             self.onResume = onResume
             super.init(startListening: false)
         }
 
         override func pauseIfPlaying() {
             onPause()
+        }
+
+        override func pauseImmediatelyIfPlaying() async {
+            await onImmediatePause()
         }
 
         override func resumeIfWePaused() {
@@ -1756,6 +1763,7 @@ final class TypeWhisperIntegrationTests: XCTestCase {
         )
         var snapshotQueue: [MediaPlaybackSnapshot?] = []
         var onGetPlaybackSnapshot: ((@escaping (_ snapshot: MediaPlaybackSnapshot?) -> Void) -> Void)?
+        var onPause: (() -> Void)?
         private(set) var pauseCalls = 0
         private(set) var playCalls = 0
         private(set) var togglePlayPauseCalls = 0
@@ -1780,6 +1788,7 @@ final class TypeWhisperIntegrationTests: XCTestCase {
 
         func pause() {
             pauseCalls += 1
+            onPause?()
         }
 
         func togglePlayPause() {
@@ -7481,6 +7490,9 @@ final class TypeWhisperIntegrationTests: XCTestCase {
         let appSupportDirectory = try TestSupport.makeTemporaryDirectory()
         let liveFieldKey = UserDefaultsKeys.liveFieldTranscriptEnabled
         let originalLiveFieldSetting = UserDefaults.standard.object(forKey: liveFieldKey)
+        let originalSelectedInputDeviceUID = UserDefaults.standard.object(forKey: UserDefaultsKeys.selectedInputDeviceUID)
+        let originalPriorityList = UserDefaults.standard.object(forKey: UserDefaultsKeys.inputDevicePriorityList)
+        let usbDeviceID = AudioDeviceID(410)
         var events: [String] = []
         let mediaPlaybackService = MockMediaPlaybackService {
             events.append("pause_media")
@@ -7489,23 +7501,38 @@ final class TypeWhisperIntegrationTests: XCTestCase {
         defer {
             dictationContext = nil
             Self.restoreUserDefault(originalLiveFieldSetting, forKey: liveFieldKey)
+            Self.restoreSelectedInputDeviceUID(originalSelectedInputDeviceUID)
+            Self.restoreUserDefault(originalPriorityList, forKey: UserDefaultsKeys.inputDevicePriorityList)
             TestSupport.remove(appSupportDirectory)
         }
 
         UserDefaults.standard.set(false, forKey: liveFieldKey)
         dictationContext = Self.makeDictationContext(
             appSupportDirectory: appSupportDirectory,
-            mediaPlaybackService: mediaPlaybackService
+            mediaPlaybackService: mediaPlaybackService,
+            audioDeviceTransportResolver: FakeAudioDeviceTransportResolver(
+                transports: [usbDeviceID: kAudioDeviceTransportTypeUSB]
+            )
         )
         let context = try XCTUnwrap(dictationContext)
         context.dictationViewModel.mediaPauseEnabled = true
+        context.audioDeviceService.inputDevices = [
+            AudioInputDevice(deviceID: usbDeviceID, name: "USB Mic", uid: "media-test-usb-input")
+        ]
+        context.audioDeviceService.audioDeviceIDResolverOverride = { uid in
+            uid == "media-test-usb-input" ? usbDeviceID : nil
+        }
+        context.audioDeviceService.selectedDeviceUID = "media-test-usb-input"
 
         context.textInsertionService.captureActiveAppOverride = { () -> (name: String?, bundleId: String?, url: String?) in
             events.append("capture_app")
             return ("Music", "com.apple.Music", nil)
         }
         context.audioRecordingService.hasMicrophonePermissionOverride = true
-        context.audioRecordingService.inputAvailabilityOverride = { _ in true }
+        context.audioRecordingService.inputAvailabilityOverride = { selectedDeviceID in
+            XCTAssertEqual(selectedDeviceID, usbDeviceID)
+            return true
+        }
         context.audioRecordingService.startRecordingOverride = {
             events.append("start_audio")
         }
@@ -7964,6 +7991,9 @@ final class TypeWhisperIntegrationTests: XCTestCase {
         let audioStartEntered = expectation(description: "Bluetooth audio start entered")
         let audioStartGate = DispatchSemaphore(value: 0)
         defer { audioStartGate.signal() }
+        let mediaPauseEntered = expectation(description: "Media pause entered")
+        var releaseMediaPause: CheckedContinuation<Void, Never>?
+        defer { releaseMediaPause?.resume() }
         let bluetoothDeviceID = AudioDeviceID(409)
         let soundService = MockSoundService { event, enabled in
             guard event == .recordingStarted, enabled else { return }
@@ -7971,6 +8001,12 @@ final class TypeWhisperIntegrationTests: XCTestCase {
         }
         let audioDuckingService = MockAudioDuckingService(onDuck: { factor in
             events.append("duck_audio_\(factor)")
+        })
+        let mediaPlaybackService = MockMediaPlaybackService(onImmediatePause: {
+            events.append("pause_media")
+            mediaPauseEntered.fulfill()
+            await withCheckedContinuation { releaseMediaPause = $0 }
+            events.append("pause_confirmed")
         })
         let transportResolver = FakeAudioDeviceTransportResolver(
             transports: [bluetoothDeviceID: kAudioDeviceTransportTypeBluetooth]
@@ -8003,6 +8039,7 @@ final class TypeWhisperIntegrationTests: XCTestCase {
         dictationContext = Self.makeDictationContext(
             appSupportDirectory: appSupportDirectory,
             audioDuckingService: audioDuckingService,
+            mediaPlaybackService: mediaPlaybackService,
             soundService: soundService,
             audioDeviceTransportResolver: transportResolver,
             audioDeviceBluetoothInputRouteStabilizer: deviceRouteStabilizer,
@@ -8013,6 +8050,7 @@ final class TypeWhisperIntegrationTests: XCTestCase {
         context.dictationViewModel.soundFeedbackEnabled = true
         context.dictationViewModel.audioDuckingEnabled = true
         context.dictationViewModel.audioDuckingLevel = 0.3
+        context.dictationViewModel.mediaPauseEnabled = true
         context.audioDeviceService.inputDevices = [
             AudioInputDevice(deviceID: bluetoothDeviceID, name: "AirPods Max", uid: "bt-input")
         ]
@@ -8026,6 +8064,7 @@ final class TypeWhisperIntegrationTests: XCTestCase {
             return true
         }
         context.audioRecordingService.startRecordingOverride = {
+            events.append("start_audio")
             audioStartEntered.fulfill()
             audioStartGate.wait()
         }
@@ -8035,9 +8074,18 @@ final class TypeWhisperIntegrationTests: XCTestCase {
         XCTAssertEqual(context.dictationViewModel.state, .recording)
         XCTAssertFalse(context.dictationViewModel.isRecordingInputReady)
         XCTAssertEqual(context.dictationViewModel.recordingDuration, 0)
-        XCTAssertTrue(events.isEmpty)
+
+        await fulfillment(of: [mediaPauseEntered], timeout: 1)
+        while releaseMediaPause == nil {
+            await Task.yield()
+        }
+        XCTAssertEqual(events, ["pause_media"])
+
+        releaseMediaPause?.resume()
+        releaseMediaPause = nil
 
         await fulfillment(of: [audioStartEntered], timeout: 1)
+        XCTAssertEqual(events, ["pause_media", "pause_confirmed", "start_audio"])
         XCTAssertTrue(context.audioRecordingService.selectedInputDeviceUsesBluetoothTransport)
         XCTAssertTrue(context.audioRecordingService.hasExplicitDeviceSelection)
 
@@ -8047,13 +8095,13 @@ final class TypeWhisperIntegrationTests: XCTestCase {
         audioStartGate.signal()
         await context.dictationViewModel.testingWaitForRecordingStart()
 
-        XCTAssertEqual(events, ["duck_audio_0.3"])
+        XCTAssertEqual(events, ["pause_media", "pause_confirmed", "start_audio", "duck_audio_0.3"])
         XCTAssertTrue(context.dictationViewModel.isRecordingInputReady)
 
         context.audioRecordingService.testingNotifyFirstRecordingAudioBuffer()
         context.audioRecordingService.testingNotifyFirstRecordingAudioBuffer()
 
-        XCTAssertEqual(events, ["duck_audio_0.3"])
+        XCTAssertEqual(events, ["pause_media", "pause_confirmed", "start_audio", "duck_audio_0.3"])
         XCTAssertTrue(context.dictationViewModel.isRecordingInputReady)
     }
 
@@ -8469,6 +8517,131 @@ final class TypeWhisperIntegrationTests: XCTestCase {
         scheduler.runNextAction()
 
         XCTAssertEqual(controller.togglePlayPauseCalls, 0)
+    }
+
+    @MainActor
+    func testMediaPlaybackServicePausesImmediatelyWithoutConfirmationDelay() async {
+        let controller = FakeMediaPlaybackController()
+        let scheduler = TestMediaPlaybackResumeScheduler()
+        controller.returnedSnapshot = FakeMediaPlaybackController.snapshot(isPlaying: true, playbackRate: 1)
+        let service = MediaPlaybackService(
+            startListening: false,
+            resumeDelay: 0.6,
+            resumeScheduler: scheduler.schedule(after:action:)
+        ) { controller }
+        controller.onPause = {
+            controller.returnedSnapshot = FakeMediaPlaybackController.snapshot(isPlaying: false, playbackRate: 0)
+        }
+
+        await service.pauseImmediatelyIfPlaying()
+
+        XCTAssertEqual(controller.pauseCalls, 1)
+        XCTAssertTrue(scheduler.scheduledDelays.isEmpty)
+    }
+
+    @MainActor
+    func testMediaPlaybackServiceImmediatePauseWaitsForPlaybackConfirmation() async {
+        let controller = FakeMediaPlaybackController()
+        controller.returnedSnapshot = FakeMediaPlaybackController.snapshot(isPlaying: true, playbackRate: 1)
+        var confirmationCallback: ((MediaPlaybackSnapshot?) -> Void)?
+        controller.onPause = {
+            controller.onGetPlaybackSnapshot = { confirmationCallback = $0 }
+        }
+        let service = MediaPlaybackService(startListening: false) { controller }
+        var pauseFinished = false
+
+        let pauseTask = Task { @MainActor in
+            await service.pauseImmediatelyIfPlaying()
+            pauseFinished = true
+        }
+        while controller.pauseCalls == 0 || confirmationCallback == nil {
+            await Task.yield()
+        }
+
+        XCTAssertFalse(pauseFinished)
+        confirmationCallback?(FakeMediaPlaybackController.snapshot(isPlaying: false, playbackRate: 0))
+        await pauseTask.value
+
+        XCTAssertTrue(pauseFinished)
+        XCTAssertEqual(controller.pauseCalls, 1)
+    }
+
+    @MainActor
+    func testMediaPlaybackServiceImmediatePauseConfirmationIsBounded() async {
+        let controller = FakeMediaPlaybackController()
+        controller.returnedSnapshot = FakeMediaPlaybackController.snapshot(isPlaying: true, playbackRate: 1)
+        controller.onPause = {
+            controller.onGetPlaybackSnapshot = { _ in }
+        }
+        let service = MediaPlaybackService(startListening: false) { controller }
+        service.testingSetImmediateSnapshotTimeout(.milliseconds(20))
+        service.testingSetImmediatePauseConfirmation(timeout: .milliseconds(40), pollInterval: .milliseconds(5))
+        let start = ContinuousClock.now
+
+        await service.pauseImmediatelyIfPlaying()
+
+        XCTAssertEqual(controller.pauseCalls, 1)
+        XCTAssertLessThan(ContinuousClock.now - start, .seconds(1))
+    }
+
+    @MainActor
+    func testMediaPlaybackServiceImmediatePauseConfirmationStopsWhenCancelled() async {
+        let controller = FakeMediaPlaybackController()
+        controller.returnedSnapshot = FakeMediaPlaybackController.snapshot(isPlaying: true, playbackRate: 1)
+        var confirmationRequested = false
+        controller.onPause = {
+            controller.onGetPlaybackSnapshot = { _ in confirmationRequested = true }
+        }
+        let service = MediaPlaybackService(startListening: false) { controller }
+        service.testingSetImmediateSnapshotTimeout(.seconds(5))
+        service.testingSetImmediatePauseConfirmation(timeout: .seconds(5), pollInterval: .milliseconds(25))
+
+        let pauseTask = Task { @MainActor in
+            await service.pauseImmediatelyIfPlaying()
+        }
+        while !confirmationRequested {
+            await Task.yield()
+        }
+
+        pauseTask.cancel()
+        await pauseTask.value
+
+        XCTAssertEqual(controller.pauseCalls, 1)
+    }
+
+    @MainActor
+    func testMediaPlaybackServiceImmediatePauseIgnoresLateSnapshotAfterTimeout() async {
+        let controller = FakeMediaPlaybackController()
+        var deferredCallback: ((MediaPlaybackSnapshot?) -> Void)?
+        controller.onGetPlaybackSnapshot = { deferredCallback = $0 }
+        let service = MediaPlaybackService(startListening: false) { controller }
+        service.testingSetImmediateSnapshotTimeout(.milliseconds(20))
+
+        await service.pauseImmediatelyIfPlaying()
+        deferredCallback?(FakeMediaPlaybackController.snapshot(isPlaying: true, playbackRate: 1))
+
+        XCTAssertEqual(controller.pauseCalls, 0)
+    }
+
+    @MainActor
+    func testMediaPlaybackServiceImmediatePauseStopsWaitingWhenCancelled() async {
+        let controller = FakeMediaPlaybackController()
+        var deferredCallback: ((MediaPlaybackSnapshot?) -> Void)?
+        controller.onGetPlaybackSnapshot = { deferredCallback = $0 }
+        let service = MediaPlaybackService(startListening: false) { controller }
+        service.testingSetImmediateSnapshotTimeout(.seconds(5))
+        let pauseTask = Task { @MainActor in
+            await service.pauseImmediatelyIfPlaying()
+        }
+        while deferredCallback == nil {
+            await Task.yield()
+        }
+
+        pauseTask.cancel()
+        await pauseTask.value
+        deferredCallback?(FakeMediaPlaybackController.snapshot(isPlaying: true, playbackRate: 1))
+
+        XCTAssertEqual(controller.pauseCalls, 0)
     }
 
     @MainActor
@@ -13851,7 +14024,7 @@ final class TypeWhisperIntegrationTests: XCTestCase {
     }
 
     @MainActor
-    func testHandleCancelHotkey_secondEscapeDuringRecordingRestoresAudioThenResumesMediaBeforeImmediateStop() async throws {
+    func testHandleCancelHotkey_secondEscapeDuringRecordingStopsBeforeRestoringAudioAndMedia() async throws {
         let appSupportDirectory = try TestSupport.makeTemporaryDirectory()
         var events: [String] = []
         let stopRecordingCalled = expectation(description: "stop recording called")
@@ -13889,10 +14062,56 @@ final class TypeWhisperIntegrationTests: XCTestCase {
         context.dictationViewModel.handleCancelHotkey()
 
         await fulfillment(of: [stopRecordingCalled], timeout: 1.0)
+        await context.dictationViewModel.testingWaitForRecordingCleanup()
 
         XCTAssertEqual(
             events,
-            ["restore_audio", "resume_media", "stop_recording_immediate"]
+            ["stop_recording_immediate", "restore_audio", "resume_media"]
+        )
+    }
+
+    @MainActor
+    func testStopDictationStopsRecordingBeforeRestoringAudioAndMedia() async throws {
+        let appSupportDirectory = try TestSupport.makeTemporaryDirectory()
+        var events: [String] = []
+        let mediaResumed = expectation(description: "media resumed")
+        let audioDuckingService = MockAudioDuckingService {
+            events.append("restore_audio")
+        }
+        let mediaPlaybackService = MockMediaPlaybackService(
+            onResume: {
+                events.append("resume_media")
+                mediaResumed.fulfill()
+            }
+        )
+        var dictationContext: DictationContext?
+        defer {
+            dictationContext = nil
+            TestSupport.remove(appSupportDirectory)
+        }
+
+        dictationContext = Self.makeDictationContext(
+            appSupportDirectory: appSupportDirectory,
+            audioDuckingService: audioDuckingService,
+            mediaPlaybackService: mediaPlaybackService
+        )
+        let context = try XCTUnwrap(dictationContext)
+        context.audioRecordingService.stopRecordingOverride = { policy in
+            events.append("stop_recording_\(policy.logDescription)")
+            return []
+        }
+        context.dictationViewModel.state = .recording
+
+        _ = context.dictationViewModel.apiStopRecording()
+
+        await fulfillment(of: [mediaResumed], timeout: 1.0)
+        XCTAssertEqual(
+            events,
+            [
+                "stop_recording_finalizeShortSpeech(min=0.050,max=0.060,poll=0.010)",
+                "restore_audio",
+                "resume_media",
+            ]
         )
     }
 
@@ -13932,7 +14151,7 @@ final class TypeWhisperIntegrationTests: XCTestCase {
     }
 
     @MainActor
-    func testDisconnectedDeviceDuringRecordingRestoresAudioThenResumesMediaBeforeImmediateStop() async throws {
+    func testDisconnectedDeviceDuringRecordingStopsBeforeRestoringAudioAndMedia() async throws {
         let appSupportDirectory = try TestSupport.makeTemporaryDirectory()
         var events: [String] = []
         let stopRecordingCalled = expectation(description: "stop recording called")
@@ -13966,10 +14185,11 @@ final class TypeWhisperIntegrationTests: XCTestCase {
         context.audioDeviceService.disconnectedDeviceName = "USB Mic"
 
         await fulfillment(of: [stopRecordingCalled], timeout: 1.0)
+        await context.dictationViewModel.testingWaitForRecordingCleanup()
 
         XCTAssertEqual(
             events,
-            ["restore_audio", "resume_media", "stop_recording_immediate"]
+            ["stop_recording_immediate", "restore_audio", "resume_media"]
         )
         XCTAssertEqual(
             context.dictationViewModel.actionFeedbackMessage,

@@ -1077,7 +1077,6 @@ final class DictationViewModel: ObservableObject {
         clearDeferredRecordingContext()
         endTargetAppAccessibilityObservation()
         cancelLiveFieldTranscriptSession()
-        restoreRecordingSideEffects()
         streamingHandler.stop()
         stopRecordingTimer()
         let previousCleanup = recordingCleanupTask
@@ -1085,6 +1084,7 @@ final class DictationViewModel: ObservableObject {
             await previousCleanup?.value
             await pendingStartTask?.value
             _ = await audioRecordingService.stopRecording(policy: .immediate)
+            restoreRecordingSideEffects()
             if preserveRecoveryAudio {
                 audioRecordingService.preserveActiveRecoveryRecording()
             } else {
@@ -1518,6 +1518,11 @@ final class DictationViewModel: ObservableObject {
                     self.finishCancellation(message: String(localized: "Cancelled"))
                     return
                 }
+                if selectedInputUsesBluetooth, self.mediaPauseEnabled {
+                    await self.mediaPlaybackService.pauseImmediatelyIfPlaying()
+                    try Task.checkCancellation()
+                    guard self.activeDictationSessionID == sessionID else { return }
+                }
                 try await self.audioRecordingService.startRecordingAsync(
                     requestUptimeNanoseconds: requestUptimeNanoseconds
                 )
@@ -1636,7 +1641,9 @@ final class DictationViewModel: ObservableObject {
         if selectedInputUsesBluetooth {
             logger.info("Skipping recording start sound for Bluetooth input device")
         }
-        if mediaPauseEnabled { mediaPlaybackService.pauseIfPlaying() }
+        if mediaPauseEnabled, !selectedInputUsesBluetooth {
+            mediaPlaybackService.pauseIfPlaying()
+        }
         if audioDuckingEnabled {
             pendingRecordingAudioDuckingLevel = max(0, min(1, Float(audioDuckingLevel)))
         } else {
@@ -1967,7 +1974,6 @@ final class DictationViewModel: ObservableObject {
         let sessionID = activeDictationSessionID
 
         clearRecordingStartCueState(resetReadiness: false)
-        restoreRecordingSideEffects()
         if let discardMessage = pendingPushToTalkDiscardMessage {
             pendingPushToTalkDiscardMessage = nil
             cancelLiveFieldTranscriptSession()
@@ -1975,6 +1981,7 @@ final class DictationViewModel: ObservableObject {
             lastStreamingParams = nil
             stopRecordingTimer()
             _ = await audioRecordingService.stopRecording(policy: .immediate)
+            restoreRecordingSideEffects()
             audioRecordingService.discardActiveRecoveryRecording()
             guard !Task.isCancelled else { return }
             if let sessionID {
@@ -1999,6 +2006,7 @@ final class DictationViewModel: ObservableObject {
         let previewText = partialText.trimmingCharacters(in: .whitespacesAndNewlines)
         let stopPolicy = AudioRecordingService.StopPolicy.finalizeShortSpeech()
         var samples = await audioRecordingService.stopRecording(policy: stopPolicy)
+        restoreRecordingSideEffects()
         guard !Task.isCancelled else { return }
         logger.info("Stop timing: stopRecording done elapsedMs=\(stopElapsedMs(), privacy: .public), previewTextLength=\(previewText.count, privacy: .public)")
         let liveSessionResultBeforePreviewFallback: TranscriptionResult?
