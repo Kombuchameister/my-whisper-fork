@@ -24,9 +24,11 @@ final class OpenRouterPlugin: NSObject,
     fileprivate var _llmTemperatureValue: Double = 0.3
     fileprivate var _fetchedLLMModels: [OpenRouterFetchedModel] = []
     fileprivate var _fetchedTranscriptionModels: [OpenRouterFetchedModel] = []
+    private var splitRetryChunkDuration: TimeInterval = 300
 
     private static let chatRequestTimeout: TimeInterval = 30
     private static let transcriptionRequestTimeout: TimeInterval = 120
+    private static let transcriptionSampleRate = 16_000
 
     private enum StorageKeys {
         static let apiKey = "api-key"
@@ -41,6 +43,12 @@ final class OpenRouterPlugin: NSObject,
     required override init() {
         super.init()
     }
+
+    #if DEBUG
+    func testingSetSplitRetryChunkDuration(_ duration: TimeInterval) {
+        splitRetryChunkDuration = duration
+    }
+    #endif
 
     func activate(host: HostServices) {
         self.host = host
@@ -141,13 +149,39 @@ final class OpenRouterPlugin: NSObject,
             throw PluginTranscriptionError.apiError("OpenRouter speech-to-text does not support translation.")
         }
 
+        let (data, response) = try await requestTranscription(
+            audio: audio,
+            apiKey: apiKey,
+            modelId: modelId,
+            language: language
+        )
+        if Self.shouldRetryTranscriptionBySplitting(response: response, responseData: data),
+           audio.samples.count > Self.sampleCount(for: splitRetryChunkDuration) {
+            return try await transcribeInChunks(
+                audio: audio,
+                apiKey: apiKey,
+                modelId: modelId,
+                language: language
+            )
+        }
+        try Self.validateTranscriptionResponse(data: data, response: response)
+        return try Self.parseTranscriptionResponse(data)
+    }
+
+    private func requestTranscription(
+        audio: AudioData,
+        apiKey: String,
+        modelId: String,
+        language: String?,
+        forceWav: Bool = false
+    ) async throws -> (Data, URLResponse) {
+        let uploadAudio = PluginAudioUploadEncoder.normalizedAudioForUpload(audio)
         let preferredUpload: PluginAudioUploadFile
-        if modelId == "microsoft/mai-transcribe-2" {
-            // MAI is known to reject M4A. Avoid a failed upload before the WAV retry.
-            preferredUpload = PluginAudioUploadEncoder.wavUpload(from: audio)
+        if forceWav || modelId == "microsoft/mai-transcribe-2" {
+            preferredUpload = PluginAudioUploadEncoder.wavUpload(from: uploadAudio)
         } else {
-            preferredUpload = (try? PluginAudioUploadEncoder.compressedM4AUpload(from: audio))
-                ?? PluginAudioUploadEncoder.wavUpload(from: audio)
+            preferredUpload = (try? PluginAudioUploadEncoder.compressedM4AUpload(from: uploadAudio))
+                ?? PluginAudioUploadEncoder.wavUpload(from: uploadAudio)
         }
         var request = try Self.makeTranscriptionRequest(
             uploadFile: preferredUpload,
@@ -164,7 +198,7 @@ final class OpenRouterPlugin: NSObject,
             responseData: data
            ) {
             request = try Self.makeTranscriptionRequest(
-                uploadFile: PluginAudioUploadEncoder.wavUpload(from: audio),
+                uploadFile: PluginAudioUploadEncoder.wavUpload(from: uploadAudio),
                 apiKey: apiKey,
                 modelId: modelId,
                 language: language,
@@ -172,8 +206,92 @@ final class OpenRouterPlugin: NSObject,
             )
             (data, response) = try await PluginHTTPClient.data(for: request)
         }
-        try Self.validateTranscriptionResponse(data: data, response: response)
-        return try Self.parseTranscriptionResponse(data)
+        return (data, response)
+    }
+
+    private func transcribeInChunks(
+        audio: AudioData,
+        apiKey: String,
+        modelId: String,
+        language: String?
+    ) async throws -> PluginTranscriptionResult {
+        let maximumSampleCount = Self.sampleCount(for: splitRetryChunkDuration)
+        var textParts: [String] = []
+        var detectedLanguage: String?
+        var segments: [PluginTranscriptionSegment] = []
+
+        for startIndex in stride(from: 0, to: audio.samples.count, by: maximumSampleCount) {
+            let endIndex = min(startIndex + maximumSampleCount, audio.samples.count)
+            let samples = Array(audio.samples[startIndex..<endIndex])
+            let chunk = AudioData(
+                samples: samples,
+                wavData: PluginWavEncoder.encode(samples),
+                duration: Double(samples.count) / Double(Self.transcriptionSampleRate)
+            )
+            let (data, response) = try await requestTranscription(
+                audio: chunk,
+                apiKey: apiKey,
+                modelId: modelId,
+                language: language,
+                forceWav: true
+            )
+            try Self.validateTranscriptionResponse(data: data, response: response)
+            let result = try Self.parseTranscriptionResponse(data)
+            let trimmedText = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmedText.isEmpty {
+                textParts.append(trimmedText)
+            }
+            if detectedLanguage == nil {
+                detectedLanguage = result.detectedLanguage
+            }
+            let timeOffset = Double(startIndex) / Double(Self.transcriptionSampleRate)
+            let chunkEndTime = Double(endIndex) / Double(Self.transcriptionSampleRate)
+            segments.append(contentsOf: result.segments.compactMap {
+                let segmentStart = $0.start + timeOffset
+                guard segmentStart < chunkEndTime else { return nil }
+                return PluginTranscriptionSegment(
+                    text: $0.text,
+                    start: segmentStart,
+                    end: min($0.end + timeOffset, chunkEndTime)
+                )
+            })
+        }
+
+        return PluginTranscriptionResult(
+            text: textParts.joined(separator: " "),
+            detectedLanguage: detectedLanguage,
+            segments: segments
+        )
+    }
+
+    private static func sampleCount(for duration: TimeInterval) -> Int {
+        max(1, Int(duration * Double(transcriptionSampleRate)))
+    }
+
+    private static func shouldRetryTranscriptionBySplitting(
+        response: URLResponse,
+        responseData: Data
+    ) -> Bool {
+        guard let httpResponse = response as? HTTPURLResponse else { return false }
+        if httpResponse.statusCode == 413 {
+            return true
+        }
+        guard httpResponse.statusCode == 400 else { return false }
+
+        let message = apiErrorMessage(from: responseData, response: httpResponse).lowercased()
+        let sizeOrDurationMarkers = [
+            "large audio input",
+            "audio input is too large",
+            "audio file is too large",
+            "audio is too long",
+            "audio too long",
+            "maximum audio duration",
+            "max audio duration",
+            "audio duration limit",
+            "exceeds the maximum audio",
+            "exceeds maximum audio",
+        ]
+        return sizeOrDurationMarkers.contains { message.contains($0) }
     }
 
     private static func shouldRetryTranscriptionWithWav(statusCode: Int, responseData: Data) -> Bool {
