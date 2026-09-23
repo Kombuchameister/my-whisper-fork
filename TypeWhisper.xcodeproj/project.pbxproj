@@ -517,6 +517,7 @@
 		AC1100000000000000000008 /* TypeWhisperPluginSDK in Frameworks */ = {isa = PBXBuildFile; productRef = AC1100000000000000000040 /* TypeWhisperPluginSDK */; };
 		AB1200000000000000000001 /* WebLinkPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB1200000000000000000011 /* WebLinkPlugin.swift */; };
 		AB1200000000000000000002 /* WebLinkProcessRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB1200000000000000000012 /* WebLinkProcessRunner.swift */; };
+		AB1200000000000000000006 /* WebLinkObsidianNote.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB1200000000000000000016 /* WebLinkObsidianNote.swift */; };
 		AB1200000000000000000003 /* manifest.json in Resources */ = {isa = PBXBuildFile; fileRef = AB1200000000000000000013 /* manifest.json */; };
 		AB1200000000000000000004 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = AB1200000000000000000014 /* Localizable.xcstrings */; };
 		AB1200000000000000000005 /* TypeWhisperPluginSDK in Frameworks */ = {isa = PBXBuildFile; productRef = AB1200000000000000000040 /* TypeWhisperPluginSDK */; };
@@ -1157,6 +1158,7 @@
 		AC1100000000000000000018 /* AuthenticatedCLIPlugin.bundle */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AuthenticatedCLIPlugin.bundle; sourceTree = BUILT_PRODUCTS_DIR; };
 		AB1200000000000000000011 /* WebLinkPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebLinkPlugin.swift; sourceTree = "<group>"; };
 		AB1200000000000000000012 /* WebLinkProcessRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebLinkProcessRunner.swift; sourceTree = "<group>"; };
+		AB1200000000000000000016 /* WebLinkObsidianNote.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebLinkObsidianNote.swift; sourceTree = "<group>"; };
 		AB1200000000000000000013 /* manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = manifest.json; sourceTree = "<group>"; };
 		AB1200000000000000000014 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		AB1200000000000000000015 /* WebLinkPlugin.bundle */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = WebLinkPlugin.bundle; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -2601,6 +2603,7 @@
 			children = (
 				AB1200000000000000000011 /* WebLinkPlugin.swift */,
 				AB1200000000000000000012 /* WebLinkProcessRunner.swift */,
+				AB1200000000000000000016 /* WebLinkObsidianNote.swift */,
 				AB1200000000000000000013 /* manifest.json */,
 				AB1200000000000000000014 /* Localizable.xcstrings */,
 			);
@@ -5304,6 +5307,7 @@
 			files = (
 				AB1200000000000000000001 /* WebLinkPlugin.swift in Sources */,
 				AB1200000000000000000002 /* WebLinkProcessRunner.swift in Sources */,
+				AB1200000000000000000006 /* WebLinkObsidianNote.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

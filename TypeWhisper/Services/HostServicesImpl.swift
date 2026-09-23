@@ -27,7 +27,7 @@ private enum PassiveLoadedModelRestoreContext {
     }
 }
 
-final class HostServicesImpl: HostServices, HostModelLifecyclePolicyProviding, @unchecked Sendable {
+final class HostServicesImpl: HostServices, HostModelLifecyclePolicyProviding, HostMediaTranscriptionProviding, @unchecked Sendable {
     let pluginId: String
     let pluginDataDirectory: URL
     /// Whether this plugin backs the engine the user actually has selected,
@@ -212,6 +212,29 @@ final class HostServicesImpl: HostServices, HostModelLifecyclePolicyProviding, @
             }
             return FileTranscriptionViewModel.shared.enqueueImportedMedia(media, from: importer)
         }
+    }
+
+    func transcribeImportedMedia(
+        _ media: PluginImportedMedia,
+        fromMediaImporterId mediaImporterId: String
+    ) async throws -> String {
+        try await Self.transcribeImportedMedia(media, pluginId: pluginId, mediaImporterId: mediaImporterId)
+    }
+
+    @MainActor
+    private static func transcribeImportedMedia(
+        _ media: PluginImportedMedia,
+        pluginId: String,
+        mediaImporterId: String
+    ) async throws -> String {
+        guard let importer = PluginManager.shared?.mediaImportPlugins.first(where: {
+            type(of: $0).pluginId == pluginId && $0.mediaImportId == mediaImporterId
+        }) else {
+            throw FileTranscriptionViewModel.ImportedMediaTranscriptionError.rejected
+        }
+        return try await FileTranscriptionViewModel.shared
+            .transcribeImportedMedia(media, from: importer)
+            .text
     }
 
     // MARK: - Streaming Display

@@ -55,6 +55,18 @@ public protocol HostModelLifecyclePolicyProviding: Sendable {
     var shouldRestoreLoadedModelsPassively: Bool { get }
 }
 
+/// Optional host capability: add media produced by one of the plugin's
+/// importers to TypeWhisper's transcription queue, start transcribing it right
+/// away, and wait for the transcript. The item stays visible in the host's
+/// file-transcription list. Throws when the media is rejected, no engine is
+/// ready, or transcription fails or is cancelled.
+public protocol HostMediaTranscriptionProviding: Sendable {
+    func transcribeImportedMedia(
+        _ media: PluginImportedMedia,
+        fromMediaImporterId mediaImporterId: String
+    ) async throws -> String
+}
+
 public extension HostServices {
     var shouldRestoreLoadedModelsPassively: Bool {
         (self as? any HostModelLifecyclePolicyProviding)?.shouldRestoreLoadedModelsPassively ?? true
