@@ -104,21 +104,51 @@ final class TargetAppCorrectionLearningServiceTests: XCTestCase {
         XCTAssertEqual(resolvedProcessIdentifiers, [target.processIdentifier])
     }
 
-    func testElectronAccessibilityObservationFallsBackWhenAttributeIsUnsupported() {
+    func testChromiumWithoutManualAccessibilityUsesEnhancedUserInterface() throws {
         let target = electronTarget()
-        var setValues: [Bool] = []
+        var manualSetValues: [Bool] = []
+        var enhancedSetValues: [Bool] = []
         let controller = ChromiumAccessibilityObservationController(
             resolveApplication: { _, _ in target },
             isElectronApplication: { _ in true },
             readManualAccessibility: { _ in (.attributeUnsupported, nil) },
             setManualAccessibility: { _, enabled in
-                setValues.append(enabled)
+                manualSetValues.append(enabled)
+                return .success
+            },
+            readEnhancedUserInterface: { _ in (.success, false) },
+            setEnhancedUserInterface: { _, enabled in
+                enhancedSetValues.append(enabled)
+                return .success
+            },
+            validateApplication: { _ in true }
+        )
+
+        let lease = try XCTUnwrap(controller.beginObservation(bundleIdentifier: target.bundleIdentifier))
+        XCTAssertEqual(enhancedSetValues, [true])
+        lease.end()
+
+        XCTAssertTrue(manualSetValues.isEmpty)
+        XCTAssertEqual(enhancedSetValues, [true, false])
+    }
+
+    func testEnhancedUserInterfaceAlreadyOnIsLeftAlone() {
+        let target = electronTarget()
+        var enhancedSetValues: [Bool] = []
+        let controller = ChromiumAccessibilityObservationController(
+            resolveApplication: { _, _ in target },
+            isElectronApplication: { _ in true },
+            readManualAccessibility: { _ in (.attributeUnsupported, nil) },
+            setManualAccessibility: { _, _ in .success },
+            readEnhancedUserInterface: { _ in (.success, true) },
+            setEnhancedUserInterface: { _, enabled in
+                enhancedSetValues.append(enabled)
                 return .success
             }
         )
 
         XCTAssertNil(controller.beginObservation(bundleIdentifier: target.bundleIdentifier))
-        XCTAssertTrue(setValues.isEmpty)
+        XCTAssertTrue(enhancedSetValues.isEmpty)
     }
 
     func testChromiumBrowserAccessibilityObservationEnablesManualAccessibility() throws {
