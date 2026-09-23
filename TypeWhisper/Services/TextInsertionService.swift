@@ -107,8 +107,11 @@ final class ChromiumAccessibilityObservationController {
         logger.info("Chromium accessibility fallback: bundle=\(bundle, privacy: .public), manualError=\(manualState.error.rawValue, privacy: .public), enhancedError=\(enhancedState.error.rawValue, privacy: .public), enhancedEnabled=\(String(describing: enhancedState.enabled), privacy: .public)")
         guard enhancedState.enabled != true else { return nil }
         let setResult = setEnhancedUserInterface(pid, true)
-        logger.info("Chromium accessibility enable: bundle=\(bundle, privacy: .public), attribute=AXEnhancedUserInterface, result=\(setResult.rawValue, privacy: .public)")
-        guard setResult == .success else { return nil }
+        // The ChatGPT app applies the value but reports kAXErrorNotImplemented,
+        // so confirm by reading it back; otherwise it would never be restored.
+        let isEnabled = setResult == .success || readEnhancedUserInterface(pid).enabled == true
+        logger.info("Chromium accessibility enable: bundle=\(bundle, privacy: .public), attribute=AXEnhancedUserInterface, result=\(setResult.rawValue, privacy: .public), enabled=\(isEnabled, privacy: .public)")
+        guard isEnabled else { return nil }
         return TargetAppAccessibilityObservationLease {
             guard self.validateApplication(target) else { return }
             _ = self.setEnhancedUserInterface(pid, false)
