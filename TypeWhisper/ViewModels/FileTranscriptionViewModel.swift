@@ -78,6 +78,26 @@ final class FileTranscriptionViewModel: ObservableObject {
         case cancelled
     }
 
+    enum ImportedMediaTranscriptionError: LocalizedError {
+        case rejected
+        case engineNotReady
+        case cancelled
+        case failed(String?)
+
+        var errorDescription: String? {
+            switch self {
+            case .rejected:
+                String(localized: "TypeWhisper could not add the media to the transcription queue.")
+            case .engineNotReady:
+                String(localized: "No transcription engine is ready. Choose one under File Transcription.")
+            case .cancelled:
+                String(localized: "The transcription was cancelled.")
+            case .failed(let message):
+                message ?? String(localized: "The transcription failed.")
+            }
+        }
+    }
+
     enum BatchState: Equatable {
         case idle
         case processing
@@ -136,6 +156,7 @@ final class FileTranscriptionViewModel: ObservableObject {
     private var activeBatchTask: Task<Void, Never>?
     private var activeCancellationFlag: CancellationFlag?
     private var elapsedTimerTask: Task<Void, Never>?
+    private var completionWaiters: [UUID: CheckedContinuation<TranscriptionResult, Error>] = [:]
 
     static let allowedContentTypes: [UTType] = [
         .wav, .mp3, .mpeg4Audio, .aiff, .audio,
@@ -311,8 +332,31 @@ final class FileTranscriptionViewModel: ObservableObject {
         return true
     }
 
+    /// Queues imported media, starts transcribing it without waiting for the
+    /// user, and returns its result once that item has finished.
+    func transcribeImportedMedia(
+        _ importedMedia: PluginImportedMedia,
+        from importer: any MediaImportPlugin
+    ) async throws -> TranscriptionResult {
+        guard selectedEngineIsReady else {
+            throw ImportedMediaTranscriptionError.engineNotReady
+        }
+        guard enqueueImportedMedia(importedMedia, from: importer),
+              let itemID = files.last?.id else {
+            throw ImportedMediaTranscriptionError.rejected
+        }
+        return try await withCheckedThrowingContinuation { continuation in
+            completionWaiters[itemID] = continuation
+            if batchState != .processing {
+                startBatch(onlyAwaitedItems: true)
+            }
+        }
+    }
+
     func removeFile(_ item: FileItem) {
         files.removeAll { $0.id == item.id }
+        completionWaiters.removeValue(forKey: item.id)?
+            .resume(throwing: ImportedMediaTranscriptionError.cancelled)
         removeImportedMedia(for: item)
         if files.isEmpty {
             batchState = .idle
@@ -321,15 +365,6 @@ final class FileTranscriptionViewModel: ObservableObject {
 
     func transcribeAll() {
         guard canTranscribe else { return }
-
-        activeBatchTask?.cancel()
-        activeCancellationFlag?.cancel()
-
-        let cancellationFlag = CancellationFlag()
-        activeCancellationFlag = cancellationFlag
-        batchState = .processing
-        currentIndex = 0
-        startElapsedTimer()
 
         // Reset pending/error items
         for i in files.indices {
@@ -346,12 +381,29 @@ final class FileTranscriptionViewModel: ObservableObject {
             }
         }
 
+        startBatch()
+    }
+
+    /// Transcribes pending items in order until none are left. Items queued
+    /// while the batch runs are picked up by the same batch. A batch started
+    /// for imported media leaves files the user queued manually for later.
+    private func startBatch(onlyAwaitedItems: Bool = false) {
+        activeBatchTask?.cancel()
+        activeCancellationFlag?.cancel()
+
+        let cancellationFlag = CancellationFlag()
+        activeCancellationFlag = cancellationFlag
+        batchState = .processing
+        currentIndex = 0
+        startElapsedTimer()
+
         activeBatchTask = Task { [weak self] in
             guard let self else { return }
-            for i in files.indices {
-                guard batchState == .processing, !cancellationFlag.isCancelled else { break }
-                guard files[i].state != .done else { continue }
-
+            while batchState == .processing,
+                  !cancellationFlag.isCancelled,
+                  let i = files.firstIndex(where: {
+                      $0.state == .pending && (!onlyAwaitedItems || completionWaiters[$0.id] != nil)
+                  }) {
                 currentIndex = i
                 await transcribeFile(at: i, cancellationFlag: cancellationFlag)
             }
@@ -364,6 +416,12 @@ final class FileTranscriptionViewModel: ObservableObject {
             stopElapsedTimer()
             activeBatchTask = nil
             activeCancellationFlag = nil
+
+            // Media queued for automatic transcription while a cancelled
+            // batch was still winding down.
+            if files.contains(where: { $0.state == .pending && completionWaiters[$0.id] != nil }) {
+                startBatch(onlyAwaitedItems: true)
+            }
         }
     }
 
@@ -371,6 +429,7 @@ final class FileTranscriptionViewModel: ObservableObject {
         guard batchState == .processing else { return }
         activeCancellationFlag?.cancel()
         activeBatchTask?.cancel()
+        failCompletionWaiters()
         if files.indices.contains(currentIndex),
            files[currentIndex].state == .loading || files[currentIndex].state == .transcribing {
             files[currentIndex].state = .cancelled
@@ -383,6 +442,8 @@ final class FileTranscriptionViewModel: ObservableObject {
 
     private func transcribeFile(at index: Int, cancellationFlag: CancellationFlag) async {
         guard files.indices.contains(index) else { return }
+        let itemID = files[index].id
+        defer { resolveCompletionWaiter(for: itemID) }
 
         files[index].state = .loading
         files[index].phaseDescription = String(localized: "Loading audio")
@@ -551,6 +612,7 @@ final class FileTranscriptionViewModel: ObservableObject {
 
     func reset() {
         cancelTranscription()
+        failCompletionWaiters()
         let importedItems = files.filter { $0.importedMedia != nil }
         files = []
         for item in importedItems {
@@ -576,6 +638,39 @@ final class FileTranscriptionViewModel: ObservableObject {
 
         guard let engine = resolvedEngine else { return false }
         return modelManager.canPrepareForTranscription(engine)
+    }
+
+    private func resolveCompletionWaiter(for itemID: UUID) {
+        guard let item = files.first(where: { $0.id == itemID }) else {
+            completionWaiters.removeValue(forKey: itemID)?
+                .resume(throwing: ImportedMediaTranscriptionError.cancelled)
+            return
+        }
+        switch item.state {
+        case .done:
+            if let result = item.result {
+                completionWaiters.removeValue(forKey: itemID)?.resume(returning: result)
+            } else {
+                completionWaiters.removeValue(forKey: itemID)?
+                    .resume(throwing: ImportedMediaTranscriptionError.failed(nil))
+            }
+        case .error:
+            completionWaiters.removeValue(forKey: itemID)?
+                .resume(throwing: ImportedMediaTranscriptionError.failed(item.errorMessage))
+        case .cancelled:
+            completionWaiters.removeValue(forKey: itemID)?
+                .resume(throwing: ImportedMediaTranscriptionError.cancelled)
+        case .pending, .loading, .transcribing:
+            break
+        }
+    }
+
+    private func failCompletionWaiters() {
+        let waiters = completionWaiters
+        completionWaiters.removeAll()
+        for waiter in waiters.values {
+            waiter.resume(throwing: ImportedMediaTranscriptionError.cancelled)
+        }
     }
 
     private func removeImportedMedia(for item: FileItem) {

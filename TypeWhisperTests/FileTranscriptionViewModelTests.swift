@@ -489,6 +489,193 @@ final class FileTranscriptionViewModelTests: XCTestCase {
         try await waitForBatchToFinish(viewModel)
     }
 
+    func testImportedMediaTranscriptionStartsAutomaticallyAndJoinsRunningBatch() async throws {
+        let firstURL = makeTemporaryFile(named: "first-link.m4a")
+        let secondURL = makeTemporaryFile(named: "second-link.m4a")
+        let plugin = FileTranscriptionMediaImportPlugin(downloadedFile: firstURL)
+        let firstStarted = AsyncGate()
+        let releaseFirst = MainActorFlag()
+        var transcribedURLs: [URL] = []
+
+        let viewModel = FileTranscriptionViewModel(
+            modelManager: ModelManagerService(),
+            audioFileService: AudioFileService(),
+            dictionaryService: makeDictionaryService(),
+            defaults: try makeDefaults(),
+            audioSamplesLoader: { url, _, _ in
+                transcribedURLs.append(url)
+                if url == firstURL {
+                    await firstStarted.open()
+                    while !releaseFirst.value {
+                        try await Task.sleep(for: .milliseconds(10))
+                    }
+                }
+                return [0.1]
+            },
+            transcriptionRunner: { _, _, _, engineOverrideId, _, _, _, _ in
+                TranscriptionResult(
+                    text: "Transcript \(transcribedURLs.count)",
+                    detectedLanguage: "en",
+                    duration: 1,
+                    processingTime: 0.1,
+                    engineUsed: engineOverrideId ?? "default",
+                    segments: []
+                )
+            },
+            engineReadinessChecker: { _ in true }
+        )
+
+        let first = Task {
+            try await viewModel.transcribeImportedMedia(
+                PluginImportedMedia(localFileURL: firstURL, displayName: "First", cleanupToken: nil),
+                from: plugin
+            )
+        }
+        let didStart = await firstStarted.wait()
+        XCTAssertTrue(didStart, "Imported media was not transcribed automatically")
+        XCTAssertEqual(viewModel.batchState, .processing)
+
+        let second = Task {
+            try await viewModel.transcribeImportedMedia(
+                PluginImportedMedia(localFileURL: secondURL, displayName: "Second", cleanupToken: nil),
+                from: plugin
+            )
+        }
+        try await waitUntil { viewModel.files.count == 2 }
+        releaseFirst.set()
+
+        let firstResult = try await first.value
+        let secondResult = try await second.value
+        XCTAssertEqual(firstResult.text, "Transcript 1")
+        XCTAssertEqual(secondResult.text, "Transcript 2")
+        XCTAssertEqual(transcribedURLs, [firstURL, secondURL])
+        XCTAssertEqual(viewModel.files.map(\.state), [.done, .done])
+        try await waitForBatchToFinish(viewModel)
+    }
+
+    func testImportedMediaTranscriptionFailsFastWithoutReadyEngine() async throws {
+        let fileURL = makeTemporaryFile(named: "link.m4a")
+        let plugin = FileTranscriptionMediaImportPlugin(downloadedFile: fileURL)
+        let viewModel = FileTranscriptionViewModel(
+            modelManager: ModelManagerService(),
+            audioFileService: AudioFileService(),
+            dictionaryService: makeDictionaryService(),
+            defaults: try makeDefaults(),
+            engineReadinessChecker: { _ in false }
+        )
+
+        do {
+            _ = try await viewModel.transcribeImportedMedia(
+                PluginImportedMedia(localFileURL: fileURL, displayName: nil, cleanupToken: nil),
+                from: plugin
+            )
+            XCTFail("Expected engineNotReady")
+        } catch FileTranscriptionViewModel.ImportedMediaTranscriptionError.engineNotReady {
+        }
+        XCTAssertTrue(viewModel.files.isEmpty)
+    }
+
+    func testCancellingBatchFailsImportedMediaWaitersIncludingUnstartedOnes() async throws {
+        let firstURL = makeTemporaryFile(named: "first-link.m4a")
+        let secondURL = makeTemporaryFile(named: "second-link.m4a")
+        let plugin = FileTranscriptionMediaImportPlugin(downloadedFile: firstURL)
+        let started = AsyncGate()
+
+        let viewModel = FileTranscriptionViewModel(
+            modelManager: ModelManagerService(),
+            audioFileService: AudioFileService(),
+            dictionaryService: makeDictionaryService(),
+            defaults: try makeDefaults(),
+            audioSamplesLoader: { _, _, isCancelled in
+                await started.open()
+                while !isCancelled() {
+                    try await Task.sleep(for: .milliseconds(10))
+                }
+                throw CancellationError()
+            },
+            engineReadinessChecker: { _ in true }
+        )
+
+        let first = Task {
+            try await viewModel.transcribeImportedMedia(
+                PluginImportedMedia(localFileURL: firstURL, displayName: nil, cleanupToken: nil),
+                from: plugin
+            )
+        }
+        let didStart = await started.wait()
+        XCTAssertTrue(didStart)
+        let second = Task {
+            try await viewModel.transcribeImportedMedia(
+                PluginImportedMedia(localFileURL: secondURL, displayName: nil, cleanupToken: nil),
+                from: plugin
+            )
+        }
+        try await waitUntil { viewModel.files.count == 2 }
+        viewModel.cancelTranscription()
+
+        for task in [first, second] {
+            do {
+                _ = try await task.value
+                XCTFail("Expected cancellation")
+            } catch FileTranscriptionViewModel.ImportedMediaTranscriptionError.cancelled {
+            }
+        }
+    }
+
+    func testImportedMediaQueuedDuringCancelIsTranscribedWithoutManualLeftovers() async throws {
+        let blockingURL = makeTemporaryFile(named: "blocking.m4a")
+        let manualURL = makeTemporaryFile(named: "manual.m4a")
+        let linkURL = makeTemporaryFile(named: "link.m4a")
+        let plugin = FileTranscriptionMediaImportPlugin(downloadedFile: linkURL)
+        let started = AsyncGate()
+        var loadedURLs: [URL] = []
+
+        let viewModel = FileTranscriptionViewModel(
+            modelManager: ModelManagerService(),
+            audioFileService: AudioFileService(),
+            dictionaryService: makeDictionaryService(),
+            defaults: try makeDefaults(),
+            audioSamplesLoader: { url, _, isCancelled in
+                loadedURLs.append(url)
+                if url == blockingURL {
+                    await started.open()
+                    while !isCancelled() {
+                        try await Task.sleep(for: .milliseconds(10))
+                    }
+                    throw CancellationError()
+                }
+                return [0.1]
+            },
+            transcriptionRunner: { _, _, _, _, _, _, _, _ in
+                TranscriptionResult(
+                    text: "Link transcript",
+                    detectedLanguage: "en",
+                    duration: 1,
+                    processingTime: 0.1,
+                    engineUsed: "default",
+                    segments: []
+                )
+            },
+            engineReadinessChecker: { _ in true }
+        )
+
+        viewModel.addFiles([blockingURL, manualURL])
+        viewModel.transcribeAll()
+        let didStart = await started.wait()
+        XCTAssertTrue(didStart)
+        viewModel.cancelTranscription()
+        XCTAssertEqual(viewModel.batchState, .processing, "Cancelled batch should still be winding down")
+
+        let result = try await viewModel.transcribeImportedMedia(
+            PluginImportedMedia(localFileURL: linkURL, displayName: "Link", cleanupToken: nil),
+            from: plugin
+        )
+
+        XCTAssertEqual(result.text, "Link transcript")
+        XCTAssertEqual(loadedURLs, [blockingURL, linkURL])
+        XCTAssertEqual(viewModel.files.map(\.state), [.cancelled, .pending, .done])
+    }
+
     func testCancelTranscriptionMarksActiveFileCancelledAndStopsBatch() async throws {
         let defaults = try makeDefaults()
         let firstURL = makeTemporaryFile(named: "large-video.mp4")
@@ -1391,6 +1578,15 @@ private actor AsyncGate {
             try? await Task.sleep(for: .milliseconds(10))
         }
         return isOpen
+    }
+}
+
+@MainActor
+private final class MainActorFlag {
+    private(set) var value = false
+
+    func set() {
+        value = true
     }
 }
 

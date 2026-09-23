@@ -81,6 +81,10 @@ enum WebLinkURLValidator {
 }
 
 enum WebLinkDownloadRequest {
+    /// yt-dlp writes the media's original title here; the downloaded file name
+    /// is restricted to ASCII and cannot serve as a display title.
+    static let titleFileName = "title.txt"
+
     static func make(
         ytDLPURL: URL,
         ffmpegURL: URL,
@@ -100,6 +104,8 @@ enum WebLinkDownloadRequest {
                 "--ffmpeg-location", ffmpegURL.deletingLastPathComponent().path,
                 "--paths", outputDirectory.path,
                 "--output", "%(title).180B-%(id)s.%(ext)s",
+                "--print-to-file", "after_move:%(title)s",
+                outputDirectory.appendingPathComponent(titleFileName).path,
                 "--", sourceURL.absoluteString,
             ],
             environment: environment,
@@ -140,6 +146,7 @@ enum WebLinkPluginError: LocalizedError {
     case downloadFailed(String)
     case noSupportedMedia
     case transcriptionQueueRejected
+    case automaticTranscriptionUnavailable
 
     var errorDescription: String? {
         switch self {
@@ -166,6 +173,8 @@ enum WebLinkPluginError: LocalizedError {
             webLinkLocalized("The download did not produce a supported audio or video file.")
         case .transcriptionQueueRejected:
             webLinkLocalized("TypeWhisper could not add the downloaded media to the transcription queue.")
+        case .automaticTranscriptionUnavailable:
+            webLinkLocalized("This version of TypeWhisper cannot start transcriptions for add-ons.")
         }
     }
 }
@@ -188,7 +197,12 @@ final class WebLinkPlugin: NSObject,
         "wav", "mp3", "m4a", "aac", "flac", "aiff", "aif", "mp4", "mov", "mkv", "webm"
     ])
 
+    static let obsidianVaultPathKey = "obsidianVaultPath"
+    static let obsidianSubfolderKey = "obsidianSubfolder"
+    static let defaultObsidianSubfolder = "Web Links"
+
     private let state = OSAllocatedUnfairLock(initialState: State())
+    @MainActor let obsidianJobs = WebLinkObsidianJobList()
     private let runner: any WebLinkProcessRunning
     private let environment: [String: String]
     private let homeDirectory: URL
@@ -357,8 +371,9 @@ final class WebLinkPlugin: NSObject,
             }
 
             let mediaURL = try Self.findImportedMedia(in: jobDirectory)
-            let displayName = mediaURL.deletingPathExtension().lastPathComponent
-                .replacingOccurrences(of: "_", with: " ")
+            let displayName = Self.downloadedTitle(in: jobDirectory)
+                ?? mediaURL.deletingPathExtension().lastPathComponent
+                    .replacingOccurrences(of: "_", with: " ")
             _ = onProgress(PluginMediaImportProgress(fractionCompleted: 1, status: webLinkLocalized("Download complete")))
             return PluginImportedMedia(
                 localFileURL: mediaURL,
@@ -428,6 +443,71 @@ final class WebLinkPlugin: NSObject,
         state.withLock { $0.host }?.openPluginSettings()
     }
 
+    // MARK: - Obsidian notes
+
+    func detectedObsidianVaults() -> [WebLinkObsidianVault] {
+        WebLinkObsidianVaultLocator.detectVaults(homeDirectory: homeDirectory)
+    }
+
+    /// The chosen vault, or the most recently opened one Obsidian knows about.
+    var obsidianVaultPath: String {
+        get {
+            if let stored = state.withLock({ $0.host })?.userDefault(forKey: Self.obsidianVaultPathKey) as? String,
+               !stored.isEmpty {
+                return stored
+            }
+            return detectedObsidianVaults().first?.path ?? ""
+        }
+        set {
+            state.withLock { $0.host }?.setUserDefault(newValue, forKey: Self.obsidianVaultPathKey)
+        }
+    }
+
+    var obsidianSubfolder: String {
+        get {
+            state.withLock { $0.host }?.userDefault(forKey: Self.obsidianSubfolderKey) as? String
+                ?? Self.defaultObsidianSubfolder
+        }
+        set {
+            state.withLock { $0.host }?.setUserDefault(newValue, forKey: Self.obsidianSubfolderKey)
+        }
+    }
+
+    var canTranscribeAutomatically: Bool {
+        state.withLock { $0.host } is any HostMediaTranscriptionProviding
+    }
+
+    /// Creates the note right away, then transcribes the media in the
+    /// background and writes the transcript (or the error) into the note.
+    @MainActor
+    func createObsidianNote(for media: PluginImportedMedia, sourceURL: URL) throws -> URL {
+        guard let transcriber = state.withLock({ $0.host }) as? any HostMediaTranscriptionProviding else {
+            throw WebLinkPluginError.automaticTranscriptionUnavailable
+        }
+        let title = media.displayName ?? sourceURL.absoluteString
+        let noteURL = try WebLinkObsidianNoteWriter(
+            vaultPath: obsidianVaultPath,
+            subfolder: obsidianSubfolder
+        ).createNote(title: title, sourceURL: sourceURL)
+
+        let jobID = obsidianJobs.add(noteURL: noteURL)
+        let importerId = mediaImportId
+        Task { [obsidianJobs] in
+            do {
+                let transcript = try await transcriber.transcribeImportedMedia(
+                    media,
+                    fromMediaImporterId: importerId
+                )
+                try WebLinkObsidianNoteWriter.completeNote(at: noteURL, transcript: transcript)
+                obsidianJobs.update(jobID, state: .done)
+            } catch {
+                try? WebLinkObsidianNoteWriter.failNote(at: noteURL, message: error.localizedDescription)
+                obsidianJobs.update(jobID, state: .failed(error.localizedDescription))
+            }
+        }
+        return noteURL
+    }
+
     private static func findImportedMedia(in directory: URL) throws -> URL {
         let candidates = try FileManager.default.contentsOfDirectory(
             at: directory,
@@ -448,6 +528,17 @@ final class WebLinkPlugin: NSObject,
             throw WebLinkPluginError.noSupportedMedia
         }
         return mediaURL
+    }
+
+    private static func downloadedTitle(in directory: URL) -> String? {
+        let titleURL = directory.appendingPathComponent(WebLinkDownloadRequest.titleFileName)
+        guard let content = try? String(contentsOf: titleURL, encoding: .utf8) else { return nil }
+        let title = content
+            .split(whereSeparator: \.isNewline)
+            .first?
+            .trimmingCharacters(in: .whitespaces)
+        guard let title, !title.isEmpty, title != "NA" else { return nil }
+        return title
     }
 
     private static func userFacingDiagnostic(_ output: String) -> String {
@@ -473,6 +564,43 @@ final class WebLinkPlugin: NSObject,
                   modified < cutoff else { continue }
             try? FileManager.default.removeItem(at: entry)
         }
+    }
+}
+
+@MainActor
+final class WebLinkObsidianJobList: ObservableObject {
+    nonisolated init() {}
+
+    enum State: Equatable {
+        case transcribing
+        case done
+        case failed(String)
+    }
+
+    struct Job: Identifiable, Equatable {
+        let id: UUID
+        let noteURL: URL
+        var state: State
+
+        var title: String { noteURL.deletingPathExtension().lastPathComponent }
+    }
+
+    private static let maximumJobs = 10
+
+    @Published private(set) var jobs: [Job] = []
+
+    func add(noteURL: URL) -> UUID {
+        let job = Job(id: UUID(), noteURL: noteURL, state: .transcribing)
+        jobs.insert(job, at: 0)
+        if jobs.count > Self.maximumJobs {
+            jobs.removeLast(jobs.count - Self.maximumJobs)
+        }
+        return job.id
+    }
+
+    func update(_ id: UUID, state: State) {
+        guard let index = jobs.firstIndex(where: { $0.id == id }) else { return }
+        jobs[index].state = state
     }
 }
 
@@ -511,7 +639,15 @@ final class WebLinkTranscriptionSidebarViewModel: ObservableObject {
             && plugin.mediaImportAvailability.isAvailable
     }
 
-    func importLink() {
+    var canSubmitToObsidian: Bool {
+        canSubmit && !plugin.obsidianVaultPath.isEmpty && plugin.canTranscribeAutomatically
+    }
+
+    func importLinkToObsidian() {
+        importLink(toObsidian: true)
+    }
+
+    func importLink(toObsidian: Bool = false) {
         guard !isImporting else { return }
         guard let sourceURL = WebLinkURLValidator.validatedURL(from: link) else {
             errorMessage = webLinkLocalized("The link must be a valid HTTP or HTTPS URL.")
@@ -550,14 +686,29 @@ final class WebLinkTranscriptionSidebarViewModel: ObservableObject {
                     await plugin.removeImportedMedia(importedMedia)
                     return
                 }
-                guard await plugin.enqueueImportedMediaForTranscription(importedMedia) else {
-                    await plugin.removeImportedMedia(importedMedia)
-                    throw WebLinkPluginError.transcriptionQueueRejected
-                }
+                if toObsidian {
+                    let noteURL: URL
+                    do {
+                        noteURL = try plugin.createObsidianNote(for: importedMedia, sourceURL: sourceURL)
+                    } catch {
+                        await plugin.removeImportedMedia(importedMedia)
+                        throw error
+                    }
+                    link = ""
+                    successMessage = String(
+                        format: webLinkLocalized("Created the note “%@”. The transcript is added when transcription finishes."),
+                        noteURL.deletingPathExtension().lastPathComponent
+                    )
+                } else {
+                    guard await plugin.enqueueImportedMediaForTranscription(importedMedia) else {
+                        await plugin.removeImportedMedia(importedMedia)
+                        throw WebLinkPluginError.transcriptionQueueRejected
+                    }
 
-                guard activeImportID == importID else { return }
-                link = ""
-                successMessage = webLinkLocalized("The downloaded media was added to the transcription queue.")
+                    guard activeImportID == importID else { return }
+                    link = ""
+                    successMessage = webLinkLocalized("The downloaded media was added to the transcription queue.")
+                }
             } catch is CancellationError {
                 // Cancellation is an explicit user action and needs no error banner.
             } catch {
@@ -643,6 +794,15 @@ private struct WebLinkTranscriptionSidebarView: View {
                                 }
                                 .disabled(!viewModel.canSubmit)
                                 .accessibilityIdentifier("webLinkTranscription.addLink")
+
+                                Button {
+                                    viewModel.importLinkToObsidian()
+                                } label: {
+                                    Label(webLinkLocalized("Add to Obsidian"), systemImage: "doc.badge.plus")
+                                }
+                                .disabled(!viewModel.canSubmitToObsidian)
+                                .help(webLinkLocalized("Create an Obsidian note named after the video and fill in the transcript automatically."))
+                                .accessibilityIdentifier("webLinkTranscription.addToObsidian")
                             }
                         }
 
@@ -675,6 +835,8 @@ private struct WebLinkTranscriptionSidebarView: View {
                             .fill(Color(nsColor: .controlBackgroundColor))
                     )
 
+                    WebLinkObsidianSection(plugin: viewModel.plugin, jobs: viewModel.plugin.obsidianJobs)
+
                     if !viewModel.plugin.mediaImportAvailability.isAvailable {
                         VStack(alignment: .leading, spacing: 10) {
                             Text(
@@ -704,6 +866,160 @@ private struct WebLinkTranscriptionSidebarView: View {
                 isLinkFieldFocused = true
             }
         }
+    }
+}
+
+@MainActor
+private struct WebLinkObsidianSection: View {
+    let plugin: WebLinkPlugin
+    @ObservedObject var jobs: WebLinkObsidianJobList
+
+    @State private var vaultPath = ""
+    @State private var subfolder = ""
+    @State private var detectedVaults: [WebLinkObsidianVault] = []
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(webLinkLocalized("Obsidian notes"))
+                .font(.headline)
+
+            Text(webLinkLocalized("“Add to Obsidian” creates a note named after the video in this folder, with the link as its first line, and adds the transcript when transcription finishes. It uses the engine selected under File Transcription."))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 10) {
+                GridRow {
+                    Text(webLinkLocalized("Vault"))
+                    HStack(spacing: 8) {
+                        Picker(webLinkLocalized("Vault"), selection: $vaultPath) {
+                            if vaultPath.isEmpty {
+                                Text(webLinkLocalized("None")).tag("")
+                            }
+                            ForEach(vaultChoices) { vault in
+                                Text(vault.name)
+                                    .help(vault.path)
+                                    .tag(vault.path)
+                            }
+                        }
+                        .labelsHidden()
+                        .frame(maxWidth: 280)
+                        .onChange(of: vaultPath) { _, newValue in
+                            plugin.obsidianVaultPath = newValue
+                        }
+                        .accessibilityIdentifier("webLinkTranscription.obsidianVault")
+
+                        Button(webLinkLocalized("Choose…")) {
+                            chooseVaultFolder()
+                        }
+                    }
+                }
+                GridRow {
+                    Text(webLinkLocalized("Subfolder"))
+                    TextField(webLinkLocalized("Vault root"), text: $subfolder)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(maxWidth: 280)
+                        .onChange(of: subfolder) { _, newValue in
+                            plugin.obsidianSubfolder = newValue
+                        }
+                        .accessibilityIdentifier("webLinkTranscription.obsidianSubfolder")
+                }
+            }
+
+            if !jobs.jobs.isEmpty {
+                Divider()
+                ForEach(jobs.jobs) { job in
+                    jobRow(job)
+                }
+            }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color(nsColor: .controlBackgroundColor))
+        )
+        .onAppear {
+            detectedVaults = plugin.detectedObsidianVaults()
+            vaultPath = plugin.obsidianVaultPath
+            subfolder = plugin.obsidianSubfolder
+        }
+    }
+
+    private var vaultChoices: [WebLinkObsidianVault] {
+        guard !vaultPath.isEmpty, !detectedVaults.contains(where: { $0.path == vaultPath }) else {
+            return detectedVaults
+        }
+        return [WebLinkObsidianVault(path: vaultPath)] + detectedVaults
+    }
+
+    @ViewBuilder
+    private func jobRow(_ job: WebLinkObsidianJobList.Job) -> some View {
+        HStack(spacing: 8) {
+            switch job.state {
+            case .transcribing:
+                ProgressView()
+                    .controlSize(.small)
+            case .done:
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+            case .failed:
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(job.title)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                switch job.state {
+                case .transcribing:
+                    Text(webLinkLocalized("Transcribing…"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                case .done:
+                    Text(webLinkLocalized("Transcript added"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                case .failed(let message):
+                    Text(message)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .textSelection(.enabled)
+                }
+            }
+
+            Spacer()
+
+            Button(webLinkLocalized("Open")) {
+                openInObsidian(job.noteURL)
+            }
+            .controlSize(.small)
+        }
+    }
+
+    private func openInObsidian(_ noteURL: URL) {
+        var components = URLComponents()
+        components.scheme = "obsidian"
+        components.host = "open"
+        components.queryItems = [URLQueryItem(name: "path", value: noteURL.path)]
+        if let url = components.url, NSWorkspace.shared.open(url) {
+            return
+        }
+        NSWorkspace.shared.activateFileViewerSelecting([noteURL])
+    }
+
+    private func chooseVaultFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = webLinkLocalized("Choose Vault")
+        if !vaultPath.isEmpty {
+            panel.directoryURL = URL(fileURLWithPath: vaultPath, isDirectory: true)
+        }
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        vaultPath = url.path
     }
 }
 
@@ -832,7 +1148,7 @@ private struct WebLinkSettingsView: View {
     }
 }
 
-private func webLinkLocalized(_ key: String.LocalizationValue) -> String {
+func webLinkLocalized(_ key: String.LocalizationValue) -> String {
     #if SWIFT_PACKAGE
     String(localized: key, bundle: .module)
     #else

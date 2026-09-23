@@ -37,7 +37,7 @@ public final class PluginTestEventBus: EventBusProtocol, @unchecked Sendable {
     }
 }
 
-public final class PluginTestHostServices: HostServices, HostModelLifecyclePolicyProviding, @unchecked Sendable {
+public final class PluginTestHostServices: HostServices, HostModelLifecyclePolicyProviding, HostMediaTranscriptionProviding, @unchecked Sendable {
     private struct AnySendable: @unchecked Sendable {
         let value: Any
     }
@@ -50,6 +50,8 @@ public final class PluginTestHostServices: HostServices, HostModelLifecyclePolic
         var enqueuedImportedMedia: [PluginImportedMedia] = []
         var enqueuedMediaImporterIds: [String] = []
         var streamingDisplayActiveValues: [Bool] = []
+        var transcribedImportedMedia: [PluginImportedMedia] = []
+        var mediaTranscriptionHandler: (@Sendable (PluginImportedMedia) async throws -> String)?
     }
 
     private let lock = NSLock()
@@ -176,6 +178,32 @@ public final class PluginTestHostServices: HostServices, HostModelLifecyclePolic
 
     public var streamingDisplayActiveValues: [Bool] {
         lock.withLock { state.streamingDisplayActiveValues }
+    }
+
+    /// Supplies the transcript returned by `transcribeImportedMedia`. Without a
+    /// handler the call returns an empty transcript.
+    public func setMediaTranscriptionHandler(
+        _ handler: (@Sendable (PluginImportedMedia) async throws -> String)?
+    ) {
+        lock.withLock {
+            state.mediaTranscriptionHandler = handler
+        }
+    }
+
+    public func transcribeImportedMedia(
+        _ media: PluginImportedMedia,
+        fromMediaImporterId mediaImporterId: String
+    ) async throws -> String {
+        let handler = lock.withLock {
+            state.transcribedImportedMedia.append(media)
+            state.enqueuedMediaImporterIds.append(mediaImporterId)
+            return state.mediaTranscriptionHandler
+        }
+        return try await handler?(media) ?? ""
+    }
+
+    public var transcribedImportedMedia: [PluginImportedMedia] {
+        lock.withLock { state.transcribedImportedMedia }
     }
 
     private static func makeTemporaryDirectory(prefix: String) throws -> URL {

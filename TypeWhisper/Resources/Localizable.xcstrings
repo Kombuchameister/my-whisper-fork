@@ -1,6 +1,94 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "TypeWhisper could not add the media to the transcription queue." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "TypeWhisper konnte die Mediendatei nicht zur Transkriptionswarteschlange hinzufügen."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "TypeWhisper はメディアを文字起こしキューに追加できませんでした。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "TypeWhisper 无法将该媒体添加到转录队列。"
+          }
+        }
+      }
+    },
+    "No transcription engine is ready. Choose one under File Transcription." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keine Transkriptions-Engine ist bereit. Wähle eine unter Dateitranskription aus."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "使用できる文字起こしエンジンがありません。「ファイル文字起こし」で選択してください。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "没有可用的转录引擎。请在“文件转录”中选择一个。"
+          }
+        }
+      }
+    },
+    "The transcription was cancelled." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Transkription wurde abgebrochen."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "文字起こしはキャンセルされました。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "转录已取消。"
+          }
+        }
+      }
+    },
+    "The transcription failed." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Transkription ist fehlgeschlagen."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "文字起こしに失敗しました。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "转录失败。"
+          }
+        }
+      }
+    },
     "The last three successful dictations are also kept for up to 24 hours so you can retry an incomplete result. Immediately disables this retry buffer too." : {
       "localizations" : {
         "de" : {
