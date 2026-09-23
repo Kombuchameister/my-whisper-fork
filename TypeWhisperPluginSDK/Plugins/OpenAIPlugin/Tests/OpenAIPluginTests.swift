@@ -616,6 +616,37 @@ final class OpenAIPluginTests: XCTestCase {
         XCTAssertFalse(OpenAIPlugin.usesResponsesAPI(for: "gpt-4o"))
     }
 
+    func testGPT6ReasoningEffortsMatchModelPages() {
+        XCTAssertEqual(
+            OpenAIPlugin.supportedReasoningEfforts(for: "gpt-6-astra"),
+            [.low, .medium, .high, .xhigh, .max]
+        )
+        XCTAssertEqual(
+            OpenAIPlugin.supportedReasoningEfforts(for: "gpt-6-sol"),
+            [.none, .low, .medium, .high, .xhigh, .max]
+        )
+        XCTAssertEqual(
+            OpenAIPlugin.supportedReasoningEfforts(for: "gpt-6-luna"),
+            [.none, .low, .medium, .high, .xhigh, .max]
+        )
+        XCTAssertEqual(OpenAIPlugin.defaultReasoningEffort(for: "gpt-6-astra"), .medium)
+        XCTAssertEqual(OpenAIPlugin.defaultReasoningEffort(for: "gpt-6-luna"), .medium)
+        XCTAssertNil(OpenAIPlugin.chatCompletionTemperature(for: "gpt-6-sol", reasoningEffort: "none"))
+        XCTAssertTrue(OpenAIPlugin.usesResponsesAPI(for: "gpt-6-astra"))
+    }
+
+    func testPreferredModelIsTheIntegrationSelection() throws {
+        let host = try PluginTestHostServices()
+        let plugin = OpenAIPlugin()
+        plugin.activate(host: host)
+        let chosen = try XCTUnwrap(plugin.supportedModels.last?.id)
+        XCTAssertNotEqual(chosen, plugin.supportedModels.first?.id)
+        plugin.selectLLMModel(chosen)
+
+        let selectable = try XCTUnwrap(plugin as LLMModelSelectable?)
+        XCTAssertEqual(selectable.preferredModelId ?? nil, chosen)
+    }
+
     func testOpenAIReasoningEffortsMatchModelCapabilities() {
         XCTAssertEqual(
             OpenAIPlugin.supportedReasoningEfforts(for: "gpt-5.6-sol"),

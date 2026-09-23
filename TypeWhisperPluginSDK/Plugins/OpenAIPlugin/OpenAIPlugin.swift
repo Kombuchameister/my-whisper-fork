@@ -1765,6 +1765,7 @@ final class OpenAIPlugin: NSObject,
     LiveLanguageHintDictionaryTermHintTranscriptionCapablePlugin,
     DictionaryTermsCapabilityProviding,
     LLMTemperatureAndEffortControllableProvider,
+    LLMModelSelectable,
     TTSProviderPlugin,
     PluginAuthRoleStatusProviding,
     @unchecked Sendable
@@ -2492,6 +2493,9 @@ final class OpenAIPlugin: NSObject,
     }
 
     var selectedLLMModelId: String? { _selectedLLMModelId }
+    /// The model chosen in this integration's settings. Hosts use it wherever a
+    /// workflow or fallback entry leaves the model on "Provider Default".
+    @objc var preferredModelId: String? { _selectedLLMModelId }
     fileprivate var reasoningEffort: OpenAIReasoningEffort { _reasoningEffort }
     fileprivate var llmTemperatureMode: PluginLLMTemperatureMode {
         PluginLLMTemperatureMode(rawValue: _llmTemperatureModeRaw) ?? .providerDefault
@@ -3223,6 +3227,7 @@ final class OpenAIPlugin: NSObject,
     nonisolated static func outputTokenParameter(for modelID: String) -> String {
         let lowered = modelID.lowercased()
         if lowered.hasPrefix("gpt-5")
+            || lowered.hasPrefix("gpt-6")
             || lowered.hasPrefix("o1")
             || lowered.hasPrefix("o3")
             || lowered.hasPrefix("o4") {
@@ -3241,7 +3246,12 @@ final class OpenAIPlugin: NSObject,
         let lowered = modelID.lowercased()
         guard !lowered.contains("-chat") else { return [] }
 
-        if lowered.hasPrefix("gpt-5.6") {
+        // Per-model pages: GPT-6 Astra rejects `none`; Sol and Luna accept it.
+        if lowered.hasPrefix("gpt-6-astra") {
+            return [.low, .medium, .high, .xhigh, .max]
+        }
+
+        if lowered.hasPrefix("gpt-6") || lowered.hasPrefix("gpt-5.6") {
             return [.none, .low, .medium, .high, .xhigh, .max]
         }
 
@@ -3325,7 +3335,8 @@ final class OpenAIPlugin: NSObject,
     }
 
     nonisolated static func usesResponsesAPI(for modelID: String) -> Bool {
-        modelID.lowercased().hasPrefix("gpt-5")
+        let lowered = modelID.lowercased()
+        return lowered.hasPrefix("gpt-5") || lowered.hasPrefix("gpt-6")
     }
 
     nonisolated static func supportsCustomTemperature(for modelID: String, reasoningEffort: String?) -> Bool {
@@ -3334,6 +3345,9 @@ final class OpenAIPlugin: NSObject,
 
     nonisolated static func chatCompletionTemperature(for modelID: String, reasoningEffort: String?) -> Double? {
         let lowered = modelID.lowercased()
+        if lowered.hasPrefix("gpt-6") {
+            return nil
+        }
         if lowered.hasPrefix("gpt-5") {
             let supportsTemperatureAtNone = lowered.hasPrefix("gpt-5.1")
                 || lowered.hasPrefix("gpt-5.2")
