@@ -76,8 +76,10 @@ if [[ -d "$install_path" ]]; then
   previous="$archive_dir/$(basename "$install_path" .app)-$(date +%Y%m%d-%H%M%S).app"
   mv "$install_path" "$previous"
   log "previous app moved to $previous"
-  # Keep only the three most recent previous builds (about 160 MB each).
-  ls -1dt "$archive_dir/$(basename "$install_path" .app)"-*.app 2>/dev/null | tail -n +4 | while IFS= read -r old; do
+  # Keep only the three most recent previous builds (about 160 MB each). Sort
+  # by the timestamp in the name: ditto keeps the build product's mtime, so
+  # every archive has the same modification time.
+  ls -1d "$archive_dir/$(basename "$install_path" .app)"-*.app 2>/dev/null | sort -r | tail -n +4 | while IFS= read -r old; do
     rm -rf "$old"
     log "pruned old build $(basename "$old")"
   done
