@@ -55,7 +55,7 @@ final class ChromiumAccessibilityObservationController {
         validateApplication: ValidateApplication? = nil
     ) {
         self.resolveApplication = resolveApplication ?? Self.resolveRunningApplication
-        self.isElectronApplicationAtURL = isElectronApplication ?? Self.containsElectronFramework
+        self.isElectronApplicationAtURL = isElectronApplication ?? Self.containsChromiumFramework
         self.readManualAccessibility = readManualAccessibility ?? Self.readManualAccessibilityValue
         self.setManualAccessibility = setManualAccessibility ?? Self.setManualAccessibilityValue
         self.validateApplication = validateApplication ?? Self.isSameRunningApplication
@@ -124,12 +124,30 @@ final class ChromiumAccessibilityObservationController {
         )
     }
 
-    private static func containsElectronFramework(bundleURL: URL) -> Bool {
-        let electronFrameworkURL = bundleURL
+    /// Electron apps and apps embedding Chromium under another framework name
+    /// (e.g. the ChatGPT app's "Codex Framework") both ship Chromium's crash
+    /// handler inside their framework's Helpers directory.
+    static func containsChromiumFramework(bundleURL: URL) -> Bool {
+        let frameworksURL = bundleURL
             .appendingPathComponent("Contents", isDirectory: true)
             .appendingPathComponent("Frameworks", isDirectory: true)
-            .appendingPathComponent("Electron Framework.framework", isDirectory: true)
-        return FileManager.default.fileExists(atPath: electronFrameworkURL.path)
+        if FileManager.default.fileExists(
+            atPath: frameworksURL.appendingPathComponent("Electron Framework.framework").path
+        ) {
+            return true
+        }
+        guard let frameworks = try? FileManager.default.contentsOfDirectory(atPath: frameworksURL.path) else {
+            return false
+        }
+        return frameworks.contains { framework in
+            guard framework.hasSuffix(".framework") else { return false }
+            let helpersPath = frameworksURL
+                .appendingPathComponent(framework, isDirectory: true)
+                .appendingPathComponent("Helpers", isDirectory: true)
+                .path
+            let helpers = (try? FileManager.default.contentsOfDirectory(atPath: helpersPath)) ?? []
+            return helpers.contains { $0.hasSuffix("crashpad_handler") }
+        }
     }
 
     private static func readManualAccessibilityValue(

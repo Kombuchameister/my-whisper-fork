@@ -4,6 +4,36 @@ import XCTest
 
 @MainActor
 final class TargetAppCorrectionLearningServiceTests: XCTestCase {
+    func testChromiumDetectionCoversElectronAndRenamedChromiumFrameworks() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ChromiumDetection-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        func makeApp(_ name: String, framework: String?, helper: String?) throws -> URL {
+            let app = root.appendingPathComponent("\(name).app", isDirectory: true)
+            let frameworks = app.appendingPathComponent("Contents/Frameworks", isDirectory: true)
+            try FileManager.default.createDirectory(at: frameworks, withIntermediateDirectories: true)
+            if let framework {
+                let helpers = frameworks.appendingPathComponent("\(framework)/Helpers", isDirectory: true)
+                try FileManager.default.createDirectory(at: helpers, withIntermediateDirectories: true)
+                if let helper {
+                    FileManager.default.createFile(atPath: helpers.appendingPathComponent(helper).path, contents: Data())
+                }
+            }
+            return app
+        }
+
+        let electron = try makeApp("Claude", framework: "Electron Framework.framework", helper: nil)
+        let chatGPT = try makeApp("ChatGPT", framework: "Codex Framework.framework", helper: "browser_crashpad_handler")
+        let browser = try makeApp("Comet", framework: "Comet Framework.framework", helper: "chrome_crashpad_handler")
+        let native = try makeApp("Notes", framework: "Sparkle.framework", helper: "Autoupdate")
+
+        XCTAssertTrue(ChromiumAccessibilityObservationController.containsChromiumFramework(bundleURL: electron))
+        XCTAssertTrue(ChromiumAccessibilityObservationController.containsChromiumFramework(bundleURL: chatGPT))
+        XCTAssertTrue(ChromiumAccessibilityObservationController.containsChromiumFramework(bundleURL: browser))
+        XCTAssertFalse(ChromiumAccessibilityObservationController.containsChromiumFramework(bundleURL: native))
+    }
+
     func testElectronAccessibilityObservationRestoresStateItEnabled() throws {
         let target = electronTarget()
         var setValues: [Bool] = []
