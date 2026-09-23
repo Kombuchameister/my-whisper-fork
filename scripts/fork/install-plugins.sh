@@ -113,6 +113,12 @@ for plugin in "${plugins[@]}"; do
   printf '%s %s %s%s\n' "$plugin" "$version" "$commit" "$dirty" >> "$lock_tmp"
 done
 
+# Keep provenance lines for plugins this run did not rebuild.
+if [[ -f "$lock_file" ]]; then
+  grep -v '^#' "$lock_file" | while read -r name rest; do
+    [[ " ${plugins[*]} " == *" $name "* ]] || printf '%s %s\n' "$name" "$rest"
+  done >> "$lock_tmp"
+fi
 mv "$lock_tmp" "$lock_file"
 log "installed ${#plugins[@]} plugin(s) into $plugins_dir"
 if [[ -d "$replaced_dir" ]]; then
