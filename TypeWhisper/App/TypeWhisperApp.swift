@@ -111,9 +111,38 @@ struct SettingsManagedAppWindowScene: Scene {
         Window(String(localized: "Settings"), id: "settings") {
             content
                 .disablesManagedAppWindowRestoration()
+                .background(FullHeightWindowOnOpen())
         }
         .windowResizability(.contentMinSize)
         .defaultSize(width: 1050, height: 600)
+    }
+}
+
+/// Opens the hosting window at the full usable height of its screen, keeping
+/// its width. Runs once per window, so a manual resize sticks until the window
+/// is closed. (`defaultWindowPlacement` would need macOS 15.)
+private struct FullHeightWindowOnOpen: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView { WindowSizingView() }
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    private final class WindowSizingView: NSView {
+        private weak var sizedWindow: NSWindow?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard !AppConstants.isScreenshotAutomation,
+                  let window, window !== sizedWindow else { return }
+            sizedWindow = window
+            DispatchQueue.main.async {
+                guard let screen = window.screen ?? NSScreen.main else { return }
+                let visible = screen.visibleFrame
+                var frame = window.frame
+                frame.size.height = visible.height
+                frame.origin.y = visible.minY
+                frame.origin.x = min(max(frame.origin.x, visible.minX), visible.maxX - frame.width)
+                window.setFrame(frame, display: true)
+            }
+        }
     }
 }
 
