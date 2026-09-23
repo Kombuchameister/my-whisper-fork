@@ -4,3 +4,34 @@ When a pull request fixes or implements a GitHub issue, always:
 - include the issue context in the PR body
 - include an auto-close reference such as `Closes #123`
 - include a short test plan with the exact verification command(s)
+
+## Fork Rules
+
+This repository is a personal fork (see FORK.md). `origin` is the fork; never push to or open pull requests against `upstream` (TypeWhisper/typewhisper-mac). `main` is the version the user runs, and features are developed on `feature/*` branches.
+
+Never modify `/Applications/TypeWhisper.app`, its plugins, preferences domain `com.typewhisper.mac`, or its Keychain items. It is the unmodified upstream production fallback. The user's own app is the developer app built from `main` (bundle ID `com.typewhisper.mac.dev.main`, Application Support `TypeWhisper-Dev-main`).
+
+## Developer Feature Apps
+
+A feature-app build is not complete when the app is merely built and installed. For every newly installed TypeWhisper developer feature app:
+
+- keep `/Applications/TypeWhisper.app` untouched as the production fallback
+- use a stable, feature-specific bundle ID, Application Support directory, preferences domain, Keychain service prefix, and designated signing requirement
+- initialize the new app from the most recently tested and configured developer app, never from production: clone its Application Support data and complete preferences domain into the new isolated namespaces
+- clone its provider/token Keychain items into the new bundle-ID-prefixed services and authorize only the new feature app under its stable designated requirement; never grant broad Keychain access to `/usr/bin/security`
+- treat a request to build or install a developer feature app as authorization to perform this initialization without asking the user to repeat the convention
+- launch once to verify the copied workflows and configured providers are available without Keychain prompts, then close the app to avoid hotkey conflicts
+- on routine rebuilds of the same feature app, preserve its existing isolated state and credentials; do not reclone or overwrite them
+- keep `BranchBuiltPlugins` outside the app bundle: never copy that directory wholesale into `Contents/PlugIns`, because bundled plugins are presented as non-removable built-ins
+- when a feature artifact includes `BranchBuiltPlugins`, refresh only matching plugin bundles that are already installed in the app's isolated Application Support `Plugins` directory; leave all other marketplace plugins available for explicit installation
+
+## CI Monitoring
+
+Keep GitHub Actions monitoring token-efficient in every session:
+
+- never use continuously streaming commands such as `gh run watch` as the default waiting strategy, because repeated status output consumes conversation context and model tokens without adding useful information
+- query only compact status fields, for example with `gh run view <run-id> --json status,conclusion`, and poll sparingly (normally every 3-5 minutes)
+- prefer a quiet background waiter or product wait/automation mechanism that reports only a state change or final result when available
+- fetch job details or logs only after the run completes, when it fails, or when the user explicitly asks for them
+- do not narrate unchanged polls; report meaningful transitions, failures, or completion
+- use webhooks only when an authenticated persistent listener already exists; do not introduce webhook infrastructure merely to wait for a single CI run
