@@ -17,7 +17,6 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 app_support_root="$HOME/Library/Application Support"
 derived_root="$repo_root/.build/fork-plugins"
 app_support_name=""
-allow_production=0
 declare -a add_plugins=()
 declare -a only_plugins=()
 
@@ -29,15 +28,14 @@ while [[ $# -gt 0 ]]; do
     --app-support) app_support_name="$2"; shift 2 ;;
     --add) add_plugins+=("$2"); shift 2 ;;
     --only) only_plugins+=("$2"); shift 2 ;;
-    --allow-production) allow_production=1; shift ;;
     -h|--help) sed -n '2,15p' "$0"; exit 0 ;;
     *) die "unknown argument: $1" ;;
   esac
 done
 
 [[ -n "$app_support_name" ]] || die "--app-support <directory name under Application Support> is required"
-if [[ "$app_support_name" == "TypeWhisper" && $allow_production -eq 0 ]]; then
-  die "refusing to touch the production app's plugins without --allow-production"
+if [[ "$app_support_name" == "TypeWhisper" ]]; then
+  die "the production app (TypeWhisper) is the upstream fallback and is never modified"
 fi
 
 target_dir="$app_support_root/$app_support_name"

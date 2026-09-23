@@ -56,8 +56,8 @@ scripts/fork/install-plugins.sh --app-support TypeWhisper-Dev-main --add GroqPlu
 ```
 
 The script moves replaced bundles to `Plugins.replaced/<timestamp>/` and writes
-`fork-plugins.lock` (plugin, version, source commit). It refuses to touch the production
-app (`TypeWhisper`) unless `--allow-production` is passed.
+`fork-plugins.lock` (plugin, version, source commit). It never touches the production app:
+`/Applications/TypeWhisper.app` stays the unmodified upstream build as a fallback.
 
 ## State outside this repo
 
