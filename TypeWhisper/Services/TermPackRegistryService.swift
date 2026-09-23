@@ -63,7 +63,7 @@ final class TermPackRegistryService: ObservableObject {
     }
 
     init(
-        registryURL: URL = URL(string: "https://typewhisper.github.io/typewhisper-termpacks/termpacks.json")!,
+        registryURL: URL = AppConstants.ForkDistribution.termPackRegistryURL,
         cacheDuration: TimeInterval = 300,
         userDefaults: UserDefaults = .standard,
         fetchData: @escaping (URLRequest) async throws -> (Data, URLResponse) = { request in

@@ -77,7 +77,9 @@
 		<true/>
 	</dict>
 	<key>SUFeedURL</key>
-	<string>https://typewhisper.github.io/typewhisper-mac/appcast.xml</string>
+	<string>https://kombuchameister.github.io/my-whisper-fork/appcast.xml</string>
+	<key>SUEnableAutomaticChecks</key>
+	<false/>
 	<key>SUPublicEDKey</key>
 	<string>OdAMiN136Ckglxnq4FeLagPjcrZiASYGaeUWBkK6tuc=</string>
 	<key>TypeWhisperReleaseChannel</key>

@@ -56,8 +56,32 @@ final class AppFormatterServiceTests: XCTestCase {
         XCTAssertEqual(release.tag, "v1.6.0-daily.20260716")
         XCTAssertEqual(
             release.url.absoluteString,
-            "https://github.com/TypeWhisper/typewhisper-mac/releases/tag/v1.6.0-daily.20260716"
+            "https://github.com/Kombuchameister/my-whisper-fork/releases/tag/v1.6.0-daily.20260716"
         )
+    }
+
+    func testForkDistributionEndpointsNeverPointUpstream() throws {
+        let forkPages = AppConstants.ForkDistribution.pagesBaseURL.absoluteString
+        let feedURL = try XCTUnwrap(Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String)
+        let automaticChecks = Bundle.main.object(forInfoDictionaryKey: "SUEnableAutomaticChecks") as? Bool
+
+        XCTAssertTrue(feedURL.hasPrefix(forkPages + "/"), "Sparkle feed must be served by the fork: \(feedURL)")
+        XCTAssertEqual(automaticChecks, false)
+        XCTAssertTrue(
+            AppConstants.ForkDistribution.termPackRegistryURL.absoluteString.hasPrefix(forkPages + "/")
+        )
+        for endpoint in [feedURL, forkPages, AppConstants.ForkDistribution.releaseTagsURL.absoluteString] {
+            XCTAssertFalse(endpoint.lowercased().contains("typewhisper/typewhisper-"), endpoint)
+            XCTAssertFalse(endpoint.lowercased().contains("typewhisper.github.io"), endpoint)
+        }
+        XCTAssertTrue(PluginRegistryService.isTrustedRegistryDownloadURL(
+            "https://github.com/Kombuchameister/my-whisper-fork/releases/download/plugin-x-v1.0.0/X.zip",
+            source: .community
+        ))
+        XCTAssertFalse(PluginRegistryService.isTrustedRegistryDownloadURL(
+            "https://github.com/TypeWhisper/typewhisper-mac/releases/download/plugin-x-v1.0.0/X.zip",
+            source: .community
+        ))
     }
 
     func testBundledPreviewReleaseUsesReleaseCandidateTagAndURL() throws {
@@ -71,7 +95,7 @@ final class AppFormatterServiceTests: XCTestCase {
         XCTAssertEqual(release.tag, "v1.6.0-rc1")
         XCTAssertEqual(
             release.url.absoluteString,
-            "https://github.com/TypeWhisper/typewhisper-mac/releases/tag/v1.6.0-rc1"
+            "https://github.com/Kombuchameister/my-whisper-fork/releases/tag/v1.6.0-rc1"
         )
     }
 

@@ -579,12 +579,12 @@ final class PluginRegistryService: ObservableObject {
         }
 
         return components.path.hasPrefix(
-            "/TypeWhisper/typewhisper-mac/releases/download/"
+            AppConstants.ForkDistribution.releaseDownloadPathPrefix
         )
     }
 
     init(
-        registryBaseURL: URL = URL(string: "https://typewhisper.github.io/typewhisper-mac")!,
+        registryBaseURL: URL = AppConstants.ForkDistribution.pagesBaseURL,
         cacheDirectory: URL = AppConstants.appSupportDirectory.appendingPathComponent("MarketplaceCache", isDirectory: true),
         cacheDuration: TimeInterval = 300,
         userDefaults: UserDefaults = .standard,

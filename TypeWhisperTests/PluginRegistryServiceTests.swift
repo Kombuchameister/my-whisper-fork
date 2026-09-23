@@ -1255,7 +1255,7 @@ final class PluginRegistryServiceTests: XCTestCase {
                       "minHostVersion": "1.4.0",
                       "sdkCompatibilityVersion": "v1",
                       "size": 12,
-                      "downloadURL": "https://github.com/TypeWhisper/typewhisper-mac/releases/download/plugin-community-v1.0.0/CommunityPlugin.zip"
+                      "downloadURL": "https://github.com/Kombuchameister/my-whisper-fork/releases/download/plugin-community-v1.0.0/CommunityPlugin.zip"
                     }
                   ]
                 }

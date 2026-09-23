@@ -221,9 +221,7 @@ enum AppConstants {
 
     static let appVersion: String = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"
     static let buildVersion: String = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
-    private static let githubReleaseTagsURL = URL(
-        string: "https://github.com/TypeWhisper/typewhisper-mac/releases/tag"
-    )!
+    private static let githubReleaseTagsURL = ForkDistribution.releaseTagsURL
     static let currentReleaseFingerprint: String = {
         let channel = bundledReleaseChannel()
         return "\(appVersion)+\(buildVersion)@\(channel.rawValue)"
@@ -457,5 +455,21 @@ struct SwiftDataStoreFactory {
         let context = ModelContext(container)
         context.autosaveEnabled = true
         return (container, context)
+    }
+}
+
+// MARK: - Fork Distribution
+
+extension AppConstants {
+    /// Every endpoint this fork downloads app updates, plugins, or term packs from.
+    /// Keep them pointed at the fork so nothing is pulled from upstream implicitly;
+    /// Sparkle's `SUFeedURL` in Info.plist must stay under `pagesBaseURL`.
+    /// See FORK.md for how these feeds are published.
+    enum ForkDistribution {
+        static let repositoryPath = "Kombuchameister/my-whisper-fork"
+        static let pagesBaseURL = URL(string: "https://kombuchameister.github.io/my-whisper-fork")!
+        static let releaseTagsURL = URL(string: "https://github.com/\(repositoryPath)/releases/tag")!
+        static let releaseDownloadPathPrefix = "/\(repositoryPath)/releases/download/"
+        static let termPackRegistryURL = pagesBaseURL.appendingPathComponent("termpacks.json")
     }
 }
