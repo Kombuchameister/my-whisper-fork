@@ -8,8 +8,11 @@ struct KeychainService: Sendable {
 
     /// Saves `key` as a generic-password item in the Keychain under `service`.
     ///
-    /// Any pre-existing item for the same service is removed before the new
-    /// value is written, ensuring the stored credential is always up-to-date.
+    /// An existing item is updated in place; a new item is added only when
+    /// none exists. Updating instead of delete-and-add matters when the item was
+    /// created by an earlier build with a different code signature: that build
+    /// owns the item, so a newer build may be allowed to read and update it but
+    /// not to delete it, and the replacement would then fail as a duplicate.
     ///
     /// - Parameters:
     ///   - key: The secret string to persist (e.g. an API key or token).
@@ -19,21 +22,22 @@ struct KeychainService: Sendable {
         let fullService = servicePrefix + service
         guard let data = key.data(using: .utf8) else { return }
 
-        // Delete existing item first
-        let deleteQuery: [String: Any] = [
+        let itemQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: fullService,
         ]
-        SecItemDelete(deleteQuery as CFDictionary)
+        var status = SecItemUpdate(
+            itemQuery as CFDictionary,
+            [kSecValueData as String: data] as CFDictionary
+        )
 
-        let addQuery: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: fullService,
-            kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlocked,
-        ]
+        if status == errSecItemNotFound {
+            var addQuery = itemQuery
+            addQuery[kSecValueData as String] = data
+            addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlocked
+            status = SecItemAdd(addQuery as CFDictionary, nil)
+        }
 
-        let status = SecItemAdd(addQuery as CFDictionary, nil)
         guard status == errSecSuccess else {
             throw KeychainError.saveFailed(status)
         }

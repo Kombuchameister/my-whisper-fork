@@ -60,6 +60,16 @@ final class AppFormatterServiceTests: XCTestCase {
         )
     }
 
+    func testKeychainSaveReplacesExistingValueInPlace() throws {
+        let service = "tests.keychain-update-in-place.\(UUID().uuidString)"
+        defer { try? KeychainService.delete(service: service) }
+
+        try KeychainService.save(key: "first-key", service: service)
+        try KeychainService.save(key: "second-key", service: service)
+
+        XCTAssertEqual(KeychainService.load(service: service), "second-key")
+    }
+
     func testForkDistributionEndpointsNeverPointUpstream() throws {
         let forkPages = AppConstants.ForkDistribution.pagesBaseURL.absoluteString
         let feedURL = try XCTUnwrap(Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String)
