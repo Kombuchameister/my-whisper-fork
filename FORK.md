@@ -70,3 +70,15 @@ names only, never secrets, and skips history, usage statistics, audio, and model
 ```bash
 scripts/fork/snapshot-app-state.sh --message "before trying X"
 ```
+
+## GitHub Actions in the fork
+
+Upstream's release and registry workflows are disabled in the fork's Actions settings
+(not in the workflow files, so upstream merges stay conflict-free): Build and Release,
+Build and Release Plugin, Update Plugin Download Counts, Redeploy Website on Release Edit,
+PR Guard, Community Plugin Registry, Fetch Notarization Log, CodeQL.
+
+Enabled: Build DMG (build and tests on push), Update Term Packs (publishes `termpacks.json`
+to the fork's Pages), Feature App (isolated developer app artifacts).
+If an upstream merge adds a new workflow, check it and disable it with
+`gh workflow disable "<name>" -R Kombuchameister/my-whisper-fork` if it is upstream-only.
