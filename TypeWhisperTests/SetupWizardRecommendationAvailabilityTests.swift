@@ -306,7 +306,7 @@ final class SetupWizardRecommendationAvailabilityTests: XCTestCase {
             category: "transcription",
             categories: ["transcription"],
             size: 1,
-            downloadURL: "https://example.com/plugin.zip",
+            downloadURL: "https://github.com/Kombuchameister/my-whisper-fork/releases/download/test/plugin.zip",
             iconSystemName: nil,
             requiresAPIKey: nil,
             hosting: nil,

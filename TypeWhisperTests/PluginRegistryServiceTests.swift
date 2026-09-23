@@ -21,7 +21,7 @@ final class PluginRegistryServiceTests: XCTestCase {
                   "description": "Legacy flat entry",
                   "category": "utility",
                   "size": 42,
-                  "downloadURL": "https://example.com/legacy.zip"
+                  "downloadURL": "https://github.com/Kombuchameister/my-whisper-fork/releases/download/test/legacy.zip"
                 }
               ]
             }
@@ -60,14 +60,14 @@ final class PluginRegistryServiceTests: XCTestCase {
                       "minHostVersion": "1.3.0",
                       "sdkCompatibilityVersion": "v1",
                       "size": 20,
-                      "downloadURL": "https://example.com/new.zip"
+                      "downloadURL": "https://github.com/Kombuchameister/my-whisper-fork/releases/download/test/new.zip"
                     },
                     {
                       "version": "1.0.5",
                       "minHostVersion": "1.2.0",
                       "sdkCompatibilityVersion": "v1",
                       "size": 10,
-                      "downloadURL": "https://example.com/compatible.zip"
+                      "downloadURL": "https://github.com/Kombuchameister/my-whisper-fork/releases/download/test/compatible.zip"
                     }
                   ]
                 }
@@ -84,7 +84,7 @@ final class PluginRegistryServiceTests: XCTestCase {
 
         XCTAssertEqual(plugins.count, 1)
         XCTAssertEqual(plugins.first?.version, "1.0.5")
-        XCTAssertEqual(plugins.first?.downloadURL, "https://example.com/compatible.zip")
+        XCTAssertEqual(plugins.first?.downloadURL, "https://github.com/Kombuchameister/my-whisper-fork/releases/download/test/compatible.zip")
         XCTAssertEqual(plugins.first?.downloadCount, 100)
         XCTAssertEqual(plugins.first?.detailsURL, "https://typewhisper.com/addons/multi")
         XCTAssertEqual(plugins.first?.homepageURL, "http://example.com/multi")
@@ -114,7 +114,7 @@ final class PluginRegistryServiceTests: XCTestCase {
                       "minHostVersion": "1.0.0",
                       "sdkCompatibilityVersion": "v1",
                       "size": 10,
-                      "downloadURL": "https://example.com/links.zip"
+                      "downloadURL": "https://github.com/Kombuchameister/my-whisper-fork/releases/download/test/links.zip"
                     }
                   ]
                 }
@@ -152,21 +152,21 @@ final class PluginRegistryServiceTests: XCTestCase {
                   "minHostVersion": "1.0.0",
                   "sdkCompatibilityVersion": "v1",
                   "size": 1,
-                  "downloadURL": "https://example.com/stale-top-level.zip",
+                  "downloadURL": "https://github.com/Kombuchameister/my-whisper-fork/releases/download/test/stale-top-level.zip",
                   "releases": [
                     {
                       "version": "1.2.0",
                       "minHostVersion": "1.4.0",
                       "sdkCompatibilityVersion": "v1",
                       "size": 20,
-                      "downloadURL": "https://example.com/requires-1.4.zip"
+                      "downloadURL": "https://github.com/Kombuchameister/my-whisper-fork/releases/download/test/requires-1.4.zip"
                     },
                     {
                       "version": "1.1.6",
                       "minHostVersion": "1.2.2",
                       "sdkCompatibilityVersion": "v1",
                       "size": 10,
-                      "downloadURL": "https://example.com/compatible-1.3.zip"
+                      "downloadURL": "https://github.com/Kombuchameister/my-whisper-fork/releases/download/test/compatible-1.3.zip"
                     }
                   ]
                 }
@@ -186,9 +186,9 @@ final class PluginRegistryServiceTests: XCTestCase {
         )
 
         XCTAssertEqual(pre14Plugins.first?.version, "1.1.6")
-        XCTAssertEqual(pre14Plugins.first?.downloadURL, "https://example.com/compatible-1.3.zip")
+        XCTAssertEqual(pre14Plugins.first?.downloadURL, "https://github.com/Kombuchameister/my-whisper-fork/releases/download/test/compatible-1.3.zip")
         XCTAssertEqual(plugins14.first?.version, "1.2.0")
-        XCTAssertEqual(plugins14.first?.downloadURL, "https://example.com/requires-1.4.zip")
+        XCTAssertEqual(plugins14.first?.downloadURL, "https://github.com/Kombuchameister/my-whisper-fork/releases/download/test/requires-1.4.zip")
     }
 
     func testNew17PluginReleasePreservesCompatibleUpdateFor16Host() throws {
@@ -208,14 +208,14 @@ final class PluginRegistryServiceTests: XCTestCase {
                     "minHostVersion": "1.7.0",
                     "sdkCompatibilityVersion": "v1",
                     "size": 20,
-                    "downloadURL": "https://example.com/requires-1.7.zip"
+                    "downloadURL": "https://github.com/Kombuchameister/my-whisper-fork/releases/download/test/requires-1.7.zip"
                   },
                   {
                     "version": "1.9.0",
                     "minHostVersion": "1.6.0",
                     "sdkCompatibilityVersion": "v1",
                     "size": 10,
-                    "downloadURL": "https://example.com/compatible-1.6.zip"
+                    "downloadURL": "https://github.com/Kombuchameister/my-whisper-fork/releases/download/test/compatible-1.6.zip"
                   }
                 ]
               }]
@@ -228,10 +228,10 @@ final class PluginRegistryServiceTests: XCTestCase {
 
         XCTAssertEqual(legacy.count, 1)
         XCTAssertEqual(legacy.first?.version, "1.9.0")
-        XCTAssertEqual(legacy.first?.downloadURL, "https://example.com/compatible-1.6.zip")
+        XCTAssertEqual(legacy.first?.downloadURL, "https://github.com/Kombuchameister/my-whisper-fork/releases/download/test/compatible-1.6.zip")
         XCTAssertEqual(current.count, 1)
         XCTAssertEqual(current.first?.version, "2.0.0")
-        XCTAssertEqual(current.first?.downloadURL, "https://example.com/requires-1.7.zip")
+        XCTAssertEqual(current.first?.downloadURL, "https://github.com/Kombuchameister/my-whisper-fork/releases/download/test/requires-1.7.zip")
     }
 
     func testRegistryEntryDecodesMultipleCategoryIdentifiers() throws {
@@ -254,7 +254,7 @@ final class PluginRegistryServiceTests: XCTestCase {
                       "minHostVersion": "1.4.0",
                       "sdkCompatibilityVersion": "v1",
                       "size": 10,
-                      "downloadURL": "https://example.com/plugin.zip"
+                      "downloadURL": "https://github.com/Kombuchameister/my-whisper-fork/releases/download/test/plugin.zip"
                     }
                   ]
                 }
@@ -296,7 +296,7 @@ final class PluginRegistryServiceTests: XCTestCase {
                       "sdkCompatibilityVersion": "v1",
                       "capabilities": [],
                       "size": 10,
-                      "downloadURL": "https://example.com/whisperkit-1.0.24.zip"
+                      "downloadURL": "https://github.com/Kombuchameister/my-whisper-fork/releases/download/test/whisperkit-1.0.24.zip"
                     },
                     {
                       "version": "1.0.25",
@@ -304,7 +304,7 @@ final class PluginRegistryServiceTests: XCTestCase {
                       "sdkCompatibilityVersion": "v1",
                       "capabilities": ["source-footage-progress"],
                       "size": 12,
-                      "downloadURL": "https://example.com/whisperkit-1.0.25.zip"
+                      "downloadURL": "https://github.com/Kombuchameister/my-whisper-fork/releases/download/test/whisperkit-1.0.25.zip"
                     }
                   ]
                 }
@@ -347,14 +347,14 @@ final class PluginRegistryServiceTests: XCTestCase {
                       "minHostVersion": "1.2.2",
                       "sdkCompatibilityVersion": "v2",
                       "size": 12,
-                      "downloadURL": "https://example.com/mismatched.zip"
+                      "downloadURL": "https://github.com/Kombuchameister/my-whisper-fork/releases/download/test/mismatched.zip"
                     },
                     {
                       "version": "1.0.5",
                       "minHostVersion": "1.2.2",
                       "sdkCompatibilityVersion": "v1",
                       "size": 10,
-                      "downloadURL": "https://example.com/matching.zip"
+                      "downloadURL": "https://github.com/Kombuchameister/my-whisper-fork/releases/download/test/matching.zip"
                     }
                   ]
                 }
@@ -371,7 +371,7 @@ final class PluginRegistryServiceTests: XCTestCase {
 
         XCTAssertEqual(plugins.count, 1)
         XCTAssertEqual(plugins.first?.version, "1.0.5")
-        XCTAssertEqual(plugins.first?.downloadURL, "https://example.com/matching.zip")
+        XCTAssertEqual(plugins.first?.downloadURL, "https://github.com/Kombuchameister/my-whisper-fork/releases/download/test/matching.zip")
     }
 
     func testMultiReleaseRegistryFiltersIncompatibleReleasesByArchitectureAndOS() throws {
@@ -394,7 +394,7 @@ final class PluginRegistryServiceTests: XCTestCase {
                       "minOSVersion": "15.0",
                       "supportedArchitectures": ["arm64"],
                       "size": 20,
-                      "downloadURL": "https://example.com/arm64-new.zip"
+                      "downloadURL": "https://github.com/Kombuchameister/my-whisper-fork/releases/download/test/arm64-new.zip"
                     },
                     {
                       "version": "1.1.0",
@@ -403,7 +403,7 @@ final class PluginRegistryServiceTests: XCTestCase {
                       "minOSVersion": "14.0",
                       "supportedArchitectures": ["x86_64"],
                       "size": 10,
-                      "downloadURL": "https://example.com/intel-compatible.zip"
+                      "downloadURL": "https://github.com/Kombuchameister/my-whisper-fork/releases/download/test/intel-compatible.zip"
                     }
                   ]
                 }
@@ -423,7 +423,7 @@ final class PluginRegistryServiceTests: XCTestCase {
 
         XCTAssertEqual(plugins.count, 1)
         XCTAssertEqual(plugins.first?.version, "1.1.0")
-        XCTAssertEqual(plugins.first?.downloadURL, "https://example.com/intel-compatible.zip")
+        XCTAssertEqual(plugins.first?.downloadURL, "https://github.com/Kombuchameister/my-whisper-fork/releases/download/test/intel-compatible.zip")
     }
 
     func testRegistryEntryWithCloudHostingOverridesAPIKeyRequirementForClassification() throws {
@@ -446,7 +446,7 @@ final class PluginRegistryServiceTests: XCTestCase {
                       "minHostVersion": "1.2.2",
                       "sdkCompatibilityVersion": "v1",
                       "size": 20,
-                      "downloadURL": "https://example.com/openai.zip"
+                      "downloadURL": "https://github.com/Kombuchameister/my-whisper-fork/releases/download/test/openai.zip"
                     }
                   ]
                 }
@@ -485,7 +485,7 @@ final class PluginRegistryServiceTests: XCTestCase {
                       "minHostVersion": "1.0.0",
                       "sdkCompatibilityVersion": "v1",
                       "size": 10,
-                      "downloadURL": "https://example.com/remote.zip"
+                      "downloadURL": "https://github.com/Kombuchameister/my-whisper-fork/releases/download/test/remote.zip"
                     }
                   ]
                 },
@@ -501,7 +501,7 @@ final class PluginRegistryServiceTests: XCTestCase {
                       "minHostVersion": "1.0.0",
                       "sdkCompatibilityVersion": "v1",
                       "size": 10,
-                      "downloadURL": "https://example.com/local.zip"
+                      "downloadURL": "https://github.com/Kombuchameister/my-whisper-fork/releases/download/test/local.zip"
                     }
                   ]
                 }
@@ -814,7 +814,7 @@ final class PluginRegistryServiceTests: XCTestCase {
             category: "utility",
             categories: ["utility"],
             size: 10,
-            downloadURL: "https://example.com/plugin.zip",
+            downloadURL: "https://github.com/Kombuchameister/my-whisper-fork/releases/download/test/plugin.zip",
             iconSystemName: nil,
             requiresAPIKey: nil,
             hosting: nil,
@@ -1238,7 +1238,7 @@ final class PluginRegistryServiceTests: XCTestCase {
                       "minHostVersion": "1.4.0",
                       "sdkCompatibilityVersion": "v1",
                       "size": 10,
-                      "downloadURL": "https://example.com/official.zip"
+                      "downloadURL": "https://github.com/Kombuchameister/my-whisper-fork/releases/download/test/official.zip"
                     }
                   ]
                 },
@@ -1365,7 +1365,7 @@ final class PluginRegistryServiceTests: XCTestCase {
                       "minHostVersion": "1.3.0",
                       "sdkCompatibilityVersion": "v1",
                       "size": 10,
-                      "downloadURL": "https://example.com/cached.zip"
+                      "downloadURL": "https://github.com/Kombuchameister/my-whisper-fork/releases/download/test/cached.zip"
                     }
                   ]
                 }
@@ -1402,7 +1402,7 @@ final class PluginRegistryServiceTests: XCTestCase {
         XCTAssertEqual(service.fetchState, .loaded)
         XCTAssertEqual(service.registry.map(\.id), ["com.typewhisper.cached"])
 
-        let cachedData = try Data(contentsOf: cacheDirectory.appendingPathComponent("plugins-community-v1.json"))
+        let cachedData = try Data(contentsOf: cacheDirectory.appendingPathComponent("example.com-plugins-community-v1.json"))
         let cachedResponse = try JSONDecoder().decode(PluginRegistryResponse.self, from: cachedData)
         XCTAssertEqual(cachedResponse.plugins.map(\.id), ["com.typewhisper.cached"])
     }
@@ -1434,7 +1434,7 @@ final class PluginRegistryServiceTests: XCTestCase {
                       "minHostVersion": "1.3.0",
                       "sdkCompatibilityVersion": "v1",
                       "size": 10,
-                      "downloadURL": "https://example.com/cached.zip"
+                      "downloadURL": "https://github.com/Kombuchameister/my-whisper-fork/releases/download/test/cached.zip"
                     }
                   ]
                 }
@@ -1442,7 +1442,7 @@ final class PluginRegistryServiceTests: XCTestCase {
             }
             """.utf8
         )
-        try payload.write(to: cacheDirectory.appendingPathComponent("plugins-community-v1.json"))
+        try payload.write(to: cacheDirectory.appendingPathComponent("example.com-plugins-community-v1.json"))
 
         let service = PluginRegistryService(
             registryBaseURL: URL(string: "https://example.com")!,
@@ -1573,7 +1573,7 @@ final class PluginRegistryServiceTests: XCTestCase {
         }
 
         try Self.registryPayload(pluginId: "com.typewhisper.cached-fallback")
-            .write(to: cacheDirectory.appendingPathComponent("plugins-community-v1.json"))
+            .write(to: cacheDirectory.appendingPathComponent("example.com-plugins-community-v1.json"))
 
         var requestCount = 0
         let service = PluginRegistryService(
@@ -1626,7 +1626,7 @@ final class PluginRegistryServiceTests: XCTestCase {
                       "minHostVersion": "1.4.0",
                       "sdkCompatibilityVersion": "v1",
                       "size": 10,
-                      "downloadURL": "https://example.com/cached.zip"
+                      "downloadURL": "https://github.com/Kombuchameister/my-whisper-fork/releases/download/test/cached.zip"
                     }
                   ]
                 }
@@ -1656,7 +1656,7 @@ final class PluginRegistryServiceTests: XCTestCase {
             category: "utility",
             categories: ["utility"],
             size: 10,
-            downloadURL: "https://example.com/\(id).zip",
+            downloadURL: "https://github.com/Kombuchameister/my-whisper-fork/releases/download/test/\(id).zip",
             iconSystemName: nil,
             requiresAPIKey: nil,
             hosting: nil,

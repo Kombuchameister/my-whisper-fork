@@ -566,11 +566,13 @@ final class PluginRegistryService: ObservableObject {
         return .orderedSame
     }
 
+    /// Fork builds only install plugin ZIPs published by the fork itself, for
+    /// official and community entries alike, so a registry that lists upstream
+    /// downloads can never replace fork-built plugins.
     nonisolated static func isTrustedRegistryDownloadURL(
         _ downloadURL: String,
         source: PluginDistributionSource
     ) -> Bool {
-        guard source == .community else { return true }
         guard let components = URLComponents(string: downloadURL),
               components.scheme == "https",
               components.host?.lowercased() == "github.com"
@@ -1187,8 +1189,12 @@ final class PluginRegistryService: ObservableObject {
         infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0"
     }
 
+    /// Cached feeds are keyed by registry host and path, so a cache written for
+    /// another registry (for example upstream's) is never used as a fallback.
     private func cacheURL(for feed: RegistryFeed) -> URL {
-        cacheDirectory.appendingPathComponent(feed.pathComponent)
+        let registryKey = (registryBaseURL.host ?? "registry") + registryBaseURL.path
+        let safeKey = registryKey.map { $0.isLetter || $0.isNumber || $0 == "." ? $0 : "_" }
+        return cacheDirectory.appendingPathComponent("\(String(safeKey))-\(feed.pathComponent)")
     }
 
     private func applyRegistryData(_ data: Data, feed: RegistryFeed, markFetchDate: Bool) throws {

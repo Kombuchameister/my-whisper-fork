@@ -35,13 +35,25 @@ plus Sparkle's `SUFeedURL` in `TypeWhisper/Resources/Info.plist`.
 | What | Source | Current state |
 | --- | --- | --- |
 | App updates (Sparkle) | `kombuchameister.github.io/my-whisper-fork/appcast.xml` | not published; automatic checks off |
-| Plugin marketplace / plugin updates | `kombuchameister.github.io/my-whisper-fork/plugins-community-v1.json` | empty registry, so no plugin updates are offered |
+| Plugin marketplace / plugin updates | `kombuchameister.github.io/my-whisper-fork/plugins-community-v1.json` | not served; no updates are offered |
 | Term packs | `kombuchameister.github.io/my-whisper-fork/termpacks.json` | published by the fork's term-pack workflow |
-| Community plugin downloads | only `github.com/Kombuchameister/my-whisper-fork/releases/download/…` | trusted |
+| Plugin downloads (official and community) | only `github.com/Kombuchameister/my-whisper-fork/releases/download/…` | anything else is ignored, even from a cached registry |
 
 Upstream's `SUPublicEDKey` is still in Info.plist, but it cannot validate anything the fork
 publishes. Before hosting a fork appcast, generate a fork key with Sparkle's `generate_keys`
 and replace it.
+
+## Building the main app
+
+```bash
+scripts/fork/setup-local-signing.sh   # once: creates a local code-signing identity (asks for your password)
+scripts/fork/build-main-app.sh        # every rebuild from main
+```
+
+`build-main-app.sh` builds the checkout with the main app's isolated identity
+(`com.typewhisper.mac.dev.main`, `TypeWhisper-Dev-main`), signs it with the local identity so
+Keychain approvals survive rebuilds, archives the previous app under `~/TypeWhisper-archives/apps/`,
+and installs to `~/Applications/TypeWhsiper-main.app`. Settings are never touched.
 
 ## Plugins
 

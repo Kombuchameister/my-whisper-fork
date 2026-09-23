@@ -82,6 +82,10 @@ final class AppFormatterServiceTests: XCTestCase {
             "https://github.com/TypeWhisper/typewhisper-mac/releases/download/plugin-x-v1.0.0/X.zip",
             source: .community
         ))
+        XCTAssertFalse(PluginRegistryService.isTrustedRegistryDownloadURL(
+            "https://github.com/TypeWhisper/typewhisper-mac/releases/download/plugin-groq-v1.0.25/GroqPlugin.zip",
+            source: .official
+        ), "Official registry entries must not download upstream binaries either")
     }
 
     func testBundledPreviewReleaseUsesReleaseCandidateTagAndURL() throws {
