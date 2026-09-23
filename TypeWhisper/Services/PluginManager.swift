@@ -503,25 +503,6 @@ final class PluginManager: ObservableObject {
         incompatibleExternalBundles = [:]
 
         let fm = FileManager.default
-        guard let contents = try? fm.contentsOfDirectory(at: pluginsDirectory, includingPropertiesForKeys: nil) else {
-            logger.info("No plugins directory or empty")
-            return
-        }
-
-        let bundles = sortedPluginBundleURLs(
-            contents.filter { $0.pathExtension == "bundle" },
-            isBundledSource: false
-        )
-        logger.info("Found \(bundles.count) plugin bundle(s)")
-
-        for bundleURL in bundles {
-            do {
-                try loadPlugin(at: bundleURL)
-            } catch {
-                logger.error("Failed to load plugin at \(bundleURL.lastPathComponent): \(error.localizedDescription)")
-            }
-        }
-
         // Built-in plugins from app bundle
         if let builtInURL = Bundle.main.builtInPlugInsURL,
            let builtIn = try? fm.contentsOfDirectory(at: builtInURL, includingPropertiesForKeys: nil) {
@@ -536,6 +517,25 @@ final class PluginManager: ObservableObject {
                 } catch {
                     logger.error("Failed to load built-in plugin \(bundleURL.lastPathComponent): \(error.localizedDescription)")
                 }
+            }
+        }
+
+        guard let contents = try? fm.contentsOfDirectory(at: pluginsDirectory, includingPropertiesForKeys: nil) else {
+            logger.info("No external plugins directory or empty")
+            return
+        }
+
+        let bundles = sortedPluginBundleURLs(
+            contents.filter { $0.pathExtension == "bundle" },
+            isBundledSource: false
+        )
+        logger.info("Found \(bundles.count) external plugin bundle(s)")
+
+        for bundleURL in bundles {
+            do {
+                try loadPlugin(at: bundleURL)
+            } catch {
+                logger.error("Failed to load plugin at \(bundleURL.lastPathComponent): \(error.localizedDescription)")
             }
         }
     }

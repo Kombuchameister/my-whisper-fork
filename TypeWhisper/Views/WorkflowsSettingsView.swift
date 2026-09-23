@@ -525,6 +525,14 @@ private struct LLMFallbackPriorityRow: View {
         promptProcessingService.effortsForProvider(item.providerId, modelId: item.modelId)
     }
 
+    private var temperatureRange: ClosedRange<Double>? {
+        promptProcessingService.temperatureRange(
+            for: item.providerId,
+            modelId: item.modelId,
+            effortId: item.effortId
+        )
+    }
+
     private var providerOptions: [(id: String, displayName: String)] {
         let otherFallbacks = promptProcessingService.fallbackPriorityList.filter { $0.id != item.id }
         var providers = promptProcessingService.availableProviders.filter { provider in
@@ -560,6 +568,7 @@ private struct LLMFallbackPriorityRow: View {
     private var canMoveDown: Bool { index < count - 1 }
     private var showsModelPicker: Bool { !availableModels.isEmpty || item.modelId != nil }
     private var showsEffortPicker: Bool { !availableEfforts.isEmpty || item.effortId != nil }
+    private var showsTemperaturePicker: Bool { temperatureRange != nil }
     private var isReady: Bool { promptProcessingService.isProviderReady(item.providerId) }
     private var statusText: String {
         isReady
@@ -657,6 +666,9 @@ private struct LLMFallbackPriorityRow: View {
         if showsEffortPicker {
             effortPicker
         }
+        if showsTemperaturePicker {
+            temperaturePicker
+        }
     }
 
     private var providerPicker: some View {
@@ -713,6 +725,32 @@ private struct LLMFallbackPriorityRow: View {
         .frame(width: 125, alignment: .leading)
     }
 
+    @ViewBuilder
+    private var temperaturePicker: some View {
+        Picker(localizedAppText("Temperature", de: "Temperatur"), selection: temperatureModeBinding) {
+            Text(localizedAppText("Provider Setting", de: "Provider-Einstellung"))
+                .tag(PluginLLMTemperatureMode.inheritProviderSetting)
+            Text(localizedAppText("API Default", de: "API-Standard"))
+                .tag(PluginLLMTemperatureMode.providerDefault)
+            Text(localizedAppText("Custom", de: "Benutzerdefiniert"))
+                .tag(PluginLLMTemperatureMode.custom)
+        }
+        .labelsHidden()
+        .pickerStyle(.menu)
+        .controlSize(.small)
+        .frame(width: 125, alignment: .leading)
+
+        if item.temperatureDirective.mode == .custom, let temperatureRange {
+            HStack(spacing: 4) {
+                Slider(value: temperatureValueBinding, in: temperatureRange, step: 0.1)
+                    .frame(width: 80)
+                Text(temperatureValueBinding.wrappedValue, format: .number.precision(.fractionLength(1)))
+                    .font(.caption2.monospacedDigit())
+                    .frame(width: 24, alignment: .trailing)
+            }
+        }
+    }
+
     private var providerDefaultEffortLabel: String {
         guard let defaultEffortID = promptProcessingService.defaultEffortId(
             for: item.providerId,
@@ -750,7 +788,8 @@ private struct LLMFallbackPriorityRow: View {
                     item,
                     providerId: providerID,
                     modelId: nil,
-                    effortId: nil
+                    effortId: nil,
+                    temperatureDirective: .inheritProviderSetting
                 )
             }
         )
@@ -764,7 +803,8 @@ private struct LLMFallbackPriorityRow: View {
                     item,
                     providerId: item.providerId,
                     modelId: modelID,
-                    effortId: nil
+                    effortId: nil,
+                    temperatureDirective: .inheritProviderSetting
                 )
             }
         )
@@ -778,7 +818,45 @@ private struct LLMFallbackPriorityRow: View {
                     item,
                     providerId: item.providerId,
                     modelId: item.modelId,
-                    effortId: effortID
+                    effortId: effortID,
+                    temperatureDirective: .inheritProviderSetting
+                )
+            }
+        )
+    }
+
+    private var temperatureModeBinding: Binding<PluginLLMTemperatureMode> {
+        Binding(
+            get: { item.temperatureDirective.mode },
+            set: { mode in
+                let directive = PluginLLMTemperatureDirective(
+                    mode: mode,
+                    value: mode == .custom ? temperatureValueBinding.wrappedValue : nil
+                )
+                promptProcessingService.updateLLMFallback(
+                    item,
+                    providerId: item.providerId,
+                    modelId: item.modelId,
+                    effortId: item.effortId,
+                    temperatureDirective: directive
+                )
+            }
+        )
+    }
+
+    private var temperatureValueBinding: Binding<Double> {
+        Binding(
+            get: {
+                let range = temperatureRange ?? 0...2
+                return min(max(item.temperatureValue ?? 0.3, range.lowerBound), range.upperBound)
+            },
+            set: { value in
+                promptProcessingService.updateLLMFallback(
+                    item,
+                    providerId: item.providerId,
+                    modelId: item.modelId,
+                    effortId: item.effortId,
+                    temperatureDirective: .custom(value)
                 )
             }
         )
@@ -1097,7 +1175,9 @@ private struct WorkflowEditorPage: View {
     @State private var validationMessage: String?
     @State private var isAdvancedExpanded = false
     @State private var showingAppPicker = false
+    @State private var showingExcludedAppPicker = false
     @State private var websiteInput = ""
+    @State private var excludedWebsiteInput = ""
 
     init(workflow: Workflow?) {
         self.workflow = workflow
@@ -1130,6 +1210,12 @@ private struct WorkflowEditorPage: View {
             WorkflowAppPickerSheet(
                 installedApps: profilesViewModel.installedApps,
                 selectedBundleIdentifiers: $draft.appBundleIdentifiers
+            )
+        }
+        .sheet(isPresented: $showingExcludedAppPicker) {
+            WorkflowAppPickerSheet(
+                installedApps: profilesViewModel.installedApps,
+                selectedBundleIdentifiers: $draft.excludedAppBundleIdentifiers
             )
         }
     }
@@ -1674,41 +1760,6 @@ private struct WorkflowEditorPage: View {
                         .foregroundStyle(.secondary)
                     }
 
-                    let efforts = promptProcessingService.effortsForProvider(
-                        providerId,
-                        modelId: draft.cloudModel
-                    )
-                    if !efforts.isEmpty || draft.effortId != nil {
-                        Picker(
-                            localizedAppText("Effort", de: "Effort"),
-                            selection: workflowEffortOverrideBinding
-                        ) {
-                            Text(workflowProviderDefaultEffortLabel(
-                                providerId: providerId,
-                                efforts: efforts
-                            ))
-                            .tag(nil as String?)
-
-                            if let selectedEffortID = draft.effortId,
-                               !efforts.contains(where: { $0.id == selectedEffortID }) {
-                                Text(selectedEffortID).tag(selectedEffortID as String?)
-                            }
-
-                            ForEach(efforts, id: \.id) { effort in
-                                Text(effort.displayName).tag(effort.id as String?)
-                            }
-                        }
-
-                        Text(
-                            localizedAppText(
-                                "Leave effort on Provider Default to follow the selected model's recommended setting.",
-                                de: "Lass Effort auf Provider-Standard, um der empfohlenen Einstellung des ausgewählten Modells zu folgen."
-                            )
-                        )
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    }
-
                     if !promptProcessingService.isProviderReady(providerId) {
                         Text(
                             localizedAppText(
@@ -1719,6 +1770,90 @@ private struct WorkflowEditorPage: View {
                         .font(.caption)
                         .foregroundStyle(.orange)
                     }
+                }
+
+                let efforts = promptProcessingService.effortsForWorkflow(
+                    providerId: draft.providerId,
+                    modelId: draft.cloudModel
+                )
+                if !efforts.isEmpty || draft.effortId != nil {
+                    Picker(
+                        localizedAppText("Effort", de: "Effort"),
+                        selection: workflowEffortOverrideBinding
+                    ) {
+                        Text(workflowDefaultEffortLabel(efforts: efforts))
+                            .tag(nil as String?)
+
+                        if let selectedEffortID = draft.effortId,
+                           !efforts.contains(where: { $0.id == selectedEffortID }) {
+                            Text(selectedEffortID).tag(selectedEffortID as String?)
+                        }
+
+                        ForEach(efforts, id: \.id) { effort in
+                            Text(effort.displayName).tag(effort.id as String?)
+                        }
+                    }
+
+                    Text(
+                        draft.providerId == nil
+                            ? localizedAppText(
+                                "A workflow effort overrides every global fallback attempt. Leave it on Use Fallback Entry / Provider Default to keep each fallback's setting.",
+                                de: "Ein Workflow-Effort überschreibt jeden globalen Fallback-Versuch. Mit Fallback-Eintrag / Provider-Standard bleibt die Einstellung jedes Fallbacks erhalten."
+                            )
+                            : localizedAppText(
+                                "Leave effort on Provider Default to follow the selected provider's setting.",
+                                de: "Lass Effort auf Provider-Standard, um der Einstellung des ausgewählten Providers zu folgen."
+                            )
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+
+                if let temperatureRange = promptProcessingService.temperatureRangeForWorkflow(
+                    providerId: draft.providerId,
+                    modelId: draft.cloudModel,
+                    effortId: draft.effortId
+                ) {
+                    Picker(
+                        localizedAppText("Temperature", de: "Temperatur"),
+                        selection: workflowTemperatureModeBinding
+                    ) {
+                        Text(
+                            draft.providerId == nil
+                                ? localizedAppText("Use Fallback Entry / Provider Setting", de: "Fallback-Eintrag / Provider-Einstellung")
+                                : localizedAppText("Use Provider Setting", de: "Provider-Einstellung verwenden")
+                        )
+                        .tag(PluginLLMTemperatureMode.inheritProviderSetting)
+                        Text(localizedAppText("API Default", de: "API-Standard"))
+                            .tag(PluginLLMTemperatureMode.providerDefault)
+                        Text(localizedAppText("Custom", de: "Benutzerdefiniert"))
+                            .tag(PluginLLMTemperatureMode.custom)
+                    }
+
+                    if draft.temperatureDirective.mode == .custom {
+                        HStack(spacing: 10) {
+                            Slider(
+                                value: workflowTemperatureValueBinding(range: temperatureRange),
+                                in: temperatureRange,
+                                step: 0.1
+                            )
+                            Text(
+                                workflowTemperatureValueBinding(range: temperatureRange).wrappedValue,
+                                format: .number.precision(.fractionLength(1))
+                            )
+                            .monospacedDigit()
+                            .frame(width: 32, alignment: .trailing)
+                        }
+                    }
+
+                    Text(
+                        localizedAppText(
+                            "A workflow temperature overrides fallback entries. API Default omits the provider integration's custom temperature.",
+                            de: "Eine Workflow-Temperatur überschreibt Fallback-Einträge. API-Standard ignoriert die benutzerdefinierte Temperatur der Provider-Integration."
+                        )
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 }
             }
         }
@@ -1737,10 +1872,13 @@ private struct WorkflowEditorPage: View {
         )
     }
 
-    private func workflowProviderDefaultEffortLabel(
-        providerId: String,
-        efforts: [PluginLLMEffortInfo]
-    ) -> String {
+    private func workflowDefaultEffortLabel(efforts: [PluginLLMEffortInfo]) -> String {
+        guard let providerId = draft.providerId else {
+            return localizedAppText(
+                "Use Fallback Entry / Provider Default",
+                de: "Fallback-Eintrag / Provider-Standard"
+            )
+        }
         guard let defaultEffortID = promptProcessingService.defaultEffortId(
             for: providerId,
             modelId: draft.cloudModel
@@ -2030,27 +2168,84 @@ private struct WorkflowEditorPage: View {
     }
 
     private var alwaysTriggerEditor: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "infinity")
-                .foregroundStyle(.secondary)
-                .frame(width: 20)
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "infinity")
+                    .foregroundStyle(.secondary)
+                    .frame(width: 20)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(localizedAppText("Always", de: "Immer"))
-                    .font(.subheadline.weight(.medium))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(localizedAppText("Always", de: "Immer"))
+                        .font(.subheadline.weight(.medium))
 
-                Text(
-                    localizedAppText(
-                        "Runs when no app or website workflow matches. Hotkeys stay direct triggers.",
-                        de: "Läuft, wenn kein App- oder Website-Workflow passt. Hotkeys bleiben direkte Trigger."
+                    Text(
+                        localizedAppText(
+                            "Runs when no app or website workflow matches. Hotkeys stay direct triggers.",
+                            de: "Läuft, wenn kein App- oder Website-Workflow passt. Hotkeys bleiben direkte Trigger."
+                        )
                     )
-                )
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
             }
 
-            Spacer()
+            Divider()
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text(localizedAppText("Exclude Apps", de: "Apps ausschließen"))
+                    .font(.subheadline.weight(.semibold))
+
+                ForEach(draft.excludedAppBundleIdentifiers, id: \.self) { bundleId in
+                    WorkflowSelectionRow(
+                        title: installedAppName(for: bundleId),
+                        subtitle: bundleId,
+                        icon: installedAppIcon(for: bundleId)
+                    ) {
+                        draft.excludedAppBundleIdentifiers.removeAll { $0 == bundleId }
+                    }
+                }
+
+                Button(localizedAppText("Select Apps…", de: "Apps auswählen…")) {
+                    showingExcludedAppPicker = true
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text(localizedAppText("Exclude Websites", de: "Websites ausschließen"))
+                    .font(.subheadline.weight(.semibold))
+
+                ForEach(draft.excludedWebsitePatterns, id: \.self) { pattern in
+                    WorkflowSelectionRow(
+                        title: pattern,
+                        subtitle: localizedAppText("Website exclusion", de: "Website-Ausschluss"),
+                        iconSystemName: "globe"
+                    ) {
+                        draft.excludedWebsitePatterns.removeAll { $0 == pattern }
+                    }
+                }
+
+                HStack(alignment: .top, spacing: 10) {
+                    TextField(String(localized: "docs.github.com"), text: $excludedWebsiteInput)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit { addExcludedWebsiteInput() }
+
+                    Button(localizedAppText("Add", de: "Hinzufügen")) {
+                        addExcludedWebsiteInput()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+
+                Text(localizedAppText(
+                    "Matching an exclusion skips this Always workflow.",
+                    de: "Bei einem passenden Ausschluss wird dieser Immer-Workflow übersprungen."
+                ))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
@@ -2132,6 +2327,14 @@ private struct WorkflowEditorPage: View {
         validationMessage = nil
     }
 
+    private func addExcludedWebsiteInput() {
+        let normalized = workflowNormalizedDomainFromInput(excludedWebsiteInput)
+        guard !normalized.isEmpty else { return }
+        draft.addExcludedWebsitePattern(normalized)
+        excludedWebsiteInput = ""
+        validationMessage = nil
+    }
+
     private func addRecordedHotkey(_ hotkey: UnifiedHotkey) {
         if draft.containsEquivalentHotkey(hotkey) {
             validationMessage = localizedAppText(
@@ -2204,11 +2407,15 @@ private struct WorkflowEditorPage: View {
                 if providerId == nil {
                     draft.cloudModel = nil
                     draft.effortId = nil
+                    draft.temperatureModeRaw = nil
+                    draft.temperatureValue = nil
                     return
                 }
 
                 if providerChanged {
                     draft.effortId = nil
+                    draft.temperatureModeRaw = nil
+                    draft.temperatureValue = nil
                 }
 
                 if let cloudModel = draft.cloudModel,
@@ -2216,6 +2423,8 @@ private struct WorkflowEditorPage: View {
                    !promptProcessingService.modelsForProvider(providerId).contains(where: { $0.id == cloudModel }) {
                     draft.cloudModel = nil
                     draft.effortId = nil
+                    draft.temperatureModeRaw = nil
+                    draft.temperatureValue = nil
                 }
             }
         )
@@ -2227,6 +2436,8 @@ private struct WorkflowEditorPage: View {
             set: { modelId in
                 if draft.cloudModel != modelId {
                     draft.effortId = nil
+                    draft.temperatureModeRaw = nil
+                    draft.temperatureValue = nil
                 }
                 draft.cloudModel = modelId
             }
@@ -2238,7 +2449,36 @@ private struct WorkflowEditorPage: View {
             get: { draft.effortId },
             set: { effortId in
                 draft.effortId = effortId
+                if promptProcessingService.temperatureRangeForWorkflow(
+                    providerId: draft.providerId,
+                    modelId: draft.cloudModel,
+                    effortId: effortId
+                ) == nil {
+                    draft.temperatureModeRaw = nil
+                    draft.temperatureValue = nil
+                }
             }
+        )
+    }
+
+    private var workflowTemperatureModeBinding: Binding<PluginLLMTemperatureMode> {
+        Binding(
+            get: { draft.temperatureDirective.mode },
+            set: { mode in
+                draft.temperatureModeRaw = mode.rawValue
+                if mode != .custom {
+                    draft.temperatureValue = nil
+                } else if draft.temperatureValue == nil {
+                    draft.temperatureValue = 0.3
+                }
+            }
+        )
+    }
+
+    private func workflowTemperatureValueBinding(range: ClosedRange<Double>) -> Binding<Double> {
+        Binding(
+            get: { min(max(draft.temperatureValue ?? 0.3, range.lowerBound), range.upperBound) },
+            set: { draft.temperatureValue = min(max($0, range.lowerBound), range.upperBound) }
         )
     }
 
@@ -2687,6 +2927,8 @@ struct WorkflowDraft {
     var isHotkeyTriggerEnabled: Bool
     var appBundleIdentifiers: [String]
     var websitePatterns: [String]
+    var excludedAppBundleIdentifiers: [String]
+    var excludedWebsitePatterns: [String]
     var hotkeys: [UnifiedHotkey]
     var hotkeyBehavior: WorkflowHotkeyBehavior
     var fineTuning: String
@@ -2706,8 +2948,15 @@ struct WorkflowDraft {
     var providerId: String?
     var cloudModel: String?
     var effortId: String?
-    private let temperatureModeRaw: String?
-    private let temperatureValue: Double?
+    var temperatureModeRaw: String?
+    var temperatureValue: Double?
+
+    var temperatureDirective: PluginLLMTemperatureDirective {
+        PluginLLMTemperatureDirective(
+            mode: PluginLLMTemperatureMode(rawValue: temperatureModeRaw ?? "") ?? .inheritProviderSetting,
+            value: temperatureValue
+        )
+    }
     var targetActionPluginId: String?
 
     init(template: WorkflowTemplate) {
@@ -2720,6 +2969,8 @@ struct WorkflowDraft {
         self.isHotkeyTriggerEnabled = template.requiresRecordingTrigger
         self.appBundleIdentifiers = []
         self.websitePatterns = []
+        self.excludedAppBundleIdentifiers = []
+        self.excludedWebsitePatterns = []
         self.hotkeys = []
         self.hotkeyBehavior = .startDictation
         self.fineTuning = ""
@@ -2782,6 +3033,8 @@ struct WorkflowDraft {
         if let trigger = workflow.trigger {
             self.appBundleIdentifiers = trigger.appBundleIdentifiers
             self.websitePatterns = trigger.websitePatterns
+            self.excludedAppBundleIdentifiers = trigger.excludedAppBundleIdentifiers
+            self.excludedWebsitePatterns = trigger.excludedWebsitePatterns
             self.hotkeys = trigger.hotkeys
             self.hotkeyBehavior = trigger.hotkeyBehavior
 
@@ -2809,6 +3062,8 @@ struct WorkflowDraft {
             self.isHotkeyTriggerEnabled = false
             self.appBundleIdentifiers = []
             self.websitePatterns = []
+            self.excludedAppBundleIdentifiers = []
+            self.excludedWebsitePatterns = []
             self.hotkeys = []
         }
 
@@ -2851,9 +3106,9 @@ struct WorkflowDraft {
 
         if triggerMode == .global {
             return localizedAppText(
-                "\(resolvedName) runs always as \(template.definition.name).\(languageSentence)\(outputRouteSentence)",
-                de: "\(resolvedName) läuft immer als \(template.definition.name).\(languageSentence)\(outputRouteSentence)",
-                ja: "\(resolvedName)は常に\(template.definition.name)として実行されます。\(languageSentence)\(outputRouteSentence)"
+                "\(resolvedName) runs always as \(template.definition.name)\(globalExclusionSummary).\(languageSentence)\(outputRouteSentence)",
+                de: "\(resolvedName) läuft immer als \(template.definition.name)\(globalExclusionSummary).\(languageSentence)\(outputRouteSentence)",
+                ja: "\(resolvedName)は常に\(template.definition.name)として実行されます\(globalExclusionSummary)。\(languageSentence)\(outputRouteSentence)"
             )
         }
 
@@ -3074,7 +3329,10 @@ struct WorkflowDraft {
                 hotkeyBehavior: hotkeyBehavior
             )
         case .global:
-            return .global()
+            return .global(
+                excludingApps: excludedAppBundleIdentifiers,
+                websites: excludedWebsitePatterns
+            )
         case .manual:
             return .manual()
         }
@@ -3205,10 +3463,27 @@ struct WorkflowDraft {
         isAppTriggerEnabled || isWebsiteTriggerEnabled || isHotkeyTriggerEnabled
     }
 
+    private var globalExclusionSummary: String {
+        let appCount = excludedAppBundleIdentifiers.count
+        let websiteCount = excludedWebsitePatterns.count
+        guard appCount + websiteCount > 0 else { return "" }
+        return localizedAppText(
+            ", except in \(appCount) app(s) and \(websiteCount) website(s)",
+            de: ", außer in \(appCount) App(s) und auf \(websiteCount) Website(s)",
+            ja: "（除外: アプリ\(appCount)件、Webサイト\(websiteCount)件）"
+        )
+    }
+
     mutating func addWebsitePattern(_ value: String) {
         let normalized = workflowNormalizedDomainFromInput(value)
         guard !normalized.isEmpty, !websitePatterns.contains(normalized) else { return }
         websitePatterns.append(normalized)
+    }
+
+    mutating func addExcludedWebsitePattern(_ value: String) {
+        let normalized = workflowNormalizedDomainFromInput(value)
+        guard !normalized.isEmpty, !excludedWebsitePatterns.contains(normalized) else { return }
+        excludedWebsitePatterns.append(normalized)
     }
 
     func containsEquivalentHotkey(_ hotkey: UnifiedHotkey) -> Bool {

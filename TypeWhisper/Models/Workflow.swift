@@ -201,6 +201,8 @@ struct WorkflowTrigger: Codable, Equatable, Sendable {
     let kind: WorkflowTriggerKind
     var appBundleIdentifiers: [String]
     var websitePatterns: [String]
+    var excludedAppBundleIdentifiers: [String]
+    var excludedWebsitePatterns: [String]
     var hotkeys: [UnifiedHotkey]
     var hotkeyBehavior: WorkflowHotkeyBehavior
 
@@ -208,12 +210,16 @@ struct WorkflowTrigger: Codable, Equatable, Sendable {
         kind: WorkflowTriggerKind,
         appBundleIdentifiers: [String] = [],
         websitePatterns: [String] = [],
+        excludedAppBundleIdentifiers: [String] = [],
+        excludedWebsitePatterns: [String] = [],
         hotkeys: [UnifiedHotkey] = [],
         hotkeyBehavior: WorkflowHotkeyBehavior = .startDictation
     ) {
         self.kind = kind
         self.appBundleIdentifiers = appBundleIdentifiers
         self.websitePatterns = websitePatterns
+        self.excludedAppBundleIdentifiers = excludedAppBundleIdentifiers
+        self.excludedWebsitePatterns = excludedWebsitePatterns
         self.hotkeys = hotkeys
         self.hotkeyBehavior = hotkeyBehavior
     }
@@ -222,6 +228,8 @@ struct WorkflowTrigger: Codable, Equatable, Sendable {
         case kind
         case appBundleIdentifiers
         case websitePatterns
+        case excludedAppBundleIdentifiers
+        case excludedWebsitePatterns
         case hotkeys
         case hotkeyBehavior
     }
@@ -231,6 +239,8 @@ struct WorkflowTrigger: Codable, Equatable, Sendable {
         self.kind = try container.decode(WorkflowTriggerKind.self, forKey: .kind)
         self.appBundleIdentifiers = try container.decodeIfPresent([String].self, forKey: .appBundleIdentifiers) ?? []
         self.websitePatterns = try container.decodeIfPresent([String].self, forKey: .websitePatterns) ?? []
+        self.excludedAppBundleIdentifiers = try container.decodeIfPresent([String].self, forKey: .excludedAppBundleIdentifiers) ?? []
+        self.excludedWebsitePatterns = try container.decodeIfPresent([String].self, forKey: .excludedWebsitePatterns) ?? []
         self.hotkeys = try container.decodeIfPresent([UnifiedHotkey].self, forKey: .hotkeys) ?? []
         self.hotkeyBehavior = try container.decodeIfPresent(WorkflowHotkeyBehavior.self, forKey: .hotkeyBehavior) ?? .startDictation
     }
@@ -265,8 +275,15 @@ struct WorkflowTrigger: Codable, Equatable, Sendable {
         WorkflowTrigger(kind: .hotkey, hotkeys: hotkeys, hotkeyBehavior: behavior)
     }
 
-    static func global() -> WorkflowTrigger {
-        WorkflowTrigger(kind: .global)
+    static func global(
+        excludingApps appBundleIdentifiers: [String] = [],
+        websites websitePatterns: [String] = []
+    ) -> WorkflowTrigger {
+        WorkflowTrigger(
+            kind: .global,
+            excludedAppBundleIdentifiers: appBundleIdentifiers,
+            excludedWebsitePatterns: websitePatterns
+        )
     }
 
     static func manual() -> WorkflowTrigger {

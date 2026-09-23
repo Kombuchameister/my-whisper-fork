@@ -298,7 +298,7 @@ final class TypeWhisperIntegrationTests: XCTestCase {
     }
 
     @objc(APIRouterMockLLMProviderPlugin)
-    private final class MockLLMProviderPlugin: NSObject, LLMProviderPlugin, LLMProviderIdentityProviding, LLMProviderSetupStatusProviding, LLMTemperatureControllableProvider, PluginSettingsActivityReporting, @unchecked Sendable {
+    private final class MockLLMProviderPlugin: NSObject, LLMProviderPlugin, LLMProviderIdentityProviding, LLMProviderSetupStatusProviding, LLMTemperatureRangeProviding, PluginSettingsActivityReporting, @unchecked Sendable {
         static var pluginId: String { "com.typewhisper.mock.llm" }
         static var pluginName: String { "Mock LLM" }
 
@@ -322,6 +322,7 @@ final class TypeWhisperIntegrationTests: XCTestCase {
         var requiresExternalCredentials = true
         var unavailableReason: String?
         var restoreMakesAvailable = false
+        var supportedTemperatureRange: ClosedRange<Double>? = 0...2
         nonisolated(unsafe) private var _lastSystemPrompt: String?
         nonisolated(unsafe) private var _lastUserText: String?
         nonisolated(unsafe) private var _lastRequestedModel: String?
@@ -376,6 +377,10 @@ final class TypeWhisperIntegrationTests: XCTestCase {
         var isAvailable: Bool { available }
         var supportedModels: [PluginModelInfo] { models }
         var currentSettingsActivity: PluginSettingsActivity? { nil }
+
+        func supportedTemperatureRange(for model: String?, effort: String?) -> ClosedRange<Double>? {
+            supportedTemperatureRange
+        }
 
         func process(systemPrompt: String, userText: String, model: String?) async throws -> String {
             try await resolveProcessOutcome(
@@ -468,6 +473,7 @@ final class TypeWhisperIntegrationTests: XCTestCase {
         nonisolated(unsafe) private var _lastModel: String?
         nonisolated(unsafe) private var _lastEffort: String?
         nonisolated(unsafe) var exposesCatalog = true
+        nonisolated(unsafe) var available = true
 
         required override init() {}
 
@@ -477,7 +483,7 @@ final class TypeWhisperIntegrationTests: XCTestCase {
         var providerName: String { "Mock Effort LLM" }
         var providerId: String { "mock-effort-llm" }
         var providerDisplayName: String { providerName }
-        var isAvailable: Bool { true }
+        var isAvailable: Bool { available }
         var supportedModels: [PluginModelInfo] {
             exposesCatalog
                 ? [PluginModelInfo(id: "reasoning-model", displayName: "Reasoning Model")]
@@ -11398,7 +11404,19 @@ final class TypeWhisperIntegrationTests: XCTestCase {
         ]
 
         let service = PromptProcessingService(userDefaults: isolatedDefaults.defaults)
-        service.addLLMFallback(providerId: plugin.providerId, modelId: "gemini-2.5-pro")
+        service.addLLMFallback(
+            providerId: plugin.providerId,
+            modelId: "gemini-2.5-pro",
+            temperatureDirective: .custom(0.6)
+        )
+        _ = try await service.processWorkflow(
+            prompt: "Fix grammar",
+            text: "hello world",
+            behavior: WorkflowBehavior()
+        )
+
+        XCTAssertEqual(plugin.lastTemperatureDirective, .custom(0.6))
+
         _ = try await service.process(
             prompt: "Fix grammar",
             text: "hello world",
@@ -11407,6 +11425,118 @@ final class TypeWhisperIntegrationTests: XCTestCase {
 
         XCTAssertEqual(plugin.lastRequestedModel, "gemini-2.5-pro")
         XCTAssertEqual(plugin.lastTemperatureDirective, .custom(0.8))
+
+        let fallback = try XCTUnwrap(service.primaryFallbackItem)
+        service.updateLLMFallback(
+            fallback,
+            providerId: plugin.providerId,
+            modelId: "gemini-2.5-pro",
+            temperatureDirective: .providerDefault
+        )
+        _ = try await service.processWorkflow(
+            prompt: "Fix grammar",
+            text: "hello world",
+            behavior: WorkflowBehavior()
+        )
+        XCTAssertEqual(plugin.lastTemperatureDirective, .providerDefault)
+
+        let reloadedService = PromptProcessingService(userDefaults: isolatedDefaults.defaults)
+        XCTAssertEqual(reloadedService.primaryFallbackItem?.temperatureDirective, .providerDefault)
+
+        XCTAssertEqual(
+            service.temperatureRangeForWorkflow(providerId: nil, modelId: nil, effortId: nil),
+            0...2
+        )
+        plugin.supportedTemperatureRange = nil
+        XCTAssertNil(service.temperatureRange(for: plugin.providerId, modelId: "gemini-2.5-pro", effortId: nil))
+    }
+
+    @MainActor
+    func testPromptProcessingOnlyOffersConfiguredEnabledProvidersAndEfforts() throws {
+        let appSupportDirectory = try TestSupport.makeTemporaryDirectory()
+        defer { TestSupport.remove(appSupportDirectory) }
+        let isolatedDefaults = Self.makeEmptyLLMFallbackDefaults()
+        defer { isolatedDefaults.defaults.removePersistentDomain(forName: isolatedDefaults.suiteName) }
+
+        EventBus.shared = EventBus()
+        PluginManager.shared = PluginManager(appSupportDirectory: appSupportDirectory)
+
+        let configuredProvider = MockLLMProviderPlugin()
+        configuredProvider.configuredProviderId = "configured-provider"
+        configuredProvider.configuredProviderDisplayName = "Configured Provider"
+
+        let unconfiguredEffortProvider = MockEffortLLMProviderPlugin()
+        unconfiguredEffortProvider.available = false
+
+        let disabledProvider = MockLLMProviderPlugin()
+        disabledProvider.configuredProviderId = "disabled-provider"
+        disabledProvider.configuredProviderDisplayName = "Disabled Provider"
+
+        PluginManager.shared.loadedPlugins = [
+            LoadedPlugin(
+                manifest: PluginManifest(
+                    id: "com.typewhisper.mock.configured-provider",
+                    name: "Configured Provider",
+                    version: "1.0.0",
+                    principalClass: "APIRouterMockLLMProviderPlugin"
+                ),
+                instance: configuredProvider,
+                bundle: Bundle.main,
+                sourceURL: appSupportDirectory,
+                isEnabled: true
+            ),
+            LoadedPlugin(
+                manifest: PluginManifest(
+                    id: MockEffortLLMProviderPlugin.pluginId,
+                    name: MockEffortLLMProviderPlugin.pluginName,
+                    version: "1.0.0",
+                    principalClass: "APIRouterMockEffortLLMProviderPlugin"
+                ),
+                instance: unconfiguredEffortProvider,
+                bundle: Bundle.main,
+                sourceURL: appSupportDirectory,
+                isEnabled: true
+            ),
+            LoadedPlugin(
+                manifest: PluginManifest(
+                    id: "com.typewhisper.mock.disabled-provider",
+                    name: "Disabled Provider",
+                    version: "1.0.0",
+                    principalClass: "APIRouterMockLLMProviderPlugin"
+                ),
+                instance: disabledProvider,
+                bundle: Bundle.main,
+                sourceURL: appSupportDirectory,
+                isEnabled: false
+            ),
+        ]
+
+        let service = PromptProcessingService(userDefaults: isolatedDefaults.defaults)
+
+        XCTAssertEqual(
+            service.availableProviders.filter { $0.id != PromptProcessingService.appleIntelligenceId }.map(\.id),
+            ["configured-provider"]
+        )
+        XCTAssertTrue(
+            service.effortsForProvider(
+                unconfiguredEffortProvider.providerId,
+                modelId: "reasoning-model"
+            ).isEmpty
+        )
+        XCTAssertNil(
+            service.defaultEffortId(
+                for: unconfiguredEffortProvider.providerId,
+                modelId: "reasoning-model"
+            )
+        )
+        configuredProvider.available = false
+        XCTAssertNil(
+            service.temperatureRange(
+                for: configuredProvider.providerId,
+                modelId: nil,
+                effortId: nil
+            )
+        )
     }
 
     @MainActor
@@ -11439,7 +11569,6 @@ final class TypeWhisperIntegrationTests: XCTestCase {
         let service = PromptProcessingService(userDefaults: isolatedDefaults.defaults)
         service.addLLMFallback(
             providerId: plugin.providerId,
-            modelId: "reasoning-model",
             effortId: "high"
         )
 
@@ -11448,6 +11577,35 @@ final class TypeWhisperIntegrationTests: XCTestCase {
         XCTAssertEqual(result, "effort-aware")
         XCTAssertEqual(plugin.lastModel, "reasoning-model")
         XCTAssertEqual(plugin.lastEffort, "high")
+
+        XCTAssertEqual(
+            service.effortsForWorkflow(providerId: nil, modelId: nil).map(\.id),
+            ["low", "high"]
+        )
+
+        let fallbackWorkflowResult = try await service.processWorkflow(
+            prompt: "Fix grammar",
+            text: "hello world",
+            behavior: WorkflowBehavior(effortId: "low")
+        )
+
+        XCTAssertEqual(fallbackWorkflowResult, "effort-aware")
+        XCTAssertEqual(plugin.lastModel, "reasoning-model")
+        XCTAssertEqual(plugin.lastEffort, "low")
+
+        let fallback = try XCTUnwrap(service.fallbackPriorityList.first)
+        service.updateLLMFallback(
+            fallback,
+            providerId: plugin.providerId,
+            modelId: "reasoning-model",
+            effortId: nil
+        )
+        _ = try await service.processWorkflow(
+            prompt: "Fix grammar",
+            text: "hello world",
+            behavior: WorkflowBehavior()
+        )
+        XCTAssertNil(plugin.lastEffort)
 
         let workflowResult = try await service.processWorkflow(
             prompt: "Fix grammar",
@@ -11463,7 +11621,18 @@ final class TypeWhisperIntegrationTests: XCTestCase {
         XCTAssertEqual(plugin.lastModel, "reasoning-model")
         XCTAssertEqual(plugin.lastEffort, "low")
 
-        let fallback = try XCTUnwrap(service.fallbackPriorityList.first)
+        _ = try await service.processWorkflow(
+            prompt: "Fix grammar",
+            text: "hello world",
+            behavior: WorkflowBehavior(
+                providerId: plugin.providerId,
+                effortId: "high"
+            )
+        )
+
+        XCTAssertEqual(plugin.lastModel, "reasoning-model")
+        XCTAssertEqual(plugin.lastEffort, "high")
+
         service.updateLLMFallback(
             fallback,
             providerId: plugin.providerId,
