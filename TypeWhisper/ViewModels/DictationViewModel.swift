@@ -2328,6 +2328,9 @@ final class DictationViewModel: ObservableObject {
                         insertionContext: insertionContext,
                         contextualInsertionEnabled: contextualInsertionEnabled
                     )
+                    logger.info(
+                        "Contextual insertion: enabled=\(contextualInsertionEnabled, privacy: .public), contextAvailable=\(insertionContext != nil, privacy: .public), valueLength=\(insertionContext?.value.utf16.count ?? -1, privacy: .public), selectionLocation=\(insertionContext?.selectedRange.location ?? -1, privacy: .public), leadingSpaceAdded=\(insertionText.hasPrefix(" ") && !text.hasPrefix(" "), privacy: .public), app=\(activeApp.bundleId ?? "nil", privacy: .public)"
+                    )
                     let shouldObservePostInsertionEdits = (
                         shouldTrackTargetAppCorrectionLearning
                             || improveTypeWhisperCaptureEnabled

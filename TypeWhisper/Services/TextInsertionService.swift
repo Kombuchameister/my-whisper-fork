@@ -37,6 +37,7 @@ final class ChromiumAccessibilityObservationController {
     typealias ValidateApplication = (RunningApplicationTarget) -> Bool
 
     private static let manualAccessibilityAttribute = "AXManualAccessibility" as CFString
+    private static let enhancedUserInterfaceAttribute = "AXEnhancedUserInterface" as CFString
     private static let chromiumBrowserBundleIdentifiers = SupportedMeetingBrowser
         .automaticURLBundleIdentifiers
         .subtracting([SupportedMeetingBrowser.safari])
@@ -45,6 +46,8 @@ final class ChromiumAccessibilityObservationController {
     private let isElectronApplicationAtURL: IsElectronApplication
     private let readManualAccessibility: ReadManualAccessibility
     private let setManualAccessibility: SetManualAccessibility
+    private let readEnhancedUserInterface: ReadManualAccessibility
+    private let setEnhancedUserInterface: SetManualAccessibility
     private let validateApplication: ValidateApplication
 
     init(
@@ -52,12 +55,20 @@ final class ChromiumAccessibilityObservationController {
         isElectronApplication: IsElectronApplication? = nil,
         readManualAccessibility: ReadManualAccessibility? = nil,
         setManualAccessibility: SetManualAccessibility? = nil,
+        readEnhancedUserInterface: ReadManualAccessibility? = nil,
+        setEnhancedUserInterface: SetManualAccessibility? = nil,
         validateApplication: ValidateApplication? = nil
     ) {
         self.resolveApplication = resolveApplication ?? Self.resolveRunningApplication
         self.isElectronApplicationAtURL = isElectronApplication ?? Self.containsChromiumFramework
         self.readManualAccessibility = readManualAccessibility ?? Self.readManualAccessibilityValue
         self.setManualAccessibility = setManualAccessibility ?? Self.setManualAccessibilityValue
+        self.readEnhancedUserInterface = readEnhancedUserInterface ?? {
+            Self.readBooleanAttribute(Self.enhancedUserInterfaceAttribute, processIdentifier: $0)
+        }
+        self.setEnhancedUserInterface = setEnhancedUserInterface ?? {
+            Self.setBooleanAttribute(Self.enhancedUserInterfaceAttribute, processIdentifier: $0, enabled: $1)
+        }
         self.validateApplication = validateApplication ?? Self.isSameRunningApplication
     }
 
@@ -72,16 +83,35 @@ final class ChromiumAccessibilityObservationController {
             return nil
         }
 
-        let currentState = readManualAccessibility(target.processIdentifier)
-        guard currentState.error == .success,
-              currentState.enabled == false,
-              setManualAccessibility(target.processIdentifier, true) == .success else {
-            return nil
+        let pid = target.processIdentifier
+        let bundle = target.bundleIdentifier
+        let manualState = readManualAccessibility(pid)
+        if manualState.error == .success {
+            guard manualState.enabled == false else {
+                logger.info("Chromium accessibility already enabled: bundle=\(bundle, privacy: .public), attribute=AXManualAccessibility")
+                return nil
+            }
+            let setResult = setManualAccessibility(pid, true)
+            logger.info("Chromium accessibility enable: bundle=\(bundle, privacy: .public), attribute=AXManualAccessibility, result=\(setResult.rawValue, privacy: .public)")
+            guard setResult == .success else { return nil }
+            return TargetAppAccessibilityObservationLease {
+                guard self.validateApplication(target) else { return }
+                _ = self.setManualAccessibility(pid, false)
+            }
         }
 
+        // Electron adds AXManualAccessibility; Chromium builds without it
+        // (e.g. the ChatGPT app) still build their tree for the older
+        // AXEnhancedUserInterface switch that assistive apps set.
+        let enhancedState = readEnhancedUserInterface(pid)
+        logger.info("Chromium accessibility fallback: bundle=\(bundle, privacy: .public), manualError=\(manualState.error.rawValue, privacy: .public), enhancedError=\(enhancedState.error.rawValue, privacy: .public), enhancedEnabled=\(String(describing: enhancedState.enabled), privacy: .public)")
+        guard enhancedState.enabled != true else { return nil }
+        let setResult = setEnhancedUserInterface(pid, true)
+        logger.info("Chromium accessibility enable: bundle=\(bundle, privacy: .public), attribute=AXEnhancedUserInterface, result=\(setResult.rawValue, privacy: .public)")
+        guard setResult == .success else { return nil }
         return TargetAppAccessibilityObservationLease {
             guard self.validateApplication(target) else { return }
-            _ = self.setManualAccessibility(target.processIdentifier, false)
+            _ = self.setEnhancedUserInterface(pid, false)
         }
     }
 
@@ -148,6 +178,31 @@ final class ChromiumAccessibilityObservationController {
             let helpers = (try? FileManager.default.contentsOfDirectory(atPath: helpersPath)) ?? []
             return helpers.contains { $0.hasSuffix("crashpad_handler") }
         }
+    }
+
+    private static func readBooleanAttribute(
+        _ attribute: CFString,
+        processIdentifier: pid_t
+    ) -> (error: AXError, enabled: Bool?) {
+        var value: AnyObject?
+        let error = AXUIElementCopyAttributeValue(
+            AXUIElementCreateApplication(processIdentifier),
+            attribute,
+            &value
+        )
+        return (error, (value as? NSNumber)?.boolValue)
+    }
+
+    private static func setBooleanAttribute(
+        _ attribute: CFString,
+        processIdentifier: pid_t,
+        enabled: Bool
+    ) -> AXError {
+        AXUIElementSetAttributeValue(
+            AXUIElementCreateApplication(processIdentifier),
+            attribute,
+            NSNumber(value: enabled)
+        )
     }
 
     private static func readManualAccessibilityValue(
