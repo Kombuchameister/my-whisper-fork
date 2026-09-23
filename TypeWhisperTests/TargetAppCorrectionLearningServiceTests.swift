@@ -132,6 +132,45 @@ final class TargetAppCorrectionLearningServiceTests: XCTestCase {
         XCTAssertEqual(enhancedSetValues, [true, false])
     }
 
+    func testEnhancedUserInterfaceAppliedDespiteErrorIsStillRestored() throws {
+        let target = electronTarget()
+        var enhancedValue = false
+        var enhancedSetValues: [Bool] = []
+        let controller = ChromiumAccessibilityObservationController(
+            resolveApplication: { _, _ in target },
+            isElectronApplication: { _ in true },
+            readManualAccessibility: { _ in (.attributeUnsupported, nil) },
+            setManualAccessibility: { _, _ in .success },
+            readEnhancedUserInterface: { _ in (.success, enhancedValue) },
+            setEnhancedUserInterface: { _, enabled in
+                enhancedSetValues.append(enabled)
+                enhancedValue = enabled
+                return .notImplemented
+            },
+            validateApplication: { _ in true }
+        )
+
+        let lease = try XCTUnwrap(controller.beginObservation(bundleIdentifier: target.bundleIdentifier))
+        lease.end()
+
+        XCTAssertEqual(enhancedSetValues, [true, false])
+        XCTAssertFalse(enhancedValue)
+    }
+
+    func testEnhancedUserInterfaceThatStaysOffCreatesNoLease() {
+        let target = electronTarget()
+        let controller = ChromiumAccessibilityObservationController(
+            resolveApplication: { _, _ in target },
+            isElectronApplication: { _ in true },
+            readManualAccessibility: { _ in (.attributeUnsupported, nil) },
+            setManualAccessibility: { _, _ in .success },
+            readEnhancedUserInterface: { _ in (.success, false) },
+            setEnhancedUserInterface: { _, _ in .cannotComplete }
+        )
+
+        XCTAssertNil(controller.beginObservation(bundleIdentifier: target.bundleIdentifier))
+    }
+
     func testEnhancedUserInterfaceAlreadyOnIsLeftAlone() {
         let target = electronTarget()
         var enhancedSetValues: [Bool] = []
