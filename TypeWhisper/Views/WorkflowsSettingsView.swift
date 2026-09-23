@@ -2714,10 +2714,10 @@ struct WorkflowDraft {
         self.name = template.definition.name
         self.isEnabled = true
         self.template = template
-        self.triggerMode = template == .dictation ? .automatic : .manual
+        self.triggerMode = template.requiresRecordingTrigger ? .automatic : .manual
         self.isAppTriggerEnabled = false
         self.isWebsiteTriggerEnabled = false
-        self.isHotkeyTriggerEnabled = template == .dictation
+        self.isHotkeyTriggerEnabled = template.requiresRecordingTrigger
         self.appBundleIdentifiers = []
         self.websitePatterns = []
         self.hotkeys = []
@@ -2812,7 +2812,7 @@ struct WorkflowDraft {
             self.hotkeys = []
         }
 
-        if self.template == .dictation && self.triggerMode == .manual {
+        if self.template.requiresRecordingTrigger && self.triggerMode == .manual {
             self.triggerMode = .automatic
             if !hasEnabledAutomaticTriggerComponent {
                 self.isHotkeyTriggerEnabled = true
@@ -2905,6 +2905,10 @@ struct WorkflowDraft {
             transcriptionEngineId = nil
             transcriptionModelId = nil
             inlineCommandsEnabled = nil
+            if newTemplate == .speakToWindow {
+                triggerMode = .automatic
+                isHotkeyTriggerEnabled = true
+            }
         }
     }
 
@@ -2915,10 +2919,10 @@ struct WorkflowDraft {
         pluginManager: PluginManager,
         existingWorkflowId: UUID?
     ) -> String? {
-        if template == .dictation && triggerMode == .manual {
+        if template.requiresRecordingTrigger && triggerMode == .manual {
             return localizedAppText(
-                "Dictation Only workflows need a recording trigger.",
-                de: "Nur-Diktat-Workflows brauchen einen Aufnahme-Trigger."
+                "This workflow needs a recording trigger.",
+                de: "Dieser Workflow braucht einen Aufnahme-Trigger."
             )
         }
 
@@ -3258,6 +3262,11 @@ struct WorkflowDraft {
 private func workflowSummaryText(for workflow: Workflow) -> String {
     let templateName = workflow.template.definition.name
     switch workflow.template {
+    case .speakToWindow:
+        return localizedAppText(
+            "Spoken instruction with active-window context",
+            de: "Gesprochene Anweisung mit Kontext des aktiven Fensters"
+        )
     case .translation:
         let targetLanguage = workflow.translationTargetLanguage
         if let targetLanguage, !targetLanguage.isEmpty {
