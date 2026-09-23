@@ -107,7 +107,7 @@ struct DictationRecoveryView: View {
 
             Section(String(localized: "Transcription")) {
                 Picker(String(localized: "Engine"), selection: $viewModel.selectedEngine) {
-                    Text(String(localized: "Default Engine")).tag(nil as String?)
+                    Text(TranscriptionDefaultLabel.engine(String(localized: "Default Engine"))).tag(nil as String?)
                     Divider()
                     ForEach(viewModel.availableEngines, id: \.providerId) { engine in
                         enginePickerLabel(for: engine)
@@ -121,7 +121,8 @@ struct DictationRecoveryView: View {
                     let models = engine.transcriptionModels
                     if models.count > 1 {
                         Picker(String(localized: "Model"), selection: $viewModel.selectedModel) {
-                            Text(String(localized: "watchFolder.model.default")).tag(nil as String?)
+                            Text(TranscriptionDefaultLabel.model(String(localized: "watchFolder.model.default"), engine: engine))
+                                .tag(nil as String?)
                             Divider()
                             ForEach(models, id: \.id) { model in
                                 Text(model.displayName).tag(model.id as String?)

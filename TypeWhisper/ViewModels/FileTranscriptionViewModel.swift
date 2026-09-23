@@ -38,12 +38,21 @@ final class FileTranscriptionViewModel: ObservableObject {
         return instance
     }
 
+    /// An engine chosen for one item instead of the picker's selection.
+    /// `engineId` nil means the app's default engine, `modelId` nil the
+    /// engine's own selected model.
+    struct EngineSelection: Equatable {
+        let engineId: String?
+        let modelId: String?
+    }
+
     struct FileItem: Identifiable {
         let id = UUID()
         let url: URL
         let displayName: String?
         let importedMedia: PluginImportedMedia?
         let mediaImporter: (any MediaImportPlugin)?
+        var engineSelection: EngineSelection?
         var state: FileItemState = .pending
         var result: TranscriptionResult?
         var errorMessage: String?
@@ -336,15 +345,18 @@ final class FileTranscriptionViewModel: ObservableObject {
     /// user, and returns its result once that item has finished.
     func transcribeImportedMedia(
         _ importedMedia: PluginImportedMedia,
-        from importer: any MediaImportPlugin
+        from importer: any MediaImportPlugin,
+        engineSelection: EngineSelection? = nil
     ) async throws -> TranscriptionResult {
-        guard selectedEngineIsReady else {
+        let isReady = engineSelection.map { engineIsReady($0.engineId) } ?? selectedEngineIsReady
+        guard isReady else {
             throw ImportedMediaTranscriptionError.engineNotReady
         }
         guard enqueueImportedMedia(importedMedia, from: importer),
               let itemID = files.last?.id else {
             throw ImportedMediaTranscriptionError.rejected
         }
+        files[files.count - 1].engineSelection = engineSelection
         return try await withCheckedThrowingContinuation { continuation in
             completionWaiters[itemID] = continuation
             if batchState != .processing {
@@ -481,12 +493,14 @@ final class FileTranscriptionViewModel: ObservableObject {
             files[index].progressFraction = nil
             files[index].sourceProgress = nil
 
+            let engineSelection = files[index].engineSelection
+                ?? EngineSelection(engineId: selectedEngine, modelId: selectedModel)
             let result = try await transcriptionRunner(
                 samples,
                 languageSelection,
                 selectedTask,
-                selectedEngine,
-                selectedModel,
+                engineSelection.engineId,
+                engineSelection.modelId,
                 { [weak self] text in
                     guard let self,
                           !cancellationFlag.isCancelled,
@@ -632,11 +646,23 @@ final class FileTranscriptionViewModel: ObservableObject {
     }
 
     private var selectedEngineIsReady: Bool {
+        engineIsReady(selectedEngine)
+    }
+
+    /// The app's default engine, used when no engine is chosen.
+    var defaultEngineId: String? {
+        modelManager.selectedProviderId
+    }
+
+    func engineIsReady(_ engineId: String?) -> Bool {
         if let engineReadinessChecker {
-            return engineReadinessChecker(selectedEngine)
+            return engineReadinessChecker(engineId)
         }
 
-        guard let engine = resolvedEngine else { return false }
+        guard let resolvedId = engineId ?? modelManager.selectedProviderId,
+              let engine = PluginManager.shared?.transcriptionEngine(for: resolvedId) else {
+            return false
+        }
         return modelManager.canPrepareForTranscription(engine)
     }
 

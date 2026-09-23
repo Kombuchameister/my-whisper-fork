@@ -196,6 +196,65 @@ final class WebLinkObsidianNoteTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testAddToObsidianUsesChosenEngineAndDropsModelOfAnotherEngine() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let vault = root.appendingPathComponent("Vault", isDirectory: true)
+        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
+        let bin = try makeFakeToolchain(in: root)
+        let runner = ObsidianTestProcessRunner { request in
+            try Data([0, 1]).write(to: request.workingDirectory.appendingPathComponent("Video-id.m4a"))
+            return WebLinkProcessResult(exitCode: 0, diagnosticOutput: "")
+        }
+        let plugin = WebLinkPlugin(runner: runner, environment: ["PATH": bin.path], homeDirectory: root)
+        let host = try PluginTestHostServices(
+            defaults: [
+                WebLinkPlugin.obsidianVaultPathKey: vault.path,
+                WebLinkPlugin.obsidianEngineIdKey: "groq",
+                WebLinkPlugin.obsidianModelIdKey: "whisper-large-v3",
+            ],
+            pluginDataDirectory: root.appendingPathComponent("plugin-data")
+        )
+        host.mediaTranscriptionEngines = [
+            PluginTranscriptionEngineOption(
+                id: "groq",
+                displayName: "Groq",
+                isReady: true,
+                models: [
+                    .init(id: "whisper-large-v3", displayName: "Whisper Large v3"),
+                    .init(id: "whisper-large-v3-turbo", displayName: "Whisper Large v3 Turbo"),
+                ],
+                defaultModelId: "whisper-large-v3-turbo"
+            ),
+            PluginTranscriptionEngineOption(
+                id: "parakeet", displayName: "Parakeet", isReady: true, models: [], defaultModelId: nil
+            ),
+        ]
+        host.defaultMediaTranscriptionEngineId = "parakeet"
+        plugin.activate(host: host)
+
+        let viewModel = WebLinkTranscriptionSidebarViewModel(plugin: plugin)
+        viewModel.link = "https://example.com/one"
+        viewModel.importLinkToObsidian()
+        let firstDone = await waitUntil { plugin.obsidianJobs.jobs.first?.state == .done }
+        XCTAssertTrue(firstDone)
+
+        // Back to the default engine: the Groq model no longer applies.
+        plugin.obsidianEngineId = nil
+        viewModel.link = "https://example.com/two"
+        viewModel.importLinkToObsidian()
+        let secondDone = await waitUntil {
+            plugin.obsidianJobs.jobs.count == 2 && plugin.obsidianJobs.jobs.first?.state == .done
+        }
+        XCTAssertTrue(secondDone)
+
+        XCTAssertEqual(host.mediaTranscriptionSelections, [
+            PluginTestMediaTranscriptionSelection(engineId: "groq", modelId: "whisper-large-v3"),
+            PluginTestMediaTranscriptionSelection(engineId: nil, modelId: nil),
+        ])
+    }
+
     private func makeFakeToolchain(in root: URL) throws -> URL {
         let bin = root.appendingPathComponent("bin", isDirectory: true)
         try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)

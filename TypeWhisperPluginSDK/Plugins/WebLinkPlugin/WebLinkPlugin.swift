@@ -200,6 +200,8 @@ final class WebLinkPlugin: NSObject,
     static let obsidianVaultPathKey = "obsidianVaultPath"
     static let obsidianSubfolderKey = "obsidianSubfolder"
     static let defaultObsidianSubfolder = "Web Links"
+    static let obsidianEngineIdKey = "obsidianEngineId"
+    static let obsidianModelIdKey = "obsidianModelId"
 
     private let state = OSAllocatedUnfairLock(initialState: State())
     @MainActor let obsidianJobs = WebLinkObsidianJobList()
@@ -473,6 +475,44 @@ final class WebLinkPlugin: NSObject,
         }
     }
 
+    /// Engine for "Add to Obsidian"; nil follows the app's default engine.
+    var obsidianEngineId: String? {
+        get { nonEmptyDefault(forKey: Self.obsidianEngineIdKey) }
+        set { state.withLock { $0.host }?.setUserDefault(newValue ?? "", forKey: Self.obsidianEngineIdKey) }
+    }
+
+    /// Model for "Add to Obsidian"; nil uses the engine's selected model.
+    var obsidianModelId: String? {
+        get { nonEmptyDefault(forKey: Self.obsidianModelIdKey) }
+        set { state.withLock { $0.host }?.setUserDefault(newValue ?? "", forKey: Self.obsidianModelIdKey) }
+    }
+
+    var transcriptionEngines: [PluginTranscriptionEngineOption] {
+        (state.withLock { $0.host } as? any HostMediaTranscriptionProviding)?.mediaTranscriptionEngines ?? []
+    }
+
+    var defaultTranscriptionEngineId: String? {
+        (state.withLock { $0.host } as? any HostMediaTranscriptionProviding)?.defaultMediaTranscriptionEngineId
+    }
+
+    /// The chosen model, if it still belongs to the engine that will run;
+    /// the default engine may have changed since the model was picked.
+    private func validObsidianModelId(
+        engineId: String?,
+        transcriber: any HostMediaTranscriptionProviding
+    ) -> String? {
+        guard let modelId = obsidianModelId else { return nil }
+        let resolvedEngineId = engineId ?? transcriber.defaultMediaTranscriptionEngineId
+        let engine = transcriber.mediaTranscriptionEngines.first { $0.id == resolvedEngineId }
+        return engine?.models.contains { $0.id == modelId } == true ? modelId : nil
+    }
+
+    private func nonEmptyDefault(forKey key: String) -> String? {
+        guard let value = state.withLock({ $0.host })?.userDefault(forKey: key) as? String,
+              !value.isEmpty else { return nil }
+        return value
+    }
+
     var canTranscribeAutomatically: Bool {
         state.withLock { $0.host } is any HostMediaTranscriptionProviding
     }
@@ -492,11 +532,15 @@ final class WebLinkPlugin: NSObject,
 
         let jobID = obsidianJobs.add(noteURL: noteURL)
         let importerId = mediaImportId
+        let engineId = obsidianEngineId
+        let modelId = validObsidianModelId(engineId: engineId, transcriber: transcriber)
         Task { [obsidianJobs] in
             do {
                 let transcript = try await transcriber.transcribeImportedMedia(
                     media,
-                    fromMediaImporterId: importerId
+                    fromMediaImporterId: importerId,
+                    engineId: engineId,
+                    modelId: modelId
                 )
                 try WebLinkObsidianNoteWriter.completeNote(at: noteURL, transcript: transcript)
                 obsidianJobs.update(jobID, state: .done)
@@ -877,6 +921,10 @@ private struct WebLinkObsidianSection: View {
     @State private var vaultPath = ""
     @State private var subfolder = ""
     @State private var detectedVaults: [WebLinkObsidianVault] = []
+    @State private var engineId: String?
+    @State private var modelId: String?
+    @State private var engines: [PluginTranscriptionEngineOption] = []
+    @State private var defaultEngineId: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -923,6 +971,47 @@ private struct WebLinkObsidianSection: View {
                         }
                         .accessibilityIdentifier("webLinkTranscription.obsidianSubfolder")
                 }
+                GridRow {
+                    Text(webLinkLocalized("Engine"))
+                    Picker(webLinkLocalized("Engine"), selection: $engineId) {
+                        Text(defaultEngineLabel).tag(nil as String?)
+                        Divider()
+                        ForEach(engines) { engine in
+                            Text(engine.isReady
+                                 ? engine.displayName
+                                 : "\(engine.displayName) (\(webLinkLocalized("not ready")))")
+                                .tag(engine.id as String?)
+                                .disabled(!engine.isReady)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(maxWidth: 280)
+                    .onChange(of: engineId) { _, newValue in
+                        plugin.obsidianEngineId = newValue
+                        if let modelId, chosenEngine?.models.contains(where: { $0.id == modelId }) != true {
+                            self.modelId = nil
+                        }
+                    }
+                    .accessibilityIdentifier("webLinkTranscription.obsidianEngine")
+                }
+                if let engine = chosenEngine, engine.models.count > 1 {
+                    GridRow {
+                        Text(webLinkLocalized("Model"))
+                        Picker(webLinkLocalized("Model"), selection: $modelId) {
+                            Text(defaultModelLabel(for: engine)).tag(nil as String?)
+                            Divider()
+                            ForEach(engine.models) { model in
+                                Text(model.displayName).tag(model.id as String?)
+                            }
+                        }
+                        .labelsHidden()
+                        .frame(maxWidth: 280)
+                        .onChange(of: modelId) { _, newValue in
+                            plugin.obsidianModelId = newValue
+                        }
+                        .accessibilityIdentifier("webLinkTranscription.obsidianModel")
+                    }
+                }
             }
 
             if !jobs.jobs.isEmpty {
@@ -942,7 +1031,31 @@ private struct WebLinkObsidianSection: View {
             detectedVaults = plugin.detectedObsidianVaults()
             vaultPath = plugin.obsidianVaultPath
             subfolder = plugin.obsidianSubfolder
+            engines = plugin.transcriptionEngines
+            defaultEngineId = plugin.defaultTranscriptionEngineId
+            engineId = plugin.obsidianEngineId
+            modelId = plugin.obsidianModelId
         }
+    }
+
+    /// The engine a transcription uses: the chosen one, or the app default.
+    private var chosenEngine: PluginTranscriptionEngineOption? {
+        let id = engineId ?? defaultEngineId
+        return engines.first { $0.id == id }
+    }
+
+    /// "Default Engine (Groq)": names the engine the default resolves to.
+    private var defaultEngineLabel: String {
+        let label = webLinkLocalized("Default Engine")
+        guard let name = engines.first(where: { $0.id == defaultEngineId })?.displayName else { return label }
+        return "\(label) (\(name))"
+    }
+
+    private func defaultModelLabel(for engine: PluginTranscriptionEngineOption) -> String {
+        let label = webLinkLocalized("Default model")
+        guard let modelId = engine.defaultModelId else { return label }
+        let name = engine.models.first { $0.id == modelId }?.displayName ?? modelId
+        return "\(label) (\(name))"
     }
 
     private var vaultChoices: [WebLinkObsidianVault] {
