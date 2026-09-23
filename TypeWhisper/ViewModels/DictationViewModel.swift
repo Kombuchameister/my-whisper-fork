@@ -3744,9 +3744,12 @@ final class DictationViewModel: ObservableObject {
         if targetAppAccessibilityObservationLease != nil {
             return
         }
+        // Contextual insertion needs the text before the cursor, which
+        // Chromium-based apps only expose once their accessibility tree is on.
         guard shouldTrackTargetAppCorrectionLearning
                 || improveTypeWhisperCaptureEnabled
-                || liveFieldTranscriptEnabled else {
+                || liveFieldTranscriptEnabled
+                || DictationInsertionTextFormatter.contextualInsertionEnabled() else {
             return
         }
         targetAppAccessibilityObservationLease = textInsertionService
