@@ -76,6 +76,11 @@ if [[ -d "$install_path" ]]; then
   previous="$archive_dir/$(basename "$install_path" .app)-$(date +%Y%m%d-%H%M%S).app"
   mv "$install_path" "$previous"
   log "previous app moved to $previous"
+  # Keep only the three most recent previous builds (about 160 MB each).
+  ls -1dt "$archive_dir/$(basename "$install_path" .app)"-*.app 2>/dev/null | tail -n +4 | while IFS= read -r old; do
+    rm -rf "$old"
+    log "pruned old build $(basename "$old")"
+  done
 fi
 ditto "$built" "$install_path"
 /System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister -f "$install_path"
