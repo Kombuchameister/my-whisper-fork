@@ -43,8 +43,10 @@ plugins_dir="$target_dir/Plugins"
 [[ -d "$target_dir" ]] || die "no such app support directory: $target_dir"
 mkdir -p "$plugins_dir"
 
-if pgrep -fl "TypeWhisper.app/Contents/MacOS/TypeWhisper|TypeWhsiper-.*\.app/Contents/MacOS/TypeWhisper|TypeWhisper-.*\.app/Contents/MacOS/TypeWhisper" >/dev/null; then
-  log "warning: a TypeWhisper app is running; quit the app that uses $app_support_name before restarting it"
+# Developer apps are the only ones that use isolated plugin directories;
+# the production app in /Applications is ignored here.
+if pgrep -fl "/MacOS/TypeWhisper" | grep -v "^[0-9]* /Applications/TypeWhisper.app/" >/dev/null; then
+  log "warning: a developer TypeWhisper app is running; restart it to load the rebuilt plugins"
 fi
 
 declare -a plugins=()
