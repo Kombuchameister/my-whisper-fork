@@ -89,7 +89,7 @@ struct FileTranscriptionView: View {
 
                 Section(localizedAppText("Watch Folder Transcription", de: "Ordner-Transkription")) {
                     Picker(String(localized: "watchFolder.engine"), selection: $watchFolder.selectedEngine) {
-                        Text(String(localized: "watchFolder.engine.default")).tag(nil as String?)
+                        Text(TranscriptionDefaultLabel.engine(String(localized: "Default Engine"))).tag(nil as String?)
                         Divider()
                         ForEach(watchFolder.availableEngines, id: \.providerId) { engine in
                             HStack {
@@ -106,7 +106,8 @@ struct FileTranscriptionView: View {
                         let models = engine.transcriptionModels
                         if models.count > 1 {
                             Picker(String(localized: "Model"), selection: $watchFolder.selectedModel) {
-                                Text(String(localized: "watchFolder.model.default")).tag(nil as String?)
+                                Text(TranscriptionDefaultLabel.model(String(localized: "watchFolder.model.default"), engine: engine))
+                                    .tag(nil as String?)
                                 Divider()
                                 ForEach(models, id: \.id) { model in
                                     Text(model.displayName).tag(model.id as String?)
@@ -546,7 +547,7 @@ struct FileTranscriptionView: View {
     private var fileTranscriptionSettings: some View {
         VStack(alignment: .leading, spacing: 8) {
             Picker(String(localized: "Engine"), selection: $viewModel.selectedEngine) {
-                Text(String(localized: "Default Engine")).tag(nil as String?)
+                Text(TranscriptionDefaultLabel.engine(String(localized: "Default Engine"))).tag(nil as String?)
                 Divider()
                 ForEach(viewModel.availableEngines, id: \.providerId) { engine in
                     enginePickerLabel(for: engine)
@@ -561,7 +562,8 @@ struct FileTranscriptionView: View {
                 let models = engine.transcriptionModels
                 if models.count > 1 {
                     Picker(String(localized: "Model"), selection: $viewModel.selectedModel) {
-                        Text(String(localized: "watchFolder.model.default")).tag(nil as String?)
+                        Text(TranscriptionDefaultLabel.model(String(localized: "watchFolder.model.default"), engine: engine))
+                            .tag(nil as String?)
                         Divider()
                         ForEach(models, id: \.id) { model in
                             Text(model.displayName).tag(model.id as String?)
@@ -665,5 +667,27 @@ struct FileTranscriptionView: View {
             return nil
         }
         return String(format: "%.1f", sourceProgress.processedDuration / elapsed)
+    }
+}
+
+/// "Default Engine (Groq)", "Default model (Whisper Large v3)": an inherited
+/// engine or model selection names the value it resolves to.
+@MainActor
+enum TranscriptionDefaultLabel {
+    static func engine(_ label: String) -> String {
+        guard let engineId = ServiceContainer.shared.modelManagerService.selectedProviderId,
+              let engine = PluginManager.shared?.transcriptionEngine(for: engineId) else {
+            return label
+        }
+        return "\(label) (\(engine.providerDisplayName))"
+    }
+
+    static func model(_ label: String, engine: (any TranscriptionEnginePlugin)?) -> String {
+        guard let engine, let modelId = engine.selectedModelId, !modelId.isEmpty else {
+            return label
+        }
+        let model = engine.modelCatalog.first { $0.id == modelId }
+            ?? engine.transcriptionModels.first { $0.id == modelId }
+        return "\(label) (\(model?.displayName ?? modelId))"
     }
 }

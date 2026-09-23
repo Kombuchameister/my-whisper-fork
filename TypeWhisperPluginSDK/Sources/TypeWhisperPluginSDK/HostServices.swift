@@ -55,15 +55,52 @@ public protocol HostModelLifecyclePolicyProviding: Sendable {
     var shouldRestoreLoadedModelsPassively: Bool { get }
 }
 
+/// A transcription engine the host can run imported media through.
+public struct PluginTranscriptionEngineOption: Sendable, Equatable, Identifiable {
+    public struct Model: Sendable, Equatable, Identifiable {
+        public let id: String
+        public let displayName: String
+
+        public init(id: String, displayName: String) {
+            self.id = id
+            self.displayName = displayName
+        }
+    }
+
+    public let id: String
+    public let displayName: String
+    public let isReady: Bool
+    public let models: [Model]
+    /// The model the engine uses when no model is requested.
+    public let defaultModelId: String?
+
+    public init(id: String, displayName: String, isReady: Bool, models: [Model], defaultModelId: String?) {
+        self.id = id
+        self.displayName = displayName
+        self.isReady = isReady
+        self.models = models
+        self.defaultModelId = defaultModelId
+    }
+}
+
 /// Optional host capability: add media produced by one of the plugin's
 /// importers to TypeWhisper's transcription queue, start transcribing it right
 /// away, and wait for the transcript. The item stays visible in the host's
 /// file-transcription list. Throws when the media is rejected, no engine is
 /// ready, or transcription fails or is cancelled.
 public protocol HostMediaTranscriptionProviding: Sendable {
+    /// Engines available for `transcribeImportedMedia`.
+    var mediaTranscriptionEngines: [PluginTranscriptionEngineOption] { get }
+    /// The engine used when a request names none (the app's default engine).
+    var defaultMediaTranscriptionEngineId: String? { get }
+
+    /// `engineId` nil uses the default engine; `modelId` nil uses the
+    /// engine's own selected model.
     func transcribeImportedMedia(
         _ media: PluginImportedMedia,
-        fromMediaImporterId mediaImporterId: String
+        fromMediaImporterId mediaImporterId: String,
+        engineId: String?,
+        modelId: String?
     ) async throws -> String
 }
 

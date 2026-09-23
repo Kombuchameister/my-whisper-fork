@@ -214,18 +214,48 @@ final class HostServicesImpl: HostServices, HostModelLifecyclePolicyProviding, H
         }
     }
 
+    var mediaTranscriptionEngines: [PluginTranscriptionEngineOption] {
+        readMainActor {
+            guard let viewModel = FileTranscriptionViewModel._shared else { return [] }
+            return viewModel.availableEngines.map { engine in
+                PluginTranscriptionEngineOption(
+                    id: engine.providerId,
+                    displayName: engine.providerDisplayName,
+                    isReady: viewModel.canUseForTranscription(engine)
+                        && viewModel.canPrepareForTranscription(engine),
+                    models: engine.transcriptionModels.map {
+                        PluginTranscriptionEngineOption.Model(id: $0.id, displayName: $0.displayName)
+                    },
+                    defaultModelId: engine.selectedModelId
+                )
+            }
+        }
+    }
+
+    var defaultMediaTranscriptionEngineId: String? {
+        readMainActor { FileTranscriptionViewModel._shared?.defaultEngineId }
+    }
+
     func transcribeImportedMedia(
         _ media: PluginImportedMedia,
-        fromMediaImporterId mediaImporterId: String
+        fromMediaImporterId mediaImporterId: String,
+        engineId: String?,
+        modelId: String?
     ) async throws -> String {
-        try await Self.transcribeImportedMedia(media, pluginId: pluginId, mediaImporterId: mediaImporterId)
+        try await Self.transcribeImportedMedia(
+            media,
+            pluginId: pluginId,
+            mediaImporterId: mediaImporterId,
+            engineSelection: FileTranscriptionViewModel.EngineSelection(engineId: engineId, modelId: modelId)
+        )
     }
 
     @MainActor
     private static func transcribeImportedMedia(
         _ media: PluginImportedMedia,
         pluginId: String,
-        mediaImporterId: String
+        mediaImporterId: String,
+        engineSelection: FileTranscriptionViewModel.EngineSelection
     ) async throws -> String {
         guard let importer = PluginManager.shared?.mediaImportPlugins.first(where: {
             type(of: $0).pluginId == pluginId && $0.mediaImportId == mediaImporterId
@@ -233,7 +263,7 @@ final class HostServicesImpl: HostServices, HostModelLifecyclePolicyProviding, H
             throw FileTranscriptionViewModel.ImportedMediaTranscriptionError.rejected
         }
         return try await FileTranscriptionViewModel.shared
-            .transcribeImportedMedia(media, from: importer)
+            .transcribeImportedMedia(media, from: importer, engineSelection: engineSelection)
             .text
     }
 

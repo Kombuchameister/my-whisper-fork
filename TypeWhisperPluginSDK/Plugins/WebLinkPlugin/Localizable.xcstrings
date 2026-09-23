@@ -1,6 +1,11 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "Engine": {"localizations":{"de":{"stringUnit":{"state":"translated","value":"Engine"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"引擎"}}}},
+    "Model": {"localizations":{"de":{"stringUnit":{"state":"translated","value":"Modell"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"模型"}}}},
+    "not ready": {"localizations":{"de":{"stringUnit":{"state":"translated","value":"nicht bereit"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"未就绪"}}}},
+    "Default Engine": {"localizations":{"de":{"stringUnit":{"state":"translated","value":"Standard-Engine"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"默认引擎"}}}},
+    "Default model": {"localizations":{"de":{"stringUnit":{"state":"translated","value":"Standardmodell"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"默认模型"}}}},
     "This version of TypeWhisper cannot start transcriptions for add-ons.": {"localizations":{"de":{"stringUnit":{"state":"translated","value":"Diese TypeWhisper-Version kann keine Transkriptionen für Add-ons starten."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"此版本的 TypeWhisper 无法为附加组件启动转录。"}}}},
     "Created the note “%@”. The transcript is added when transcription finishes.": {"localizations":{"de":{"stringUnit":{"state":"translated","value":"Notiz „%@“ erstellt. Das Transkript wird eingefügt, sobald die Transkription fertig ist."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"已创建笔记“%@”。转录完成后将添加转录文本。"}}}},
     "Add to Obsidian": {"localizations":{"de":{"stringUnit":{"state":"translated","value":"Zu Obsidian hinzufügen"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"添加到 Obsidian"}}}},

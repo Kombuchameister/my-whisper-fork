@@ -37,6 +37,16 @@ public final class PluginTestEventBus: EventBusProtocol, @unchecked Sendable {
     }
 }
 
+public struct PluginTestMediaTranscriptionSelection: Sendable, Equatable {
+    public let engineId: String?
+    public let modelId: String?
+
+    public init(engineId: String?, modelId: String?) {
+        self.engineId = engineId
+        self.modelId = modelId
+    }
+}
+
 public final class PluginTestHostServices: HostServices, HostModelLifecyclePolicyProviding, HostMediaTranscriptionProviding, @unchecked Sendable {
     private struct AnySendable: @unchecked Sendable {
         let value: Any
@@ -52,6 +62,9 @@ public final class PluginTestHostServices: HostServices, HostModelLifecyclePolic
         var streamingDisplayActiveValues: [Bool] = []
         var transcribedImportedMedia: [PluginImportedMedia] = []
         var mediaTranscriptionHandler: (@Sendable (PluginImportedMedia) async throws -> String)?
+        var mediaTranscriptionEngines: [PluginTranscriptionEngineOption] = []
+        var defaultMediaTranscriptionEngineId: String?
+        var mediaTranscriptionSelections: [PluginTestMediaTranscriptionSelection] = []
     }
 
     private let lock = NSLock()
@@ -190,16 +203,35 @@ public final class PluginTestHostServices: HostServices, HostModelLifecyclePolic
         }
     }
 
+    public var mediaTranscriptionEngines: [PluginTranscriptionEngineOption] {
+        get { lock.withLock { state.mediaTranscriptionEngines } }
+        set { lock.withLock { state.mediaTranscriptionEngines = newValue } }
+    }
+
+    public var defaultMediaTranscriptionEngineId: String? {
+        get { lock.withLock { state.defaultMediaTranscriptionEngineId } }
+        set { lock.withLock { state.defaultMediaTranscriptionEngineId = newValue } }
+    }
+
     public func transcribeImportedMedia(
         _ media: PluginImportedMedia,
-        fromMediaImporterId mediaImporterId: String
+        fromMediaImporterId mediaImporterId: String,
+        engineId: String?,
+        modelId: String?
     ) async throws -> String {
         let handler = lock.withLock {
             state.transcribedImportedMedia.append(media)
             state.enqueuedMediaImporterIds.append(mediaImporterId)
+            state.mediaTranscriptionSelections.append(
+                PluginTestMediaTranscriptionSelection(engineId: engineId, modelId: modelId)
+            )
             return state.mediaTranscriptionHandler
         }
         return try await handler?(media) ?? ""
+    }
+
+    public var mediaTranscriptionSelections: [PluginTestMediaTranscriptionSelection] {
+        lock.withLock { state.mediaTranscriptionSelections }
     }
 
     public var transcribedImportedMedia: [PluginImportedMedia] {

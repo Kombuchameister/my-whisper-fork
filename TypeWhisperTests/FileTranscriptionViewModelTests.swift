@@ -553,6 +553,51 @@ final class FileTranscriptionViewModelTests: XCTestCase {
         try await waitForBatchToFinish(viewModel)
     }
 
+    func testImportedMediaEngineSelectionOverridesFileTranscriptionPicker() async throws {
+        let fileURL = makeTemporaryFile(named: "link.m4a")
+        let plugin = FileTranscriptionMediaImportPlugin(downloadedFile: fileURL)
+        var checkedEngines: [String?] = []
+        var usedEngine: String?
+        var usedModel: String?
+
+        let viewModel = FileTranscriptionViewModel(
+            modelManager: ModelManagerService(),
+            audioFileService: AudioFileService(),
+            dictionaryService: makeDictionaryService(),
+            defaults: try makeDefaults(),
+            audioSamplesLoader: { _, _, _ in [0.1] },
+            transcriptionRunner: { _, _, _, engineOverrideId, modelOverride, _, _, _ in
+                usedEngine = engineOverrideId
+                usedModel = modelOverride
+                return TranscriptionResult(
+                    text: "Text",
+                    detectedLanguage: "en",
+                    duration: 1,
+                    processingTime: 0.1,
+                    engineUsed: engineOverrideId ?? "default",
+                    segments: []
+                )
+            },
+            engineReadinessChecker: { engineId in
+                checkedEngines.append(engineId)
+                return engineId == "groq"
+            }
+        )
+        viewModel.selectedEngine = "parakeet"
+        viewModel.selectedModel = "parakeet-large"
+
+        _ = try await viewModel.transcribeImportedMedia(
+            PluginImportedMedia(localFileURL: fileURL, displayName: nil, cleanupToken: nil),
+            from: plugin,
+            engineSelection: .init(engineId: "groq", modelId: "whisper-large-v3")
+        )
+
+        XCTAssertEqual(checkedEngines, ["groq"])
+        XCTAssertEqual(usedEngine, "groq")
+        XCTAssertEqual(usedModel, "whisper-large-v3")
+        XCTAssertEqual(viewModel.selectedEngine, "parakeet")
+    }
+
     func testImportedMediaTranscriptionFailsFastWithoutReadyEngine() async throws {
         let fileURL = makeTemporaryFile(named: "link.m4a")
         let plugin = FileTranscriptionMediaImportPlugin(downloadedFile: fileURL)
