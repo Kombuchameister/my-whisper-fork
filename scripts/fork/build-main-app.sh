@@ -49,10 +49,15 @@ xcodebuild build -skipPackagePluginValidation -skipMacroValidation \
 built="$derived/Build/Products/Debug/TypeWhisper.app"
 printf 'branch=%s\ncommit=%s\n' "$branch" "$commit" > "$built/Contents/Resources/FeatureBuildSource.txt"
 
+# Stage outside the checkout: files under ~/Desktop pick up Finder/iCloud
+# metadata that codesign rejects ("resource fork ... detritus not allowed").
+staging_dir="$(mktemp -d)"
+trap 'rm -rf "$staging_dir"' EXIT
+ditto --noextattr --norsrc "$built" "$staging_dir/TypeWhisper.app"
+built="$staging_dir/TypeWhisper.app"
+
 if security find-identity -v -p codesigning | grep -qF "\"$signing_identity\""; then
   log "signing with \"$signing_identity\""
-  # Finder metadata on files under ~/Desktop makes codesign reject the bundle.
-  xattr -cr "$built"
   codesign --force --deep --sign "$signing_identity" --timestamp=none "$built"
   codesign --verify --deep --strict "$built"
 else
