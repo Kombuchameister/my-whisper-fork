@@ -173,21 +173,38 @@ final class GroqPlugin: NSObject, TranscriptionEnginePlugin, DictionaryTermsCapa
 
     func supportedEfforts(for model: String?) -> [PluginLLMEffortInfo] {
         let modelId = model ?? _selectedLLMModelId ?? supportedModels.first?.id ?? ""
-        if modelId.localizedCaseInsensitiveContains("gpt-oss") {
-            return PluginLLMStandardEffortCatalog.options(["low", "medium", "high"])
-        }
-        if modelId.localizedCaseInsensitiveContains("qwen3") {
-            return PluginLLMStandardEffortCatalog.options(["none", "default"])
-        }
-        return []
+        return PluginLLMStandardEffortCatalog.options(Self.reasoningEffortIds(forModelId: modelId))
     }
 
     func defaultEffortId(for model: String?) -> String? {
-        let options = supportedEfforts(for: model)
-        guard !options.isEmpty else { return nil }
-        return options.contains { $0.id == _reasoningEffortId }
-            ? _reasoningEffortId
-            : (options.contains { $0.id == "medium" } ? "medium" : "default")
+        let modelId = model ?? _selectedLLMModelId ?? supportedModels.first?.id ?? ""
+        let ids = Self.reasoningEffortIds(forModelId: modelId)
+        guard !ids.isEmpty else { return nil }
+        return ids.contains(_reasoningEffortId) ? _reasoningEffortId : Self.apiDefaultEffortId(forModelId: modelId)
+    }
+
+    /// `reasoning_effort` values Groq accepts per model, from
+    /// https://console.groq.com/docs/reasoning. Models not listed (including
+    /// gpt-oss-safeguard and MiniMax) reject the parameter, so they get no picker.
+    static func reasoningEffortIds(forModelId modelId: String) -> [String] {
+        let id = modelId.lowercased()
+        switch id {
+        case "openai/gpt-oss-20b", "openai/gpt-oss-120b":
+            return ["low", "medium", "high"]
+        case _ where id.hasPrefix("qwen/qwen3.8"):
+            return ["none", "default", "low", "medium", "high"]
+        case _ where id.hasPrefix("qwen/qwen3-"):
+            return ["none", "default"]
+        default:
+            return []
+        }
+    }
+
+    /// The effort Groq applies when the request omits `reasoning_effort`.
+    static func apiDefaultEffortId(forModelId modelId: String) -> String? {
+        let ids = reasoningEffortIds(forModelId: modelId)
+        if ids.contains("default") { return "default" }
+        return ids.contains("medium") ? "medium" : ids.first
     }
 
     func process(systemPrompt: String, userText: String, model: String?, effort: String?) async throws -> String {

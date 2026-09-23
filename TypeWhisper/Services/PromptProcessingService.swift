@@ -914,6 +914,42 @@ class PromptProcessingService: ObservableObject {
         (PluginManager.shared?.llmProvider(for: providerId) as? LLMModelSelectable)?.defaultModelId as? String
     }
 
+    /// Display name of the model a provider uses when an entry leaves the model
+    /// on "Provider Default", so the UI can show the concrete choice.
+    func providerDefaultModelDisplayName(for providerId: String) -> String? {
+        guard providerId != Self.appleIntelligenceId,
+              let provider = PluginManager.shared?.llmProvider(for: providerId),
+              let modelId = resolvedModelHint(for: provider, providerId: providerId, requestedModelId: nil)
+        else { return nil }
+        return modelsForProvider(providerId).first(where: { $0.id == modelId })?.displayName ?? modelId
+    }
+
+    /// Short description of the temperature configured in a provider's own
+    /// settings ("0.3" or "API Default"), shown behind "Provider Setting".
+    func providerTemperatureSettingDescription(for providerId: String) -> String? {
+        guard providerId != Self.appleIntelligenceId,
+              let provider = PluginManager.shared?.llmProvider(for: providerId),
+              let plugin = PluginManager.shared?.loadedPlugins.first(where: {
+                  ($0.instance as AnyObject) === (provider as AnyObject)
+              })
+        else { return nil }
+
+        let prefix = "plugin.\(plugin.manifest.id)."
+        guard let modeRaw = UserDefaults.standard.string(forKey: prefix + "llmTemperatureMode"),
+              let mode = PluginLLMTemperatureMode(rawValue: modeRaw)
+        else { return nil }
+
+        switch mode {
+        case .custom:
+            let value = UserDefaults.standard.object(forKey: prefix + "llmTemperatureValue") as? Double ?? 0.3
+            return value.formatted(.number.precision(.fractionLength(1)))
+        case .providerDefault:
+            return localizedAppText("API Default", de: "API-Standard")
+        case .inheritProviderSetting:
+            return nil
+        }
+    }
+
     private func resolvedModelHint(
         for plugin: any LLMProviderPlugin,
         providerId: String,

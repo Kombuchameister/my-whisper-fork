@@ -588,9 +588,10 @@ private struct LLMFallbackPriorityRow: View {
                 .foregroundStyle(.tertiary)
                 .frame(width: 14, alignment: .trailing)
 
-            selectionFields
-
-            Spacer(minLength: 6)
+            FallbackFieldsWrappingLayout(spacing: 8, rowSpacing: 6) {
+                selectionFields
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             statusLabel
 
@@ -680,13 +681,13 @@ private struct LLMFallbackPriorityRow: View {
         .labelsHidden()
         .pickerStyle(.menu)
         .controlSize(.small)
-        .frame(width: 170, alignment: .leading)
+        .fixedSize()
     }
 
     private var modelPicker: some View {
         Picker(localizedAppText("Model", de: "Modell"), selection: modelBinding) {
             if canSelectProviderDefault {
-                Text(localizedAppText("Provider Default", de: "Provider-Standard"))
+                Text(providerDefaultModelLabel)
                     .tag(nil as String?)
             }
 
@@ -702,7 +703,7 @@ private struct LLMFallbackPriorityRow: View {
         .labelsHidden()
         .pickerStyle(.menu)
         .controlSize(.small)
-        .frame(width: 170, alignment: .leading)
+        .fixedSize()
     }
 
     private var effortPicker: some View {
@@ -722,13 +723,13 @@ private struct LLMFallbackPriorityRow: View {
         .labelsHidden()
         .pickerStyle(.menu)
         .controlSize(.small)
-        .frame(width: 125, alignment: .leading)
+        .fixedSize()
     }
 
     @ViewBuilder
     private var temperaturePicker: some View {
         Picker(localizedAppText("Temperature", de: "Temperatur"), selection: temperatureModeBinding) {
-            Text(localizedAppText("Provider Setting", de: "Provider-Einstellung"))
+            Text(providerTemperatureSettingLabel)
                 .tag(PluginLLMTemperatureMode.inheritProviderSetting)
             Text(localizedAppText("API Default", de: "API-Standard"))
                 .tag(PluginLLMTemperatureMode.providerDefault)
@@ -738,7 +739,7 @@ private struct LLMFallbackPriorityRow: View {
         .labelsHidden()
         .pickerStyle(.menu)
         .controlSize(.small)
-        .frame(width: 125, alignment: .leading)
+        .fixedSize()
 
         if item.temperatureDirective.mode == .custom, let temperatureRange {
             HStack(spacing: 4) {
@@ -749,6 +750,22 @@ private struct LLMFallbackPriorityRow: View {
                     .frame(width: 24, alignment: .trailing)
             }
         }
+    }
+
+    private var providerDefaultModelLabel: String {
+        providerDefaultLabel(
+            "Provider Default",
+            de: "Provider-Standard",
+            value: promptProcessingService.providerDefaultModelDisplayName(for: item.providerId)
+        )
+    }
+
+    private var providerTemperatureSettingLabel: String {
+        providerDefaultLabel(
+            "Provider Setting",
+            de: "Provider-Einstellung",
+            value: promptProcessingService.providerTemperatureSettingDescription(for: item.providerId)
+        )
     }
 
     private var providerDefaultEffortLabel: String {
@@ -1743,8 +1760,12 @@ private struct WorkflowEditorPage: View {
                             localizedAppText("Model", de: "Modell"),
                             selection: workflowModelOverrideBinding
                         ) {
-                            Text(localizedAppText("Provider Default", de: "Provider-Standard"))
-                                .tag(nil as String?)
+                            Text(providerDefaultLabel(
+                                "Provider Default",
+                                de: "Provider-Standard",
+                                value: promptProcessingService.providerDefaultModelDisplayName(for: providerId)
+                            ))
+                            .tag(nil as String?)
                             ForEach(models, id: \.id) { model in
                                 Text(model.displayName).tag(model.id as String?)
                             }
@@ -1819,9 +1840,14 @@ private struct WorkflowEditorPage: View {
                         selection: workflowTemperatureModeBinding
                     ) {
                         Text(
-                            draft.providerId == nil
-                                ? localizedAppText("Use Fallback Entry / Provider Setting", de: "Fallback-Eintrag / Provider-Einstellung")
-                                : localizedAppText("Use Provider Setting", de: "Provider-Einstellung verwenden")
+                            draft.providerId.map { providerId in
+                                providerDefaultLabel(
+                                    "Use Provider Setting",
+                                    de: "Provider-Einstellung verwenden",
+                                    value: promptProcessingService.providerTemperatureSettingDescription(for: providerId)
+                                )
+                            }
+                            ?? localizedAppText("Use Fallback Entry / Provider Setting", de: "Fallback-Eintrag / Provider-Einstellung")
                         )
                         .tag(PluginLLMTemperatureMode.inheritProviderSetting)
                         Text(localizedAppText("API Default", de: "API-Standard"))
@@ -3805,4 +3831,72 @@ private func workflowsGroupedSurface(cornerRadius: CGFloat) -> some View {
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .stroke(Color.black.opacity(0.05), lineWidth: 1)
         )
+}
+
+/// "Provider Default (gpt-oss-120b)": always shows the concrete value an
+/// inherited setting resolves to, when the provider reports one.
+private func providerDefaultLabel(_ english: String, de german: String, value: String?) -> String {
+    guard let value, !value.isEmpty else {
+        return localizedAppText(english, de: german)
+    }
+    return localizedAppText("\(english) (\(value))", de: "\(german) (\(value))")
+}
+
+/// Lays out fallback-entry pickers left to right and wraps them onto further
+/// lines when the settings window is narrow, so the row never forces the page
+/// wider than the window. Its minimum width is the widest single field.
+private struct FallbackFieldsWrappingLayout: Layout {
+    var spacing: CGFloat
+    var rowSpacing: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
+        let widest = sizes.map(\.width).max() ?? 0
+        let singleRowWidth = sizes.map(\.width).reduce(0, +) + spacing * CGFloat(max(sizes.count - 1, 0))
+        let available = proposal.width.map { max($0, widest) } ?? singleRowWidth
+        let rows = Self.rows(for: sizes, maxWidth: available, spacing: spacing)
+        let height = rows.map(\.height).reduce(0, +) + rowSpacing * CGFloat(max(rows.count - 1, 0))
+        let width = rows.map(\.width).max() ?? 0
+        return CGSize(width: proposal.width == nil ? width : available, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
+        var y = bounds.minY
+        for row in Self.rows(for: sizes, maxWidth: bounds.width, spacing: spacing) {
+            var x = bounds.minX
+            for index in row.indices {
+                let size = sizes[index]
+                subviews[index].place(
+                    at: CGPoint(x: x, y: y + (row.height - size.height) / 2),
+                    proposal: ProposedViewSize(size)
+                )
+                x += size.width + spacing
+            }
+            y += row.height + rowSpacing
+        }
+    }
+
+    private struct Row {
+        var indices: [Int] = []
+        var width: CGFloat = 0
+        var height: CGFloat = 0
+    }
+
+    private static func rows(for sizes: [CGSize], maxWidth: CGFloat, spacing: CGFloat) -> [Row] {
+        var rows: [Row] = []
+        var current = Row()
+        for (index, size) in sizes.enumerated() {
+            let proposedWidth = current.indices.isEmpty ? size.width : current.width + spacing + size.width
+            if proposedWidth > maxWidth, !current.indices.isEmpty {
+                rows.append(current)
+                current = Row()
+            }
+            current.width = current.indices.isEmpty ? size.width : current.width + spacing + size.width
+            current.height = max(current.height, size.height)
+            current.indices.append(index)
+        }
+        if !current.indices.isEmpty { rows.append(current) }
+        return rows
+    }
 }

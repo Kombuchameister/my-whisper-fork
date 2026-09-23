@@ -191,6 +191,19 @@ final class GroqPluginTests: XCTestCase {
         XCTAssertTrue(capability.supportedEfforts(for: "llama-3.3-70b-versatile").isEmpty)
     }
 
+    func testReasoningEffortOptionsMatchGroqDocumentation() {
+        XCTAssertEqual(GroqPlugin.reasoningEffortIds(forModelId: "openai/gpt-oss-20b"), ["low", "medium", "high"])
+        XCTAssertEqual(
+            GroqPlugin.reasoningEffortIds(forModelId: "qwen/qwen3.8-27b"),
+            ["none", "default", "low", "medium", "high"]
+        )
+        XCTAssertEqual(GroqPlugin.reasoningEffortIds(forModelId: "qwen/qwen3-32b"), ["none", "default"])
+        XCTAssertTrue(GroqPlugin.reasoningEffortIds(forModelId: "openai/gpt-oss-safeguard-20b").isEmpty)
+        XCTAssertTrue(GroqPlugin.reasoningEffortIds(forModelId: "minimaxai/minimax-m2.7").isEmpty)
+        XCTAssertEqual(GroqPlugin.apiDefaultEffortId(forModelId: "qwen/qwen3.8-27b"), "default")
+        XCTAssertEqual(GroqPlugin.apiDefaultEffortId(forModelId: "openai/gpt-oss-20b"), "medium")
+    }
+
     func testWorkflowEffortOverridesGroqIntegrationDefaultInRequest() async throws {
         let host = try PluginTestHostServices(
             defaults: [
