@@ -4202,6 +4202,10 @@ final class TypeWhisperIntegrationTests: XCTestCase {
         XCTAssertEqual(workflowPlugin.restoredModelId, "beta")
         XCTAssertEqual(workflowPlugin.transcribedModelId, "beta")
         XCTAssertEqual(workflowPlugin.selectedModelId, "alpha")
+        let insertion = await MainActor.run { apiContext.dictationViewModel.lastSuccessfulDictationInsertion }
+        XCTAssertEqual(insertion?.id.uuidString, startID)
+        XCTAssertEqual(insertion?.providerId, workflowPlugin.providerId)
+        XCTAssertEqual(insertion?.modelId, "beta")
     }
 
     func testDictationEndpointsSpeakCompletedTranscriptionOnly() async throws {
@@ -16192,6 +16196,7 @@ final class TypeWhisperIntegrationTests: XCTestCase {
             context.dictationViewModel.actionFeedbackMessage,
             try TestSupport.localizedCatalogValueForCurrentLocale(for: "Cancelled")
         )
+        XCTAssertNil(context.dictationViewModel.lastSuccessfulDictationInsertion)
     }
 
     @MainActor
