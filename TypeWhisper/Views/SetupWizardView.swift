@@ -1548,6 +1548,8 @@ struct SetupWizardView: View {
         case .copyLastTranscription: return dictation.copyLastTranscriptionHotkeyLabel
         case .pasteLastTranscription: return dictation.pasteLastTranscriptionHotkeyLabel
         case .recorderToggle: return dictation.recorderToggleHotkeyLabel
+        case .undoLastDictation: return dictation.undoLastDictationHotkeyLabel
+        case .restoreRawTranscript: return dictation.restoreRawTranscriptHotkeyLabel
         }
     }
 
@@ -1561,6 +1563,8 @@ struct SetupWizardView: View {
         case .copyLastTranscription: return String(localized: "Copy Last Transcription")
         case .pasteLastTranscription: return String(localized: "Paste Last Transcription")
         case .recorderToggle: return String(localized: "settings.tab.recorder")
+        case .undoLastDictation: return localizedAppText("Undo Last Dictation", de: "Letztes Diktat rückgängig")
+        case .restoreRawTranscript: return localizedAppText("Restore Raw Transcript", de: "Rohtext wiederherstellen")
         }
     }
 
