@@ -42,6 +42,12 @@
             "state": "translated",
             "value": "清除余额设置"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "残高をクリア"
+          }
         }
       }
     },
@@ -57,6 +63,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "最近识别时间"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "前回の認識"
           }
         }
       }
@@ -74,6 +86,12 @@
             "state": "translated",
             "value": "余额更新时间"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "残高の更新日時"
+          }
         }
       }
     },
@@ -89,6 +107,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "余额更新后已用时长"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "残高更新後の使用量"
           }
         }
       }
@@ -106,6 +130,12 @@
             "state": "translated",
             "value": "预计剩余时长"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "推定残量"
+          }
         }
       }
     },
@@ -121,6 +151,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "授权密钥安全地存储在钥匙串中。如果验证因证书错误而失败，请安装受 macOS 信任的 SaluteSpeech 证书。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "認証キーはキーチェーンに安全に保存されます。確認時に証明書エラーが出る場合は、SaluteSpeechの証明書をインストールし、macOSで信頼する設定にしてください。"
           }
         }
       }
@@ -138,6 +174,12 @@
             "state": "translated",
             "value": "此为本地估算值。请根据 SaluteSpeech Studio 中的数据更新。"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このMacでの推定値です。SaluteSpeech Studioで確認した残高に更新してください。"
+          }
         }
       }
     },
@@ -153,6 +195,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "重置已记录的用量"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "記録した使用量をリセット"
           }
         }
       }
@@ -170,6 +218,12 @@
             "state": "translated",
             "value": "保存余额"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "残高を保存"
+          }
         }
       }
     },
@@ -185,6 +239,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "有效期至"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "有効期限"
           }
         }
       }
@@ -202,6 +262,12 @@
             "state": "translated",
             "value": "分钟"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "分"
+          }
         }
       }
     },
@@ -217,6 +283,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Studio 剩余时长"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Studioの残量"
           }
         }
       }
@@ -234,6 +306,12 @@
             "state": "translated",
             "value": "累计已用时长"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "記録した使用量"
+          }
         }
       }
     },
@@ -249,6 +327,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "语音识别用量"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "音声認識の使用量"
           }
         }
       }
@@ -266,6 +350,12 @@
             "state": "translated",
             "value": "企业"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "法人"
+          }
         }
       }
     },
@@ -281,6 +371,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "个人"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "個人"
           }
         }
       }
@@ -298,6 +394,12 @@
             "state": "translated",
             "value": "OAuth 权限范围"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OAuthの権限範囲"
+          }
         }
       }
     },
@@ -313,6 +415,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "授权密钥"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "認証キー"
           }
         }
       }
@@ -330,6 +438,12 @@
             "state": "translated",
             "value": "恢复默认设置"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "初期設定に戻す"
+          }
         }
       }
     },
@@ -345,6 +459,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "每行一个词，也可使用逗号或分号分隔。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1行に1語ずつ入力してください。カンマやセミコロンでも区切れます。"
           }
         }
       }
@@ -362,6 +482,12 @@
             "state": "translated",
             "value": "填充词"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "取り除くつなぎ言葉"
+          }
         }
       }
     },
@@ -377,6 +503,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "已连接"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "接続済み"
           }
         }
       }
@@ -394,6 +526,12 @@
             "state": "translated",
             "value": "没有找到匹配的记忆。"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "検索に一致するメモリがありません。"
+          }
         }
       }
     },
@@ -409,6 +547,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "处理转录内容后，记忆会显示在这里。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "文字起こしの処理後に、メモリがここに表示されます。"
           }
         }
       }
@@ -426,6 +570,12 @@
             "state": "translated",
             "value": "暂无记忆"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "メモリがありません"
+          }
         }
       }
     },
@@ -441,6 +591,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "搜索记忆…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "メモリを検索..."
           }
         }
       }
@@ -458,6 +614,12 @@
             "state": "translated",
             "value": "已存储 %lld 条记忆"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld件のメモリを保存済み"
+          }
         }
       }
     },
@@ -473,6 +635,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "使用统计"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "利用統計"
           }
         }
       }
@@ -578,13 +746,25 @@
             "state": "translated",
             "value": "所选条目内容"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "選択した項目の内容"
+          }
         }
       }
     },
     "First row is a header": {
       "localizations": {
         "de": { "stringUnit": { "state": "translated", "value": "Erste Zeile ist eine Kopfzeile" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "首行为标题行" } }
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "首行为标题行" } },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1行目を見出しとして扱う"
+          }
+        }
       }
     },
     "Source files found on this Mac: %@.": {
@@ -599,6 +779,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "在此 Mac 上找到来源文件：%@。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このMacで見つかった取込み元ファイル: %@。"
           }
         }
       }
@@ -616,6 +802,12 @@
             "state": "translated",
             "value": "预览词语…"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "単語を確認..."
+          }
         }
       }
     },
@@ -631,6 +823,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "预览文本片段…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スニペットを確認..."
           }
         }
       }
@@ -648,6 +846,12 @@
             "state": "translated",
             "value": "从 Wispr Flow 或 Handy 导入…"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wispr FlowまたはHandyから取り込む..."
+          }
         }
       }
     },
@@ -663,6 +867,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "此文件的导入格式不受支持。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このファイルは対応する取込み形式ではありません。"
           }
         }
       }
@@ -680,6 +890,12 @@
             "state": "translated",
             "value": "无法安全读取来源。退出来源应用后重试可能有帮助。未导入任何内容。"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "取込み元を安全に読み取れませんでした。元のアプリを終了して再試行してください。データは取り込まれていません。"
+          }
         }
       }
     },
@@ -695,6 +911,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "来源超出导入限制。未导入任何内容。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "取込み元が取込み可能な上限を超えています。データは取り込まれていません。"
           }
         }
       }
@@ -712,6 +934,12 @@
             "state": "translated",
             "value": "无法保存导入内容。未导入任何内容。"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "取込み内容を保存できませんでした。データは取り込まれていません。"
+          }
         }
       }
     },
@@ -727,6 +955,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "未找到来源文件。请使用“选择文件”定位文件。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "取込み元ファイルが見つかりません。「ファイルを選択」から指定してください。"
           }
         }
       }
@@ -744,6 +978,12 @@
             "state": "translated",
             "value": "列表在预览期间发生了变化。未导入任何内容。请检查更新后的列表。"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "確認中に一覧が変更されました。データは取り込まれていません。更新後の一覧を確認してください。"
+          }
         }
       }
     },
@@ -759,6 +999,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "从其他应用导入词语"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "他のアプリから単語を取り込む"
           }
         }
       }
@@ -776,6 +1022,12 @@
             "state": "translated",
             "value": "从其他应用导入文本片段"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "他のアプリからスニペットを取り込む"
+          }
         }
       }
     },
@@ -791,6 +1043,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "请在导入前检查条目。现有条目不会被覆盖。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "取り込む前に内容を確認してください。既存の項目は上書きされません。"
           }
         }
       }
@@ -808,6 +1066,12 @@
             "state": "translated",
             "value": "来源"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "取込み元"
+          }
         }
       }
     },
@@ -823,6 +1087,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "从应用读取"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "アプリから読み込む"
           }
         }
       }
@@ -840,6 +1110,12 @@
             "state": "translated",
             "value": "选择文件…"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ファイルを選択..."
+          }
         }
       }
     },
@@ -855,6 +1131,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "正在读取来源…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "取込み元を読込み中..."
           }
         }
       }
@@ -872,6 +1154,12 @@
             "state": "translated",
             "value": "词语 / 触发词"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "単語 / 呼び出し語"
+          }
         }
       }
     },
@@ -887,6 +1175,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "状态"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "状態"
           }
         }
       }
@@ -904,6 +1198,12 @@
             "state": "translated",
             "value": "导入所选内容"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "選択した項目を取り込む"
+          }
         }
       }
     },
@@ -919,6 +1219,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "未找到兼容条目。未进行任何更改。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "取り込める項目が見つかりません。データは変更されていません。"
           }
         }
       }
@@ -936,6 +1242,12 @@
             "state": "translated",
             "value": "含有 TypeWhisper 动态占位符的文本片段将被排除，以保留原始文本含义。"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "元の文字列をそのまま保持するため、TypeWhisperの動的プレースホルダーを含むスニペットは取り込みません。"
+          }
         }
       }
     },
@@ -951,6 +1263,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "新增"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新規"
           }
         }
       }
@@ -968,6 +1286,12 @@
             "state": "translated",
             "value": "重复"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重複"
+          }
         }
       }
     },
@@ -983,6 +1307,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "冲突"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "競合"
           }
         }
       }
@@ -1000,6 +1330,12 @@
             "state": "translated",
             "value": "从其他应用导入…"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "他のアプリから取り込む..."
+          }
         }
       }
     },
@@ -1016,6 +1352,12 @@
             "state": "translated",
             "value": "已选择 %lld 项，%lld 项重复，%lld 项冲突。"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "選択: %lld件、重複: %lld件、競合: %lld件。"
+          }
         }
       }
     },
@@ -1031,6 +1373,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "已排除 %lld 个条目（已删除、其他类型、空白或不兼容）。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld件を除外（削除済み、種類が異なる、空、または非対応）。"
           }
         }
       }
@@ -2346,6 +2694,12 @@
             "state" : "translated",
             "value" : "已选择 %@"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@を選択済み"
+          }
         }
       }
     },
@@ -2516,6 +2870,12 @@
             "state" : "translated",
             "value" : "已选择 %1$d/%2$d 个类别"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%d / %dカテゴリを選択済み"
+          }
         }
       }
     },
@@ -2531,6 +2891,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%d 个待处理"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%d件待機中"
           }
         }
       }
@@ -3637,6 +4003,12 @@
             "state" : "translated",
             "value" : "商业许可证可解锁全部高级功能。"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "商用ライセンスで、両方のプレミアム機能を利用できます。"
+          }
         }
       }
     },
@@ -3987,6 +4359,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "已启用"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "有効"
           }
         }
       }
@@ -6395,6 +6773,12 @@
             "state" : "translated",
             "value" : "自动学习修正"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "修正内容の自動学習"
+          }
         }
       }
     },
@@ -6406,6 +6790,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "自动 iCloud 同步"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iCloudで自動同期"
           }
         }
       }
@@ -6673,6 +7063,12 @@
             "state" : "translated",
             "value" : "备份失败"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "バックアップに失敗しました"
+          }
         }
       }
     },
@@ -6780,6 +7176,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "增强"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "認識の優先度調整"
           }
         }
       }
@@ -7126,6 +7528,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "购买或输入许可证密钥"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ライセンスを購入またはキーを入力"
           }
         }
       }
@@ -8102,6 +8510,12 @@
             "state" : "translated",
             "value" : "清除统计数据"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "統計を消去"
+          }
         }
       }
     },
@@ -8118,6 +8532,12 @@
             "state" : "translated",
             "value" : "清除使用统计数据"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "利用統計を消去"
+          }
         }
       }
     },
@@ -8127,6 +8547,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "要清除使用统计数据吗？"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "利用統計を消去しますか？"
           }
         }
       }
@@ -8298,6 +8724,12 @@
             "state" : "translated",
             "value" : "云端文件夹"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "クラウドフォルダ"
+          }
         }
       }
     },
@@ -8376,6 +8808,12 @@
             "state" : "translated",
             "value" : "云端文件夹同步需要有效的高级版权益。"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "クラウドフォルダの同期には、有効なプレミアム利用権が必要です。"
+          }
         }
       }
     },
@@ -8387,6 +8825,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "云端操作记录将被删除，但本地词典条目和文本片段仍会保留在这台 Mac 上。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "クラウド上の操作記録は削除されますが、このMacの辞書とスニペットは残ります。"
           }
         }
       }
@@ -8565,6 +9009,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "商业许可证已激活。从一处管理纠正学习和同步。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "商用ライセンスが有効です。修正の学習と同期をここで管理できます。"
           }
         }
       }
@@ -9162,6 +9612,12 @@
             "state" : "translated",
             "value" : "修正示例"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "修正例"
+          }
         }
       }
     },
@@ -9177,6 +9633,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "已撤销修正学习"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "修正の学習を取り消しました"
           }
         }
       }
@@ -9239,6 +9701,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "仅在编辑结果明确可信时才学习纠正。含义不明确的更改会被跳过。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "修正内容を確実に判断できる場合のみ学習します。判断が曖昧な変更は学習しません。"
           }
         }
       }
@@ -9527,6 +9995,12 @@
             "state" : "translated",
             "value" : "跨设备高级版账户"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "複数デバイスで使うプレミアムアカウント"
+          }
         }
       }
     },
@@ -9635,6 +10109,12 @@
             "state" : "translated",
             "value" : "自定义 AI 提示词操作。内置预设不会被导出。"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自分で作成したAIプロンプトアクション。組込みのプリセットは書き出されません。"
+          }
         }
       }
     },
@@ -9666,6 +10146,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "自定义文件夹"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "任意のフォルダ"
           }
         }
       }
@@ -9736,6 +10222,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "自定义工作流的触发条件、模板和输出规则。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自分で作成したワークフローの起動条件・テンプレート・出力ルール。"
           }
         }
       }
@@ -9941,6 +10433,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "停用失败：%@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無効化に失敗しました: %@"
           }
         }
       }
@@ -10261,6 +10759,12 @@
             "state" : "translated",
             "value" : "删除账户"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "アカウントを削除"
+          }
         }
       }
     },
@@ -10355,6 +10859,12 @@
             "state" : "translated",
             "value" : "删除同步数据"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "同期データを削除"
+          }
         }
       }
     },
@@ -10366,6 +10876,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "删除同步文件夹"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "同期フォルダを削除"
           }
         }
       }
@@ -10379,6 +10895,12 @@
             "state" : "translated",
             "value" : "要删除 TypeWhisper 的专用同步文件夹吗？"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "TypeWhisper専用の非公開同期フォルダを削除しますか？"
+          }
         }
       }
     },
@@ -10390,6 +10912,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "要删除 TypeWhisper 账户吗？"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "TypeWhisperアカウントを削除しますか？"
           }
         }
       }
@@ -10584,6 +11112,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "设备"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "デバイス"
           }
         }
       }
@@ -10819,6 +11353,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "词典：已导入 %1$d 条，跳过 %2$d 条（已存在）"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "辞書: %d件を取り込み、%d件をスキップ（登録済み）"
           }
         }
       }
@@ -12768,6 +13308,12 @@
             "state" : "translated",
             "value" : "导出设置…"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "設定を書き出す…"
+          }
         }
       }
     },
@@ -12828,6 +13374,12 @@
             "state" : "translated",
             "value" : "将工作流、词典条目、快捷短语、配置文件、提示词操作、快捷键绑定、已安装的社区插件、转录历史记录（仅文本，不含已保存的音频）和更新频道导出到一个文件，可在另一台 Mac 上导入。重新安装插件时会获取市场中的最新版本，并且需要网络连接。服务提供商 API 密钥、许可证和通用偏好设置不会导出。"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ワークフロー、辞書、スニペット、プロファイル、プロンプトアクション、ホットキー、インストール済みのコミュニティ製プラグイン、文字起こし履歴（テキストのみ・保存音声は含まない）、更新チャンネルを1つのファイルに書き出し、他のMacに取り込めます。プラグインはマーケットプレイスの最新版が再インストールされるため、ネットワーク接続が必要です。プロバイダーのAPIキー、ライセンス、一般設定は含まれません。"
+          }
         }
       }
     },
@@ -12843,6 +13395,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "将工作流、词典条目、快捷短语、配置文件、提示词操作、快捷键绑定、已安装的社区插件、转录历史记录（仅文本，不含已保存的音频）、更新频道，以及“通用”“听写”“听写恢复”“文件转录”和“录音”页面中的偏好设置导出到一个文件，可在另一台 Mac 上导入。重新安装插件时会获取市场中的最新版本，并且需要网络连接。服务提供商 API 密钥、许可证、登录时启动、所选引擎和模型，以及其他设备专用设置不会导出。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ワークフロー、辞書、スニペット、プロファイル、プロンプトアクション、ホットキー、インストール済みのコミュニティ製プラグイン、文字起こし履歴（テキストのみ・保存音声は含まない）、更新チャンネルと、一般・音声入力・音声入力の復元・ファイル文字起こし・レコーダーの各設定を1つのファイルに書き出し、他のMacに取り込めます。プラグインはマーケットプレイスの最新版が再インストールされるため、ネットワーク接続が必要です。プロバイダーのAPIキー、ライセンス、ログイン時の起動、選択したエンジンやモデルなど、Macごとに異なる設定は含まれません。"
           }
         }
       }
@@ -13506,6 +14064,12 @@
             "state" : "translated",
             "value" : "已选择文件夹"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "フォルダを選択済み"
+          }
         }
       }
     },
@@ -13942,6 +14506,12 @@
             "state" : "translated",
             "value" : "全局键盘快捷键。导入时仅填充空白位置 - 绝不覆盖现有绑定。"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "アプリ共通のキーボードショートカット。取込み時は未設定の項目にのみ適用し、既存の割り当ては上書きしません。"
+          }
         }
       }
     },
@@ -14324,6 +14894,12 @@
             "state" : "translated",
             "value" : "历史记录：已导入 %d 条"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "履歴: %d件を取り込み"
+          }
         }
       }
     },
@@ -14339,6 +14915,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "历史记录：已跳过 %d 条（超出保留期限）"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "履歴: %d件をスキップ（設定した保存期間より古い）"
           }
         }
       }
@@ -14459,6 +15041,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "快捷键：已应用 %1$d 个，跳过 %2$d 个（已被占用）"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ホットキー: %d件を適用、%d件をスキップ（割り当て済み）"
           }
         }
       }
@@ -14931,6 +15519,12 @@
             "state" : "translated",
             "value" : "导入设置…"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "設定を取り込む…"
+          }
         }
       }
     },
@@ -15046,6 +15640,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "包含 %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@を含める"
           }
         }
       }
@@ -15165,6 +15765,12 @@
             "state" : "translated",
             "value" : "分段处理长篇听写"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "長い音声入力を分割して処理する"
+          }
         }
       }
     },
@@ -15180,6 +15786,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "将文本分段处理，以加快长篇听写的速度。使用流式引擎并开启实时预览时，已说完的句子会在你说话时同步处理；否则，使用云服务提供商时，各段会在录音结束后并行处理。会产生更多请求。不适用于需要一次性处理全文的工作流，例如摘要或 JSON。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "長い音声入力を分割して処理し、処理時間を短縮します。逐次認識に対応するエンジンとリアルタイム表示を使う場合は、話している間に完了した文から処理します。それ以外のクラウドプロバイダーでは、録音後に分割した内容を並列で処理します。リクエスト数が増えます。要約やJSON出力など、全文をまとめて処理するワークフローには向きません。"
           }
         }
       }
@@ -16075,6 +16687,12 @@
             "state" : "translated",
             "value" : "词典和快捷短语会随你的云文件夹同步，在任何地方都可使用。"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "クラウドフォルダの同期先でも、辞書とスニペットを使えます。"
+          }
         }
       }
     },
@@ -16408,6 +17026,12 @@
             "state" : "translated",
             "value" : "从插入后的编辑中学习纠正"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "入力後の編集から修正内容を学習する"
+          }
         }
       }
     },
@@ -16446,6 +17070,12 @@
             "state" : "translated",
             "value" : "已学习“%1$@”→“%2$@”"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」→「%@」の修正を学習しました"
+          }
         }
       }
     },
@@ -16461,6 +17091,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "已学习 %d 条修正"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%d件の修正を学習しました"
           }
         }
       }
@@ -16478,6 +17114,12 @@
             "state" : "translated",
             "value" : "学习中"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "学習"
+          }
         }
       }
     },
@@ -16493,6 +17135,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "直接插入后学习"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "直接入力後に学習"
           }
         }
       }
@@ -17132,6 +17780,12 @@
             "state" : "translated",
             "value" : "正在加载音频 %lld%%"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "音声を読込み中 %lld%%"
+          }
         }
       }
     },
@@ -17509,6 +18163,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "手动：%@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "手動: %@"
           }
         }
       }
@@ -18447,6 +19107,12 @@
             "state" : "translated",
             "value" : "将 %@ 前移"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@を前に移動"
+          }
         }
       }
     },
@@ -18458,6 +19124,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "将 %@ 后移"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@を後ろに移動"
           }
         }
       }
@@ -18491,6 +19163,12 @@
             "state" : "translated",
             "value" : "前移"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "前に移動"
+          }
         }
       }
     },
@@ -18502,6 +19180,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "后移"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "後ろに移動"
           }
         }
       }
@@ -19248,6 +19932,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "未选择文件夹"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "フォルダ未選択"
           }
         }
       }
@@ -20392,6 +21082,12 @@
             "state" : "translated",
             "value" : "尚未设置"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未設定"
+          }
         }
       }
     },
@@ -20567,6 +21263,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "开启"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "オン"
           }
         }
       }
@@ -21774,6 +22476,12 @@
             "state" : "translated",
             "value" : "按应用 / 按 URL 的设置配置文件。"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "アプリごと・URLごとの設定プロファイル。"
+          }
         }
       }
     },
@@ -22208,6 +22916,12 @@
             "state" : "translated",
             "value" : "插件：已安装 %1$d 个，跳过 %2$d 个（已安装或不可用）"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "プラグイン: %d件をインストール、%d件をスキップ（インストール済みまたは利用不可）"
+          }
         }
       }
     },
@@ -22239,6 +22953,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "可迁移的偏好设置，包括“通用”“听写”“听写恢复”“文件转录”和“录音”页面中的设置，以及所选更新频道。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "一般・音声入力・音声入力の復元・ファイル文字起こし・レコーダーの各設定のうち、別のMacでも使える設定と、選択した更新チャンネル。"
           }
         }
       }
@@ -22340,6 +23060,12 @@
             "state" : "translated",
             "value" : "精准"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正確さ重視"
+          }
         }
       }
     },
@@ -22372,6 +23098,12 @@
             "state" : "translated",
             "value" : "偏好设置"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "環境設定"
+          }
         }
       }
     },
@@ -22387,6 +23119,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "偏好设置：已应用 %d 项"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "環境設定: %d件を適用"
           }
         }
       }
@@ -22422,6 +23160,12 @@
             "state" : "translated",
             "value" : "高级版账户已激活。可在一个位置管理跨设备同步。"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "プレミアムアカウントが有効です。デバイス間の同期をここで管理できます。"
+          }
         }
       }
     },
@@ -22434,6 +23178,12 @@
             "state" : "translated",
             "value" : "需要高级版账户"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "プレミアムアカウントが必要です"
+          }
         }
       }
     },
@@ -22445,6 +23195,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "高级版已激活"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "プレミアム有効"
           }
         }
       }
@@ -22462,6 +23218,12 @@
             "state" : "translated",
             "value" : "高级功能中心"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "プレミアム機能の管理"
+          }
         }
       }
     },
@@ -22473,6 +23235,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "高级版同步"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "プレミアム同期"
           }
         }
       }
@@ -23467,6 +24235,12 @@
             "state" : "translated",
             "value" : "已处理"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "処理済み"
+          }
         }
       }
     },
@@ -23743,6 +24517,12 @@
             "state" : "translated",
             "value" : "配置文件：已导入 %d 个"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "プロファイル: %d件を取り込み"
+          }
         }
       }
     },
@@ -23781,6 +24561,12 @@
             "state" : "translated",
             "value" : "提示词操作"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "プロンプトアクション"
+          }
         }
       }
     },
@@ -23796,6 +24582,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "提示词操作：已导入 %d 个"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "プロンプトアクション: %d件を取り込み"
           }
         }
       }
@@ -24459,6 +25251,12 @@
             "state" : "translated",
             "value" : "实时"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "リアルタイム"
+          }
         }
       }
     },
@@ -24534,6 +25332,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "识别修正和替换词条。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "音声認識の修正と置換用の単語。"
           }
         }
       }
@@ -27920,6 +28724,12 @@
             "state" : "translated",
             "value" : "已将 %d 条修正保存到词典"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%d件の修正を辞書に保存しました"
+          }
         }
       }
     },
@@ -27935,6 +28745,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "已保存到词典：“%1$@”→“%2$@”"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "辞書に保存しました: 「%@」→「%@」"
           }
         }
       }
@@ -28257,6 +29073,12 @@
             "state" : "translated",
             "value" : "%@ 中已启用“安全输入”。标准的按键+修饰键快捷键应仍可使用。在该应用退出密码或敏感输入状态前，仅依赖备用机制的快捷键类型可能无法使用。"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@でセキュア入力が有効です。通常のキーと修飾キーを組み合わせたショートカットは引き続き使えるはずです。代替方式のみを使うショートカットは、そのアプリでパスワードなどの機密情報の入力を終えるまで動作しない場合があります。"
+          }
         }
       }
     },
@@ -28268,6 +29090,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "无法生成安全登录数据。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "安全なサインイン用データを生成できませんでした。"
           }
         }
       }
@@ -28404,6 +29232,12 @@
             "state" : "translated",
             "value" : "全选"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "すべて選択"
+          }
         }
       }
     },
@@ -28491,6 +29325,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "全部取消选择"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "選択をすべて解除"
           }
         }
       }
@@ -29340,6 +30180,12 @@
             "state" : "translated",
             "value" : "请登录 iCloud 并启用 iCloud 云盘以使用自动同步。"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自動同期を使うには、iCloudにサインインしてiCloud Driveを有効にしてください。"
+          }
         }
       }
     },
@@ -29351,6 +30197,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "请先在上方通过 Apple 登录，并关联许可证或 App Store 订阅以开始同步。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "同期を始めるには、上の「Appleでサインイン」からサインインし、ライセンスまたはApp Storeのサブスクリプションを紐づけてください。"
           }
         }
       }
@@ -29364,6 +30216,12 @@
             "state" : "translated",
             "value" : "无法完成通过 Apple 登录。"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Appleでのサインインを完了できませんでした。"
+          }
         }
       }
     },
@@ -29375,6 +30233,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "退出登录"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "サインアウト"
           }
         }
       }
@@ -29513,6 +30377,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "快捷短语：已导入 %1$d 条，跳过 %2$d 条（已存在）"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スニペット: %d件を取り込み、%d件をスキップ（登録済み）"
           }
         }
       }
@@ -30146,6 +31016,12 @@
             "state" : "translated",
             "value" : "强"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "強め"
+          }
         }
       }
     },
@@ -30478,6 +31354,12 @@
             "state" : "translated",
             "value" : "同步"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "同期"
+          }
         }
       }
     },
@@ -30489,6 +31371,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "同步数据保存在您选择的云端位置，且绝不会经过 TypeWhisper 账户服务。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "同期データは選択したクラウドの保存先に保管され、TypeWhisperのアカウントサービスを経由しません。"
           }
         }
       }
@@ -30506,6 +31394,12 @@
             "state" : "translated",
             "value" : "通过你自己的 iCloud Drive、Dropbox、OneDrive、Syncthing 或自定义文件夹同步词典和快捷短语。"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自分のiCloud Drive、Dropbox、OneDrive、Syncthing、または任意のフォルダを使って、辞書とスニペットを同期します。"
+          }
         }
       }
     },
@@ -30517,6 +31411,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "同步已关闭"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "同期はオフです"
           }
         }
       }
@@ -30557,6 +31457,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "已同步 %lld 项更改；跳过了 %lld 个无效文件。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld件の変更を同期し、%2$lld件の無効なファイルをスキップしました。"
           }
         }
       }
@@ -30661,6 +31567,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "同步中"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "同期中"
           }
         }
       }
@@ -30873,6 +31785,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "让 TypeWhisper 学习你的纠正习惯，并在多台 Mac 之间同步词典和快捷短语。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "TypeWhisperに修正内容を学習させ、複数のMacで辞書とスニペットを同期します。"
           }
         }
       }
@@ -31605,6 +32523,12 @@
             "state" : "translated",
             "value" : "该文件不是有效的 TypeWhisper 设置备份。"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このファイルは有効なTypeWhisperの設定バックアップではありません。"
+          }
         }
       }
     },
@@ -31658,6 +32582,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "不兼容的插件包位于受管插件文件夹之外，无法移除。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "互換性のないプラグインが、アプリの管理するPluginsフォルダの外にあるため削除できません。"
           }
         }
       }
@@ -31781,6 +32711,12 @@
             "state" : "translated",
             "value" : "无法验证高级版权益签名。"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "プレミアム利用権の署名を検証できませんでした。"
+          }
         }
       }
     },
@@ -31792,6 +32728,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "专用同步文件夹已删除。本地数据已保留。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "非公開の同期フォルダを削除しました。このMacのデータは保持されています。"
           }
         }
       }
@@ -31922,6 +32864,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "无法验证“通过 Apple 登录”的响应。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Appleでのサインインの応答を検証できませんでした。"
           }
         }
       }
@@ -32183,6 +33131,12 @@
             "state" : "translated",
             "value" : "此不兼容的插件包已取消注册。"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この互換性のないプラグインは、すでに登録が解除されています。"
+          }
         }
       }
     },
@@ -32403,6 +33357,12 @@
             "state" : "translated",
             "value" : "此操作会移除账户及其权益关联。本地条目和专用云端文件不会被删除。"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "アカウントと利用権の紐づけを削除します。このMacの項目や非公開のクラウドファイルは削除されません。"
+          }
         }
       }
     },
@@ -32537,6 +33497,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "此操作将永久删除词数、应用、节省时间和活动的汇总统计数据。转写历史记录不会更改。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "単語数、利用アプリ、短縮できた時間、利用状況の集計を完全に削除します。文字起こし履歴は変更されません。"
           }
         }
       }
@@ -32785,6 +33751,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "阈值"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "しきい値"
           }
         }
       }
@@ -33435,6 +34407,12 @@
             "state" : "translated",
             "value" : "包含转录历史的文本和元数据，绝不会包含已保存的音频。"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "文字起こし履歴のテキストと付随情報。保存した音声は含まれません。"
+          }
         }
       }
     },
@@ -33785,6 +34763,12 @@
             "state" : "translated",
             "value" : "输入触发词后自动展开为指定文本的快捷短语。"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "呼び出し語から定型文を入力するショートカット。"
+          }
         }
       }
     },
@@ -34037,6 +35021,12 @@
             "state" : "translated",
             "value" : "TypeWhisper 可在直接听写插入后短暂监视目标文本框，仅学习明确可信的纠正。含义不明确的编辑会被跳过。"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "TypeWhisperは音声入力を直接挿入した後、入力欄を短時間確認し、確実に判断できる修正のみを学習します。判断が曖昧な編集は学習しません。"
+          }
         }
       }
     },
@@ -34076,6 +35066,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "通过工作流，让 TypeWhisper 更贴合你的使用方式"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "使うたびにTypeWhisperが使いやすくなります"
           }
         }
       }
@@ -34199,6 +35195,12 @@
             "state" : "translated",
             "value" : "TypeWhisper 在直接插入后会自动学习明确可信的纠正，无需询问每次编辑。"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "TypeWhisperは直接入力後の修正のうち、確実に判断できるものを学習します。編集のたびに確認することはありません。"
+          }
         }
       }
     },
@@ -34242,6 +35244,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "TypeWhisper 专用 iCloud 容器"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "TypeWhisper専用の非公開iCloud領域"
           }
         }
       }
@@ -34470,6 +35478,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "撤销"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "取り消す"
           }
         }
       }
@@ -34833,6 +35847,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "更新渠道设置已生效"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "更新チャンネルを適用しました"
           }
         }
       }
@@ -37429,6 +38449,12 @@
             "state" : "translated",
             "value" : "已导入 %d 个工作流"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ワークフロー: %d件を取り込み"
+          }
         }
       }
     },
@@ -37468,6 +38494,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "支持"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "対応する利用権"
           }
         }
       }
@@ -37801,6 +38833,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "您的 Apple 账户可让 Polar 和 App Store 权益在 Mac 和 iPhone 上保持可用。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Appleアカウントを使って、PolarとApp Storeの利用権をMacとiPhoneで共有できます。"
           }
         }
       }
