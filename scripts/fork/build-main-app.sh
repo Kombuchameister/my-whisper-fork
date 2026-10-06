@@ -34,6 +34,12 @@ commit="$(git -C "$repo_root" rev-parse HEAD)"
 [[ "$branch" == "main" ]] || log "warning: building from '$branch', not main"
 [[ -z "$(git -C "$repo_root" status --porcelain)" ]] || log "warning: working tree has uncommitted changes"
 
+products="$derived/Build/Products/Debug"
+# Remove earlier app products so a stale bundle can never be installed. Upstream
+# renamed the Debug product ("TypeWhisper Dev.app"), which once made this script
+# keep installing an old "TypeWhisper.app" left in DerivedData.
+rm -rf "$products"/TypeWhisper*.app
+
 log "building $branch @ ${commit:0:8}"
 xcodebuild build -skipPackagePluginValidation -skipMacroValidation \
   -project "$repo_root/TypeWhisper.xcodeproj" -scheme TypeWhisper -configuration Debug \
@@ -46,7 +52,16 @@ xcodebuild build -skipPackagePluginValidation -skipMacroValidation \
   > "$repo_root/.build/main-app-build.log" 2>&1 \
   || die "build failed; see .build/main-app-build.log"
 
-built="$derived/Build/Products/Debug/TypeWhisper.app"
+# The app product is whichever bundle carries the main app's bundle ID.
+built=""
+for app in "$products"/*.app; do
+  [[ -d "$app" ]] || continue
+  if [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist" 2>/dev/null)" == "$bundle_id" ]]; then
+    built="$app"
+  fi
+done
+[[ -n "$built" ]] || die "build produced no app with bundle ID $bundle_id in $products"
+log "built $(basename "$built")"
 printf 'branch=%s\ncommit=%s\n' "$branch" "$commit" > "$built/Contents/Resources/FeatureBuildSource.txt"
 
 # Stage outside the checkout: files under ~/Desktop pick up Finder/iCloud
