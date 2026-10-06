@@ -39,6 +39,7 @@ products="$derived/Build/Products/Debug"
 # renamed the Debug product ("TypeWhisper Dev.app"), which once made this script
 # keep installing an old "TypeWhisper.app" left in DerivedData.
 rm -rf "$products"/TypeWhisper*.app
+mkdir -p "$repo_root/.build"   # absent in a fresh clone
 
 log "building $branch @ ${commit:0:8}"
 xcodebuild build -skipPackagePluginValidation -skipMacroValidation \
