@@ -64,6 +64,47 @@ certificate has one, so "Always Allow" holds across rebuilds. The local self-sig
 none, so Keychain pins every build's code hash and asks once per key after each rebuild. After
 switching identities, each key asks once more; answer "Always Allow".
 
+## Using the app on another Mac
+
+Every Mac builds the app from this repo, so all of them run the same code and plugins.
+Settings travel through the private repo `Kombuchameister/typewhisper-settings`
+(cloned to `~/TypeWhisper-settings`); API keys stay in each Mac's Keychain.
+
+Routine use:
+
+```bash
+scripts/fork/settings-sync.sh export          # on the Mac where you changed settings
+scripts/fork/update-mac.sh                    # on any Mac: pull main, rebuild app and plugins, relaunch
+scripts/fork/update-mac.sh --import-settings  # the same, and take the settings exported on the other Mac
+```
+
+Import overwrites the synced settings on that Mac (the replaced files are kept under
+`~/Library/Application Support/TypeWhisper-Dev-main/settings-sync.replaced/`), so export on
+one Mac and import on the other rather than editing settings on both in between.
+
+What is synced: the preferences domain (except window positions, updater state, device IDs,
+the ChatGPT login, and loaded models), the workflows, profiles, prompt-actions, snippets and
+dictionary stores, small plugin configuration files (such as Script Runner's scripts), and the
+list of installed plugins. Paths under your home folder are adjusted to the other Mac's.
+Not synced: API keys and logins, history, usage statistics, audio, and models.
+
+First setup on a new Mac:
+
+1. Install Xcode, open it once, and sign in under Settings > Accounts with the same Apple ID.
+   That creates the Apple Development certificate the build signs with.
+2. Install the GitHub CLI and sign in: `brew install gh && gh auth login`.
+3. Clone and build:
+   ```bash
+   git clone https://github.com/Kombuchameister/my-whisper-fork.git ~/TypeWhisper-fork
+   cd ~/TypeWhisper-fork
+   git remote add upstream https://github.com/TypeWhisper/typewhisper-mac.git
+   git remote set-url --push upstream DISABLED-do-not-push-to-upstream
+   scripts/fork/update-mac.sh --import-settings
+   ```
+4. Enter the API keys the import lists in the app's plugin settings, sign in to ChatGPT again
+   if you use it, and let local engines (WhisperKit, Parakeet) download their models.
+   Answer "Always Allow" to each Keychain prompt once.
+
 ## Plugins
 
 All first-party plugin sources are in `TypeWhisperPluginSDK/Plugins/<Name>Plugin/`.
