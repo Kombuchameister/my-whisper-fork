@@ -505,8 +505,11 @@ struct SwiftDataStoreFactory {
 
 extension AppConstants {
     /// Every endpoint this fork downloads app updates, plugins, or term packs from.
-    /// Keep them pointed at the fork so nothing is pulled from upstream implicitly;
-    /// Sparkle's `SUFeedURL` in Info.plist must stay under `pagesBaseURL`.
+    /// App updates and term packs come from the fork only; Sparkle's `SUFeedURL`
+    /// in Info.plist must stay under `pagesBaseURL`.
+    /// The plugin catalog is upstream's, so every upstream plugin stays available.
+    /// Plugins built from this fork carry `forkPluginBuildMarker` and are never
+    /// updated or replaced from the catalog (see `PluginRegistryService`).
     /// See FORK.md for how these feeds are published.
     enum ForkDistribution {
         static let repositoryPath = "Kombuchameister/my-whisper-fork"
@@ -514,5 +517,11 @@ extension AppConstants {
         static let releaseTagsURL = URL(string: "https://github.com/\(repositoryPath)/releases/tag")!
         static let releaseDownloadPathPrefix = "/\(repositoryPath)/releases/download/"
         static let termPackRegistryURL = pagesBaseURL.appendingPathComponent("termpacks.json")
+
+        static let upstreamRepositoryPath = "TypeWhisper/typewhisper-mac"
+        static let pluginRegistryBaseURL = URL(string: "https://typewhisper.github.io/typewhisper-mac")!
+        static let upstreamReleaseDownloadPathPrefix = "/\(upstreamRepositoryPath)/releases/download/"
+        /// Written into each plugin bundle by scripts/fork/install-plugins.sh.
+        static let forkPluginBuildMarker = "Contents/Resources/ForkPluginBuild.txt"
     }
 }

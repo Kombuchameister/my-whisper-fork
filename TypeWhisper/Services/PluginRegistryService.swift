@@ -568,9 +568,9 @@ final class PluginRegistryService: ObservableObject {
         return .orderedSame
     }
 
-    /// Fork builds only install plugin ZIPs published by the fork itself, for
-    /// official and community entries alike, so a registry that lists upstream
-    /// downloads can never replace fork-built plugins.
+    /// Plugin ZIPs are installed only from upstream's or the fork's GitHub
+    /// releases, for official and community entries alike. Fork-built plugins
+    /// are protected separately (see `isForkBuiltPlugin`).
     nonisolated static func isTrustedRegistryDownloadURL(
         _ downloadURL: String,
         source: PluginDistributionSource
@@ -582,13 +582,31 @@ final class PluginRegistryService: ObservableObject {
             return false
         }
 
-        return components.path.hasPrefix(
-            AppConstants.ForkDistribution.releaseDownloadPathPrefix
+        return [
+            AppConstants.ForkDistribution.releaseDownloadPathPrefix,
+            AppConstants.ForkDistribution.upstreamReleaseDownloadPathPrefix,
+        ].contains { components.path.hasPrefix($0) }
+    }
+
+    /// Plugins built from this fork's sources by scripts/fork/install-plugins.sh
+    /// carry a marker file. The catalog never offers updates for them and never
+    /// replaces them, so upstream binaries cannot overwrite fork modifications;
+    /// they are updated by rebuilding from the fork.
+    nonisolated static func isForkBuiltPluginBundle(at bundleURL: URL) -> Bool {
+        FileManager.default.fileExists(
+            atPath: bundleURL.appendingPathComponent(AppConstants.ForkDistribution.forkPluginBuildMarker).path
         )
     }
 
+    func isForkBuiltPlugin(_ pluginId: String) -> Bool {
+        guard let loaded = PluginManager.shared?.loadedPlugins.first(where: { $0.manifest.id == pluginId }) else {
+            return false
+        }
+        return Self.isForkBuiltPluginBundle(at: loaded.sourceURL)
+    }
+
     init(
-        registryBaseURL: URL = AppConstants.ForkDistribution.pagesBaseURL,
+        registryBaseURL: URL = AppConstants.ForkDistribution.pluginRegistryBaseURL,
         cacheDirectory: URL = AppConstants.appSupportDirectory.appendingPathComponent("MarketplaceCache", isDirectory: true),
         cacheDuration: TimeInterval = 300,
         userDefaults: UserDefaults = .standard,
@@ -791,7 +809,8 @@ final class PluginRegistryService: ObservableObject {
             return .bundled
         }
 
-        guard let registryPlugin = registry.first(where: { $0.id == pluginId }) else {
+        guard !Self.isForkBuiltPluginBundle(at: loaded.sourceURL),
+              let registryPlugin = registry.first(where: { $0.id == pluginId }) else {
             return .installed(version: loaded.manifest.version)
         }
 
@@ -809,6 +828,10 @@ final class PluginRegistryService: ObservableObject {
         #if APPSTORE
         return installBundledPlugin(plugin)
         #endif
+        guard !isForkBuiltPlugin(plugin.id) else {
+            installStates[plugin.id] = .error("Built from the fork; update it with scripts/fork/install-plugins.sh")
+            return false
+        }
         guard plugin.isCompatibleWithCurrentEnvironment else {
             installStates[plugin.id] = .error("Plugin is not compatible with this Mac")
             return false

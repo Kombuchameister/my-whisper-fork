@@ -7,7 +7,8 @@
 #   scripts/fork/install-plugins.sh --app-support TypeWhisper-Dev-main
 #   scripts/fork/install-plugins.sh --app-support TypeWhisper-Dev-main --add GroqPlugin --add OpenAIPlugin
 #
-# By default every plugin bundle already installed in the target is rebuilt.
+# By default every installed plugin that has a source in this checkout is rebuilt
+# and marked as fork-built; catalog-only (community) plugins are left alone.
 # --add installs additional plugins; --only limits the run to named plugins.
 # Replaced bundles are moved to <app-support>/Plugins.replaced/<timestamp>/.
 # A provenance record is written to <app-support>/fork-plugins.lock.
@@ -55,7 +56,14 @@ if [[ ${#only_plugins[@]} -gt 0 ]]; then
 else
   for bundle in "$plugins_dir"/*.bundle; do
     [[ -e "$bundle" ]] || continue
-    plugins+=("$(basename "$bundle" .bundle)")
+    name="$(basename "$bundle" .bundle)"
+    # Plugins without a source here (community plugins from upstream's catalog)
+    # stay as installed and keep receiving catalog updates in the app.
+    if [[ ! -f "$repo_root/TypeWhisperPluginSDK/Plugins/$name/manifest.json" ]]; then
+      log "keeping catalog plugin $name (no source in this checkout)"
+      continue
+    fi
+    plugins+=("$name")
   done
   plugins+=("${add_plugins[@]+"${add_plugins[@]}"}")
 fi
@@ -110,6 +118,10 @@ for plugin in "${plugins[@]}"; do
     mv "$plugins_dir/$plugin.bundle" "$replaced_dir/"
   fi
   ditto "$built" "$plugins_dir/$plugin.bundle"
+  # Marks the bundle as fork-built: the app never updates or replaces it from
+  # upstream's plugin catalog (AppConstants.ForkDistribution.forkPluginBuildMarker).
+  printf 'plugin=%s\nversion=%s\nbranch=%s\ncommit=%s%s\n' "$plugin" "$version" "$branch" "$commit" "$dirty" \
+    > "$plugins_dir/$plugin.bundle/Contents/Resources/ForkPluginBuild.txt"
   printf '%s %s %s%s\n' "$plugin" "$version" "$commit" "$dirty" >> "$lock_tmp"
 done
 

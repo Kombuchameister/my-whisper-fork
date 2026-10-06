@@ -84,18 +84,40 @@ final class AppFormatterServiceTests: XCTestCase {
             XCTAssertFalse(endpoint.lowercased().contains("typewhisper/typewhisper-"), endpoint)
             XCTAssertFalse(endpoint.lowercased().contains("typewhisper.github.io"), endpoint)
         }
+        // The plugin catalog is upstream's; plugin ZIPs come from upstream's or the fork's releases.
         XCTAssertTrue(PluginRegistryService.isTrustedRegistryDownloadURL(
             "https://github.com/Kombuchameister/my-whisper-fork/releases/download/plugin-x-v1.0.0/X.zip",
             source: .community
         ))
+        XCTAssertTrue(PluginRegistryService.isTrustedRegistryDownloadURL(
+            "https://github.com/TypeWhisper/typewhisper-mac/releases/download/plugin-groq-v1.0.25/GroqPlugin.zip",
+            source: .official
+        ))
         XCTAssertFalse(PluginRegistryService.isTrustedRegistryDownloadURL(
-            "https://github.com/TypeWhisper/typewhisper-mac/releases/download/plugin-x-v1.0.0/X.zip",
+            "https://github.com/someone-else/plugins/releases/download/plugin-x-v1.0.0/X.zip",
             source: .community
         ))
         XCTAssertFalse(PluginRegistryService.isTrustedRegistryDownloadURL(
-            "https://github.com/TypeWhisper/typewhisper-mac/releases/download/plugin-groq-v1.0.25/GroqPlugin.zip",
+            "https://example.com/TypeWhisper/typewhisper-mac/releases/download/x/X.zip",
             source: .official
-        ), "Official registry entries must not download upstream binaries either")
+        ))
+    }
+
+    func testForkBuiltPluginBundlesAreRecognizedByTheirMarker() throws {
+        let bundleURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathComponent("GroqPlugin.bundle")
+        let resources = bundleURL.appendingPathComponent("Contents/Resources")
+        try FileManager.default.createDirectory(at: resources, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: bundleURL.deletingLastPathComponent()) }
+
+        XCTAssertFalse(PluginRegistryService.isForkBuiltPluginBundle(at: bundleURL))
+        try "plugin=GroqPlugin\n".write(
+            to: bundleURL.appendingPathComponent(AppConstants.ForkDistribution.forkPluginBuildMarker),
+            atomically: true,
+            encoding: .utf8
+        )
+        XCTAssertTrue(PluginRegistryService.isForkBuiltPluginBundle(at: bundleURL))
     }
 
     func testBundledPreviewReleaseUsesReleaseCandidateTagAndURL() throws {
