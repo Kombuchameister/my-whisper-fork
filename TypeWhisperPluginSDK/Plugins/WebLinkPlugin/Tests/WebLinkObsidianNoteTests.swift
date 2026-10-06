@@ -255,6 +255,34 @@ final class WebLinkObsidianNoteTests: XCTestCase {
         ])
     }
 
+    @MainActor
+    func testRemovingJobsLeavesNotesAndKeepsTranscribingEntries() throws {
+        let vault = try temporaryDirectory()
+        let noteURL = vault.appendingPathComponent("Done.md")
+        try "note".write(to: noteURL, atomically: true, encoding: .utf8)
+
+        let jobs = WebLinkObsidianJobList()
+        let failed = jobs.add(noteURL: vault.appendingPathComponent("Failed.md"))
+        let done = jobs.add(noteURL: noteURL)
+        let running = jobs.add(noteURL: vault.appendingPathComponent("Running.md"))
+        jobs.update(failed, state: .failed("No engine"))
+        jobs.update(done, state: .done)
+
+        jobs.remove(done)
+        XCTAssertEqual(jobs.jobs.map(\.id), [running, failed])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: noteURL.path))
+
+        XCTAssertTrue(jobs.hasFinishedJobs)
+        jobs.clearFinished()
+        XCTAssertEqual(jobs.jobs.map(\.id), [running])
+        XCTAssertFalse(jobs.hasFinishedJobs)
+
+        // A transcription that finishes after its entry was removed is ignored.
+        jobs.remove(running)
+        jobs.update(running, state: .done)
+        XCTAssertTrue(jobs.jobs.isEmpty)
+    }
+
     private func makeFakeToolchain(in root: URL) throws -> URL {
         let bin = root.appendingPathComponent("bin", isDirectory: true)
         try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
