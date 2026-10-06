@@ -122,6 +122,24 @@ final class DictationViewModelIndicatorSettingsTests: XCTestCase {
         XCTAssertEqual(DictationViewModel.loadIndicatorStyle(defaults: defaults), .minimal)
     }
 
+    func testIndicatorThemeDefaultsToClassic() {
+        XCTAssertNil(defaults.string(forKey: UserDefaultsKeys.indicatorTheme))
+        XCTAssertEqual(DictationViewModel.loadIndicatorTheme(defaults: defaults), .classic)
+    }
+
+    func testIndicatorThemePersistsGlass() {
+        DictationViewModel.persistIndicatorTheme(.glass, defaults: defaults)
+
+        XCTAssertEqual(defaults.string(forKey: UserDefaultsKeys.indicatorTheme), IndicatorTheme.glass.rawValue)
+        XCTAssertEqual(DictationViewModel.loadIndicatorTheme(defaults: defaults), .glass)
+    }
+
+    func testUnknownIndicatorThemeFallsBackToClassic() {
+        defaults.set("neon", forKey: UserDefaultsKeys.indicatorTheme)
+
+        XCTAssertEqual(DictationViewModel.loadIndicatorTheme(defaults: defaults), .classic)
+    }
+
     func testUnknownIndicatorStyleFallsBackToNotch() {
         defaults.set("mystery", forKey: UserDefaultsKeys.indicatorStyle)
 
@@ -1057,7 +1075,10 @@ final class MenuBarIconStateTests: XCTestCase {
 }
 
 final class IndicatorPresentationStateTests: XCTestCase {
-    private func makeRecordingPresentation(isInputReady: Bool) -> IndicatorPresentationData {
+    private func makeRecordingPresentation(
+        isInputReady: Bool,
+        isModelLoading: Bool = false
+    ) -> IndicatorPresentationData {
         IndicatorPresentationData(
             source: .dictation,
             state: .recording,
@@ -1067,6 +1088,7 @@ final class IndicatorPresentationStateTests: XCTestCase {
             activeRuleName: nil,
             activeAppIcon: nil,
             isRecordingInputReady: isInputReady,
+            isModelLoading: isModelLoading,
             cancelWarningMessage: nil,
             processingPhase: nil,
             actionFeedbackMessage: nil,
@@ -1092,6 +1114,7 @@ final class IndicatorPresentationStateTests: XCTestCase {
             activeRuleName: nil,
             activeAppIcon: nil,
             isRecordingInputReady: false,
+            isModelLoading: false,
             cancelWarningMessage: nil,
             processingPhase: nil,
             actionFeedbackMessage: "Saved",
@@ -1174,6 +1197,82 @@ final class IndicatorPresentationStateTests: XCTestCase {
         ))
     }
 
+    func testPreviewFillsInOnlyWhileIdleAndIgnoresVisibility() {
+        let idle = IndicatorPresentationState.resolve(
+            dictationState: .idle,
+            recorderState: .idle,
+            previewActive: true
+        )
+        XCTAssertEqual(idle.source, .preview)
+        XCTAssertEqual(idle.state, .recording)
+        XCTAssertTrue(IndicatorPresentationState.shouldShow(visibility: .never, presentation: idle))
+        XCTAssertTrue(IndicatorPresentationState.shouldShow(visibility: .duringActivity, presentation: idle))
+
+        let recording = IndicatorPresentationState.resolve(
+            dictationState: .recording,
+            recorderState: .idle,
+            previewActive: true
+        )
+        XCTAssertEqual(recording.source, .dictation)
+
+        let recorder = IndicatorPresentationState.resolve(
+            dictationState: .idle,
+            recorderState: .recording,
+            previewActive: true
+        )
+        XCTAssertEqual(recorder.source, .recorder)
+
+        let finalizing = IndicatorPresentationState.resolve(
+            dictationState: .idle,
+            recorderState: .finalizing,
+            previewActive: true
+        )
+        XCTAssertEqual(finalizing.source, .dictation)
+        XCTAssertEqual(finalizing.state, .idle)
+
+        let off = IndicatorPresentationState.resolve(
+            dictationState: .idle,
+            recorderState: .idle,
+            previewActive: false
+        )
+        XCTAssertEqual(off.source, .dictation)
+        XCTAssertFalse(IndicatorPresentationState.shouldShow(visibility: .never, presentation: off))
+    }
+
+    func testPreviewSessionProducesSpeechLikeLevelsAndGrowingTranscript() {
+        var levels: [Float] = []
+        var time: TimeInterval = 0
+        while time < 2.6 {
+            levels.append(IndicatorPreviewSession.level(at: time))
+            time += 1.0 / 30.0
+        }
+        XCTAssertTrue(levels.allSatisfy { $0 >= 0 && $0 <= 1 })
+        XCTAssertGreaterThan(levels.max() ?? 0, 0.4)
+        XCTAssertLessThan(levels.min() ?? 1, 0.1)
+
+        let text = "one two three"
+        XCTAssertEqual(IndicatorPreviewSession.transcript(at: 0, text: text), "")
+        XCTAssertEqual(IndicatorPreviewSession.transcript(at: 0.4, text: text), "one")
+        XCTAssertEqual(IndicatorPreviewSession.transcript(at: 1.1, text: text), "one two three")
+        XCTAssertEqual(IndicatorPreviewSession.transcript(at: 3.0, text: text), "one two three")
+        let cycle = 3 * IndicatorPreviewSession.wordInterval + IndicatorPreviewSession.holdDuration
+        XCTAssertEqual(IndicatorPreviewSession.transcript(at: cycle + 0.1, text: text), "")
+    }
+
+    func testPreviewTranscriptUnfoldsTextWithoutSpacesByCharacter() {
+        let text = "こんにちは"
+        let step = IndicatorPreviewSession.characterInterval
+
+        XCTAssertEqual(IndicatorPreviewSession.transcript(at: 0, text: text), "")
+        XCTAssertEqual(IndicatorPreviewSession.transcript(at: step * 2.5, text: text), "こん")
+        XCTAssertEqual(IndicatorPreviewSession.transcript(at: step * 10, text: text), text)
+    }
+
+    func testPreviewTranscriptTreatsNegativeTimeAsStart() {
+        XCTAssertEqual(IndicatorPreviewSession.transcript(at: -5, text: "one two"), "")
+        XCTAssertEqual(IndicatorPreviewSession.transcript(at: -0.01, text: "one"), "")
+    }
+
     func testBluetoothPreparationUsesSharedPreparingMicrophonePresentation() {
         let preparing = makeRecordingPresentation(isInputReady: false)
         let ready = makeRecordingPresentation(isInputReady: true)
@@ -1182,6 +1281,17 @@ final class IndicatorPresentationStateTests: XCTestCase {
         XCTAssertEqual(preparing.recordingStatusLabel, String(localized: "Preparing microphone"))
         XCTAssertFalse(ready.isPreparingMicrophone)
         XCTAssertEqual(ready.recordingStatusLabel, String(localized: "Recording"))
+    }
+
+    func testModelLoadingLabelFollowsMicrophonePreparation() {
+        let preparing = makeRecordingPresentation(isInputReady: false, isModelLoading: true)
+        let loading = makeRecordingPresentation(isInputReady: true, isModelLoading: true)
+        let ready = makeRecordingPresentation(isInputReady: true)
+
+        XCTAssertEqual(preparing.recordingStatusLabel, String(localized: "Preparing microphone"))
+        XCTAssertEqual(loading.modelLoadingLabel, IndicatorPresentationData.loadingModelText)
+        XCTAssertEqual(loading.recordingStatusLabel, IndicatorPresentationData.loadingModelText)
+        XCTAssertNil(ready.modelLoadingLabel)
     }
 
     func testNeverVisibilityStillSuppressesMicrophonePreparation() {
@@ -1432,6 +1542,68 @@ final class IndicatorPanelInteractionTests: XCTestCase {
         )
     }
 
+    func testShortFeedbackKeepsCompactBody() {
+        for style in [IndicatorStyle.notch, .overlay, .minimal] {
+            let body = IndicatorFeedbackPanelLayout.feedbackBody(for: style, message: "Copied to clipboard")
+
+            XCTAssertEqual(body.height, IndicatorFeedbackPanelLayout.feedbackBodyHeight)
+            XCTAssertEqual(body.lineLimit, 2)
+            XCTAssertEqual(
+                IndicatorFeedbackPanelLayout.panelSize(
+                    for: style,
+                    isFeedbackInteractive: true,
+                    feedbackMessage: "Copied to clipboard"
+                ),
+                IndicatorFeedbackPanelLayout.panelSize(for: style, isFeedbackInteractive: true)
+            )
+        }
+    }
+
+    func testLongFeedbackWidensAndGrowsWithTheMessage() {
+        let message = "API error: HTTP 429: You are using a Trial key, which is limited to 1000 API calls / month. "
+            + "You can continue to use the Trial key for free or upgrade to a Production key with higher rate limits."
+
+        for style in [IndicatorStyle.notch, .overlay, .minimal] {
+            let body = IndicatorFeedbackPanelLayout.feedbackBody(for: style, message: message)
+            let panelSize = IndicatorFeedbackPanelLayout.panelSize(
+                for: style,
+                isFeedbackInteractive: true,
+                notchClosedHeight: 30,
+                feedbackMessage: message
+            )
+
+            XCTAssertEqual(body.width, IndicatorFeedbackPanelLayout.wideFeedbackWidth)
+            XCTAssertGreaterThan(body.height, IndicatorFeedbackPanelLayout.feedbackBodyHeight)
+            XCTAssertGreaterThan(body.lineLimit, 2)
+            XCTAssertLessThanOrEqual(body.lineLimit, IndicatorFeedbackPanelLayout.feedbackMaximumLineCount)
+            XCTAssertEqual(panelSize.width, body.width)
+            XCTAssertGreaterThanOrEqual(panelSize.height, body.height)
+        }
+    }
+
+    func testFeedbackGrowthStopsAtMaximumLineCount() {
+        let message = String(repeating: "provider message ", count: 200)
+
+        let body = IndicatorFeedbackPanelLayout.feedbackBody(for: .overlay, message: message)
+        let longer = IndicatorFeedbackPanelLayout.feedbackBody(for: .overlay, message: message + message)
+
+        XCTAssertEqual(body.lineLimit, IndicatorFeedbackPanelLayout.feedbackMaximumLineCount)
+        XCTAssertEqual(body, longer)
+    }
+
+    func testErrorFeedbackDurationGrowsWithMessageLength() {
+        XCTAssertEqual(DictationViewModel.errorFeedbackDuration(message: "Short", baseDuration: 3), 3)
+        XCTAssertEqual(DictationViewModel.errorFeedbackDuration(message: "Short", baseDuration: 8), 8)
+        XCTAssertEqual(
+            DictationViewModel.errorFeedbackDuration(message: String(repeating: "a", count: 150), baseDuration: 3),
+            6
+        )
+        XCTAssertEqual(
+            DictationViewModel.errorFeedbackDuration(message: String(repeating: "a", count: 5_000), baseDuration: 3),
+            12
+        )
+    }
+
     func testOverlaySurfaceClipsFeedbackProgressToRoundedWindow() throws {
         let width = Int(IndicatorFeedbackPanelLayout.feedbackWidth)
         let height = Int(
@@ -1483,6 +1655,9 @@ final class IndicatorPanelInteractionTests: XCTestCase {
             .frame(width: CGFloat(width), height: CGFloat(height))
             .background(.black.opacity(0.84), in: Capsule())
             .clipShape(Capsule())
+            // The progress bar uses the semantic primary color, which the
+            // classic surface resolves in the dark scheme.
+            .environment(\.colorScheme, .dark)
         )
         renderer.proposedSize = ProposedViewSize(
             width: CGFloat(width),
@@ -1765,6 +1940,204 @@ final class NotchIndicatorPanelLifecycleTests: XCTestCase {
             screenResolver: resolver,
             displayModeProvider: { .activeScreen },
             content: content
+        )
+    }
+}
+
+@MainActor
+final class FloatingIndicatorPanelHostingTests: XCTestCase {
+    private static let longMessage = String(repeating: "The provider rejected the request. ", count: 30)
+
+    func testOverlayFeedbackTransitionsKeepSwiftUIRootSizeAndIgnoreSystemSafeArea() async throws {
+        let model = NotchLayoutProbeModel()
+        let panel = OverlayIndicatorPanel(
+            screenResolver: try makeResolver(),
+            displayModeProvider: { .activeScreen },
+            overlayPositionProvider: { .top },
+            content: { NotchLayoutProbeView(model: model) }
+        )
+        panel.alphaValue = 0
+        defer { panel.orderOut(nil) }
+        panel.show()
+
+        try await assertRootSizeStaysConstant(model: model, panel: panel) { interactive, message in
+            panel.updateFeedbackInteraction(isInteractive: interactive, message: message)
+        }
+    }
+
+    func testMinimalFeedbackTransitionsKeepSwiftUIRootSizeAndIgnoreSystemSafeArea() async throws {
+        let model = NotchLayoutProbeModel()
+        let panel = MinimalIndicatorPanel(
+            screenResolver: try makeResolver(),
+            displayModeProvider: { .activeScreen },
+            overlayPositionProvider: { .top },
+            content: { NotchLayoutProbeView(model: model) }
+        )
+        panel.alphaValue = 0
+        defer { panel.orderOut(nil) }
+        panel.show()
+
+        try await assertRootSizeStaysConstant(model: model, panel: panel) { interactive, message in
+            panel.updateFeedbackInteraction(isInteractive: interactive, message: message)
+        }
+    }
+
+    func testHostingSizeCoversPassivePanelAndLargestFeedback() {
+        for style in [IndicatorStyle.overlay, .minimal] {
+            let hostingSize = IndicatorFeedbackPanelLayout.hostingSize(for: style)
+            let sizes = [
+                IndicatorFeedbackPanelLayout.panelSize(for: style, isFeedbackInteractive: false),
+                IndicatorFeedbackPanelLayout.panelSize(for: style, isFeedbackInteractive: true),
+                IndicatorFeedbackPanelLayout.panelSize(
+                    for: style,
+                    isFeedbackInteractive: true,
+                    feedbackMessage: Self.longMessage,
+                    feedbackActionTitle: "Undo"
+                )
+            ]
+            for size in sizes {
+                XCTAssertGreaterThanOrEqual(hostingSize.width, size.width, "\(style)")
+                XCTAssertGreaterThanOrEqual(hostingSize.height, size.height, "\(style)")
+            }
+        }
+    }
+
+    func testOverlayHostingViewKeepsItsSizeAndFollowsOverlayPosition() throws {
+        var position = OverlayPosition.top
+        let panel = OverlayIndicatorPanel(
+            screenResolver: try makeResolver(),
+            displayModeProvider: { .activeScreen },
+            overlayPositionProvider: { position },
+            content: { EmptyView() }
+        )
+        panel.alphaValue = 0
+        defer { panel.orderOut(nil) }
+
+        try assertHostingViewStaysFixed(
+            panel: panel,
+            size: IndicatorFeedbackPanelLayout.hostingSize(for: .overlay)
+        ) { newPosition, interactive, message in
+            position = newPosition
+            panel.updateFeedbackInteraction(isInteractive: interactive, message: message)
+            panel.show()
+        }
+    }
+
+    func testMinimalHostingViewKeepsItsSizeAndFollowsOverlayPosition() throws {
+        var position = OverlayPosition.top
+        let panel = MinimalIndicatorPanel(
+            screenResolver: try makeResolver(),
+            displayModeProvider: { .activeScreen },
+            overlayPositionProvider: { position },
+            content: { EmptyView() }
+        )
+        panel.alphaValue = 0
+        defer { panel.orderOut(nil) }
+
+        try assertHostingViewStaysFixed(
+            panel: panel,
+            size: IndicatorFeedbackPanelLayout.hostingSize(for: .minimal)
+        ) { newPosition, interactive, message in
+            position = newPosition
+            panel.updateFeedbackInteraction(isInteractive: interactive, message: message)
+            panel.show()
+        }
+    }
+
+    private func assertHostingViewStaysFixed(
+        panel: NSPanel,
+        size: CGSize,
+        update: (OverlayPosition, Bool, String?) -> Void,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        update(.top, false, nil)
+        try XCTSkipUnless(panel.isVisible, "Indicator panel is suppressed on this screen")
+        let container = try XCTUnwrap(panel.contentView)
+        let hostingView = try XCTUnwrap(container.subviews.first, file: file, line: line)
+
+        let steps: [(OverlayPosition, Bool, String?)] = [
+            (.top, true, "Undid last dictation"),
+            (.top, true, Self.longMessage),
+            (.bottom, true, Self.longMessage),
+            (.bottom, false, nil),
+            (.bottom, true, "Undid last dictation"),
+            (.top, false, nil)
+        ]
+        for (position, interactive, message) in steps {
+            update(position, interactive, message)
+            panel.layoutIfNeeded()
+
+            XCTAssertEqual(hostingView.frame.size, size, file: file, line: line)
+            XCTAssertEqual(hostingView.bounds.size, size, file: file, line: line)
+            XCTAssertEqual(hostingView.frame.midX, container.bounds.midX, accuracy: 0.01, file: file, line: line)
+            switch position {
+            case .top:
+                XCTAssertEqual(hostingView.frame.maxY, container.bounds.maxY, accuracy: 0.01, file: file, line: line)
+            case .bottom:
+                XCTAssertEqual(hostingView.frame.minY, container.bounds.minY, accuracy: 0.01, file: file, line: line)
+            }
+        }
+    }
+
+    private func assertRootSizeStaysConstant(
+        model: NotchLayoutProbeModel,
+        panel: NSPanel,
+        updateFeedback: (Bool, String?) -> Void,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        try XCTSkipUnless(panel.isVisible, "Indicator panel is suppressed on this screen")
+        let container = try XCTUnwrap(panel.contentView)
+
+        // Undo feedback, the next dictation, then a long provider error (#1441).
+        let steps: [(Bool, String?)] = [
+            (true, "Undid last dictation"),
+            (false, nil),
+            (true, Self.longMessage),
+            (true, "Undid last dictation"),
+            (false, nil)
+        ]
+        var panelSizes = Set<String>()
+        for (interactive, message) in steps {
+            withAnimation(.easeOut(duration: 0.24)) {
+                model.feedback = interactive
+                updateFeedback(interactive, message)
+            }
+            let expectedFrame = panel.frame
+            panelSizes.insert("\(expectedFrame.size)")
+            for inset in [CGFloat(32), 0] {
+                container.additionalSafeAreaInsets = NSEdgeInsets(top: inset, left: 0, bottom: 0, right: 0)
+                panel.layoutIfNeeded()
+                try await Task.sleep(for: .milliseconds(50))
+                XCTAssertEqual(panel.frame, expectedFrame, file: file, line: line)
+            }
+        }
+
+        XCTAssertGreaterThan(panelSizes.count, 2, "The panel frame must follow the feedback", file: file, line: line)
+        XCTAssertFalse(model.rootSizes.isEmpty, file: file, line: line)
+        XCTAssertEqual(
+            Set(model.rootSizes.map { "\($0)" }).count,
+            1,
+            "SwiftUI root resized with the panel: \(model.rootSizes)",
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(model.safeArea, EdgeInsets(), file: file, line: line)
+    }
+
+    private func makeResolver() throws -> IndicatorScreenResolver {
+        guard let screen = NSScreen.screens.first else {
+            throw XCTSkip("Indicator panel tests require an available screen")
+        }
+        return IndicatorScreenResolver(
+            focusedElementPositionProvider: { nil },
+            focusedWindowFrameProvider: { nil },
+            frontmostApplicationProvider: { nil },
+            mouseLocationProvider: { CGPoint(x: screen.frame.midX, y: screen.frame.midY) },
+            screensProvider: { [screen] },
+            mainScreenProvider: { screen },
+            windowFrameProvider: { _ in nil }
         )
     }
 }

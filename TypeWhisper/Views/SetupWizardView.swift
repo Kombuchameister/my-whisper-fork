@@ -12,7 +12,8 @@ struct SetupWizardView: View {
 
     @State private var currentStep: Int
     @State private var selectedHotkeyMode: HotkeySlotType
-    @State private var trialSuccess = false
+    @AppStorage(UserDefaultsKeys.setupWizardTestedSelections) private var testedSelectionsData = Data()
+    @State private var trialSignal = SetupWizardTrialSignal()
     @State private var trialText = ""
     @State private var didAnnounceInitialStep = false
     @State private var isPreparingAppleSpeechFallback = false
@@ -84,7 +85,7 @@ struct SetupWizardView: View {
             guard currentWizardStep == .engineAI || currentWizardStep == .finish else { return }
             await preparePreferredSetupEngineIfNeeded()
         }
-        .onReceive(pluginManager.$loadedPlugins) { _ in
+        .onReceive(pluginManager.$registryRevision) { _ in
             guard currentWizardStep == .engineAI || currentWizardStep == .finish else { return }
             Task { await preparePreferredSetupEngineIfNeeded() }
         }
@@ -112,7 +113,7 @@ struct SetupWizardView: View {
     }
 
     private func restartWizardFromBeginning() {
-        trialSuccess = false
+        trialSignal.reset()
         trialText = ""
         manuallySelectedSetupProviderId = nil
         UserDefaults.standard.set(0, forKey: UserDefaultsKeys.setupWizardCurrentStep)
@@ -291,9 +292,12 @@ struct SetupWizardView: View {
             return localizedAppText("Grant Microphone Access", de: "Mikrofonzugriff erlauben")
         }
 
-        return currentWizardStep == .finish
-            ? localizedAppText("Complete Setup", de: "Setup abschließen")
-            : localizedAppText("Continue", de: "Weiter")
+        if currentWizardStep == .finish {
+            return setupReadiness.canCompleteSetup
+                ? localizedAppText("Complete Setup", de: "Setup abschließen")
+                : String(localized: "Finish Later")
+        }
+        return localizedAppText("Continue", de: "Weiter")
     }
 
     private var primaryKeyboardShortcut: KeyboardShortcut {
@@ -304,7 +308,9 @@ struct SetupWizardView: View {
 
     private var primaryActionAccessibilityHint: String {
         if currentWizardStep == .finish {
-            return localizedAppText("Press Command Return to complete setup.", de: "Drücke Befehlstaste Return, um das Setup abzuschließen.")
+            return setupReadiness.canCompleteSetup
+                ? localizedAppText("Press Command Return to complete setup.", de: "Drücke Befehlstaste Return, um das Setup abzuschließen.")
+                : String(localized: "Press Command Return to finish setup later.")
         }
 
         return localizedAppText("Press Return to continue.", de: "Drücke Return, um fortzufahren.")
@@ -332,7 +338,12 @@ struct SetupWizardView: View {
     }
 
     private func completeSetupAndOpenHome() {
-        HomeViewModel.shared.completeSetupWizard()
+        // A past test never substitutes for the current engine and permissions.
+        if setupReadiness.canCompleteSetup {
+            HomeViewModel.shared.completeSetupWizard()
+        } else {
+            HomeViewModel.shared.deferSetupWizard()
+        }
         SettingsNavigationCoordinator.shared?.navigate(to: .home)
         dismiss()
 
@@ -372,6 +383,8 @@ struct SetupWizardView: View {
                 )
             }
             .frame(maxWidth: 390, alignment: .leading)
+
+            SetupWizardImportLink()
         }
         .padding(.top, 4)
     }
@@ -408,14 +421,53 @@ struct SetupWizardView: View {
                 action: { dictation.requestMicPermission() }
             )
 
+#if APPSTORE
+            // Both are optional: without them, text is copied to the clipboard and only
+            // shortcuts with a regular key work.
+            if AppStoreInputAccess.isAutoPasteEnabled {
+                permissionCard(
+                    title: AppStoreInputAccess.postEventSettingsName,
+                    description: localizedAppText(
+                        "Pastes text into other apps. Without it, text is copied to the clipboard.",
+                        de: "Fügt Text in andere Apps ein. Ohne diesen Zugriff wird der Text in die Zwischenablage kopiert."
+                    ),
+                    systemImage: "figure.stand",
+                    isGranted: !dictation.needsAccessibilityPermission,
+                    isRequired: false,
+                    action: { dictation.requestAccessibilityPermission() }
+                )
+
+                AppStorePermissionRestartHint(dictation: dictation, kind: .accessibility)
+                    .padding(.horizontal, 4)
+            }
+
             permissionCard(
-                title: localizedAppText("Accessibility Access", de: "Bedienungshilfen-Zugriff"),
+                title: AppStoreInputAccess.listenEventSettingsName,
+                description: localizedAppText(
+                    "Needed for Fn, modifier-only, double-tap and mouse-button shortcuts, and for Esc in other apps.",
+                    de: "Nötig für Fn-, Modifier-, Doppeltipp- und Maustasten-Kurzbefehle sowie für Esc in anderen Apps."
+                ),
+                systemImage: "keyboard",
+                isGranted: dictation.isInputMonitoringGranted,
+                isRequired: false,
+                action: { dictation.requestInputMonitoringPermission() }
+            )
+
+            AppStorePermissionRestartHint(dictation: dictation, kind: .inputMonitoring)
+                .padding(.horizontal, 4)
+#else
+            permissionCard(
+                title: AccessibilityPermissionPane.text(
+                    legacy: localizedAppText("Accessibility Access", de: "Bedienungshilfen-Zugriff"),
+                    deviceControl: AccessibilityPermissionPane.localizedName()
+                ),
                 description: localizedAppText("Required to type into other apps.", de: "Erforderlich, um in andere Apps zu schreiben."),
                 systemImage: "figure.stand",
                 isGranted: !dictation.needsAccessibilityPermission,
-                isRequired: false,
+                isRequired: true,
                 action: { dictation.requestAccessibilityPermission() }
             )
+#endif
 
             Label(
                 localizedAppText("You can change permissions anytime in System Settings.", de: "Du kannst diese Berechtigungen jederzeit in den Systemeinstellungen ändern."),
@@ -625,8 +677,14 @@ struct SetupWizardView: View {
 
     private func shouldShowRecorder(for mode: HotkeySlotType) -> Bool {
         if mode != selectedHotkeyMode { return false }
+        #if APPSTORE
+        // The selected mode always offers a recorder, so the recommended or an
+        // existing shortcut can be replaced right here.
+        return true
+        #else
         if !dictation.hotkeys(for: mode).isEmpty { return false }
         return mode != .hybrid || !recommendedHotkeyResolution.shouldApply
+        #endif
     }
 
     private func hotkeyRecorder(for mode: HotkeySlotType) -> some View {
@@ -635,7 +693,9 @@ struct SetupWizardView: View {
                 .foregroundStyle(.blue)
 
             HotkeyRecorderView(
-                label: hotkeyLabel(for: mode),
+                label: mode == .hybrid && recommendedHotkeyResolution.shouldApply
+                    ? HotkeyService.displayName(for: SetupWizardDefaultHotkey.recommendedHybridHotkey)
+                    : hotkeyLabel(for: mode),
                 title: localizedAppText("Shortcut", de: "Shortcut"),
                 onRecord: { hotkey in
                     if let conflict = dictation.isHotkeyAssigned(hotkey, excluding: mode) {
@@ -643,7 +703,14 @@ struct SetupWizardView: View {
                     }
                     dictation.setHotkey(hotkey, for: mode)
                 },
-                onClear: { dictation.clearHotkey(for: mode) }
+                onClear: { dictation.clearHotkey(for: mode) },
+                hotkey: dictation.hotkeys(for: mode).first,
+                visualKeyboardExistingAssignment: { candidate in
+                    guard let slot = dictation.isHotkeyAssigned(candidate, excluding: mode) else {
+                        return nil
+                    }
+                    return HotkeyRecorderView.assignmentDescription(for: slot)
+                }
             )
             .fixedSize()
 
@@ -662,9 +729,18 @@ struct SetupWizardView: View {
             )
         }
 
+        let recommendedName = HotkeyService.displayName(for: SetupWizardDefaultHotkey.recommendedHybridHotkey)
         if selectedHotkeyMode == .hybrid, recommendedHotkeyResolution.shouldApply {
+            #if APPSTORE
+            let message = localizedAppText(
+                "\(recommendedName) will be set when you continue. Click the shortcut to record another one.",
+                de: "\(recommendedName) wird beim Fortfahren gesetzt. Klicke auf den Shortcut, um einen anderen aufzunehmen."
+            )
+            #else
+            let message = localizedAppText("Fn will be set automatically when you continue.", de: "Fn wird beim Fortfahren automatisch gesetzt.")
+            #endif
             return (
-                localizedAppText("Fn will be set automatically when you continue.", de: "Fn wird beim Fortfahren automatisch gesetzt."),
+                message,
                 "keyboard",
                 .secondary
             )
@@ -674,9 +750,9 @@ struct SetupWizardView: View {
            case .conflictingSlot(let slot) = recommendedHotkeyResolution.blockedReason {
             return (
                 localizedAppText(
-                    "Fn is already used by \(hotkeyModeTitle(for: slot)). Record another shortcut to continue.",
-                    de: "Fn wird bereits von \(hotkeyModeTitle(for: slot)) verwendet. Nimm einen anderen Shortcut auf, um fortzufahren.",
-                    ja: "Fnはすでに\(hotkeyModeTitle(for: slot))で使用されています。続行するには別のショートカットを録音してください。"
+                    "\(recommendedName) is already used by \(hotkeyModeTitle(for: slot)). Record another shortcut to continue.",
+                    de: "\(recommendedName) wird bereits von \(hotkeyModeTitle(for: slot)) verwendet. Nimm einen anderen Shortcut auf, um fortzufahren.",
+                    ja: "\(recommendedName)はすでに\(hotkeyModeTitle(for: slot))で使用されています。続行するには別のショートカットを録音してください。"
                 ),
                 "exclamationmark.triangle.fill",
                 .orange
@@ -1191,11 +1267,24 @@ struct SetupWizardView: View {
             }
         }
         .onChange(of: dictation.state) { oldValue, newValue in
-            if case .inserting = oldValue, case .idle = newValue {
+            let testedSelection = trialSignal.observe(
+                oldState: oldValue,
+                newState: newValue,
+                selection: selectedSetupModel,
+                completedInsertion: dictation.lastSuccessfulDictationInsertion
+            )
+            if let testedSelection, setupReadiness.canCompleteSetup {
                 withAnimation(.spring(duration: 0.35)) {
-                    trialSuccess = true
+                    markSetupWizardSelectionTested(testedSelection)
                 }
             }
+        }
+        .onChange(of: selectedSetupModel) { _, _ in
+            // Never attribute an in-flight test to a different provider/model.
+            trialSignal.reset()
+        }
+        .onDisappear {
+            trialSignal.reset()
         }
         .task {
             try? await Task.sleep(for: .milliseconds(50))
@@ -1204,20 +1293,36 @@ struct SetupWizardView: View {
     }
 
     private var readinessIcon: String {
-        hasEngineReadyForSetupTest && hasAnyTriggerHotkey ? "sparkles" : "exclamationmark.triangle.fill"
+        setupReadiness.canCompleteSetup && hasAnyTriggerHotkey ? "sparkles" : "exclamationmark.triangle.fill"
     }
 
     private var readinessColor: Color {
-        hasEngineReadyForSetupTest && hasAnyTriggerHotkey ? .blue : .orange
+        setupReadiness.canCompleteSetup && hasAnyTriggerHotkey ? .blue : .orange
     }
 
     private var readinessTitle: String {
-        hasEngineReadyForSetupTest && hasAnyTriggerHotkey
+        setupReadiness.canCompleteSetup && hasAnyTriggerHotkey
             ? localizedAppText("Try it out", de: "Probier es aus")
             : localizedAppText("Setup can be finished later", de: "Setup kann später abgeschlossen werden")
     }
 
     private var readinessDescription: String {
+        if dictation.needsMicPermission {
+            return String(localized: "Microphone access is required for dictation.")
+        }
+#if !APPSTORE
+        if dictation.needsAccessibilityPermission {
+            return AccessibilityPermissionPane.text(
+                legacy: String(localized: "Accessibility access is required to paste text into other apps."),
+                deviceControl: localizedAppText(
+                    "Device Control and Data Access permission is required to paste text into other apps.",
+                    de: "Die Berechtigung „Gerätesteuerung und Datenzugriff“ wird benötigt, um Text in andere Apps einzufügen.",
+                    ja: "他のアプリへテキストを貼り付けるには、「デバイスの制御とデータへのアクセス」の権限が必要です。",
+                    zh: "需要“设备控制和数据访问”权限才能将文本粘贴到其他应用。"
+                )
+            )
+        }
+#endif
         if isPreparingAppleSpeechFallback {
             return localizedAppText(
                 "Apple Speech is being prepared for this test.",
@@ -1288,9 +1393,51 @@ struct SetupWizardView: View {
     }
 
     private func canUseEngineForSetupTest(_ engine: TranscriptionEnginePlugin) -> Bool {
-        guard modelManager.canUseForTranscription(engine) else { return false }
-        if engine.isConfigured { return true }
-        return engine.providerId != SetupWizardAppleSpeechFallback.providerId && engine.selectedModelId != nil
+        // Issue #1335: a selected or persisted model ID alone is not readiness.
+        // canUseForTranscription only checks authentication, so gate the setup
+        // test on the engine being configured (loaded) or restorable —
+        // installed model assets persisted for lazy restoration, or a provider
+        // preparation fallback such as Apple Speech's catalog. The test itself
+        // runs the real recording/transcription/insertion path, which is the
+        // actual proof of readiness.
+        modelManager.canPrepareForTranscription(engine)
+    }
+
+#if APPSTORE
+    private static let requiresAccessibilityForSetup = false
+#else
+    private static let requiresAccessibilityForSetup = true
+#endif
+
+    private var setupReadiness: SetupWizardReadiness {
+        SetupWizardReadiness(
+            canPrepareEngine: hasEngineReadyForSetupTest,
+            microphoneGranted: !dictation.needsMicPermission,
+            // The App Store edition falls back to the clipboard without PostEvent access.
+            accessibilityGranted: Self.requiresAccessibilityForSetup ? !dictation.needsAccessibilityPermission : true
+        )
+    }
+
+    private var selectedSetupModel: SetupWizardTestedSelection? {
+        _ = pluginManager.readinessRevision
+        guard let engine = selectedTranscriptionEngineForSetup else { return nil }
+        return SetupWizardTestedSelection(providerId: engine.providerId, modelId: engine.selectedModelId)
+    }
+
+    private var trialSuccess: Bool {
+        setupReadiness.hasSuccessfulTest(
+            for: selectedSetupModel,
+            testedSelections: SetupWizardTestedSelection.decode(testedSelectionsData)
+        )
+    }
+
+    private func markSetupWizardSelectionTested(_ selection: SetupWizardTestedSelection) {
+        var selections = SetupWizardTestedSelection.decode(testedSelectionsData)
+        guard !selections.contains(selection) else { return }
+        selections.append(selection)
+        if let data = try? JSONEncoder().encode(selections) {
+            testedSelectionsData = data
+        }
     }
 
     private func canUseAppleSpeechFallbackEngine(_ engine: TranscriptionEnginePlugin?) -> Bool {
@@ -1474,6 +1621,8 @@ struct SetupWizardView: View {
         case .copyLastTranscription: return dictation.copyLastTranscriptionHotkeyLabel
         case .pasteLastTranscription: return dictation.pasteLastTranscriptionHotkeyLabel
         case .recorderToggle: return dictation.recorderToggleHotkeyLabel
+        case .undoLastDictation: return dictation.undoLastDictationHotkeyLabel
+        case .restoreRawTranscript: return dictation.restoreRawTranscriptHotkeyLabel
         }
     }
 
@@ -1487,6 +1636,8 @@ struct SetupWizardView: View {
         case .copyLastTranscription: return String(localized: "Copy Last Transcription")
         case .pasteLastTranscription: return String(localized: "Paste Last Transcription")
         case .recorderToggle: return String(localized: "settings.tab.recorder")
+        case .undoLastDictation: return localizedAppText("Undo Last Dictation", de: "Letztes Diktat rückgängig")
+        case .restoreRawTranscript: return localizedAppText("Restore Raw Transcript", de: "Rohtext wiederherstellen")
         }
     }
 
@@ -1595,7 +1746,17 @@ enum SetupWizardDefaultHotkey {
     }
 
     static let triggerSlots: [HotkeySlotType] = [.hybrid, .pushToTalk, .toggle]
+    #if APPSTORE
+    // Option-Space is a Carbon hotkey and needs no permission; Fn needs Input
+    // Monitoring in the sandbox and cannot suppress the globe-key action.
+    static let recommendedHybridHotkey = UnifiedHotkey(
+        keyCode: 49,
+        modifierFlags: NSEvent.ModifierFlags.option.rawValue,
+        isFn: false
+    )
+    #else
     static let recommendedHybridHotkey = UnifiedHotkey(keyCode: 0, modifierFlags: 0, isFn: true)
+    #endif
 
     static func resolve(
         existingTriggerHotkeys: [HotkeySlotType: [UnifiedHotkey]],
@@ -1703,6 +1864,113 @@ enum SetupWizardRecommendationUnavailableReason: Equatable {
                 de: "Für diesen Mac ist kein kompatibler Download verfügbar."
             )
         }
+    }
+}
+
+struct SetupWizardTestedSelection: Codable, Equatable {
+    let providerId: String
+    let modelId: String?
+
+    static func decode(_ data: Data) -> [Self] {
+        (try? JSONDecoder().decode([Self].self, from: data)) ?? []
+    }
+}
+
+struct SetupWizardReadiness {
+    let canPrepareEngine: Bool
+    let microphoneGranted: Bool
+    let accessibilityGranted: Bool
+
+    var canCompleteSetup: Bool {
+        canPrepareEngine && microphoneGranted && accessibilityGranted
+    }
+
+    func hasSuccessfulTest(
+        for selection: SetupWizardTestedSelection?,
+        testedSelections: [SetupWizardTestedSelection]
+    ) -> Bool {
+        guard canCompleteSetup, let selection else { return false }
+        return testedSelections.contains(selection)
+    }
+}
+
+/// Issue #1335: decides whether a dictation state transition counts as a
+/// successful setup-wizard dictation test.
+///
+/// Indicator feedback, including processing cancellation, can use the same
+/// state transitions as successful dictation. A completed cycle therefore also
+/// requires a new explicit insertion result for the selection being tested.
+struct SetupWizardTrialSignal {
+    private var recordingSelection: SetupWizardTestedSelection?
+    private var insertionIDAtRecordingStart: UUID?
+    private var enteredInsertingFromProcessing = false
+
+    mutating func reset() {
+        recordingSelection = nil
+        insertionIDAtRecordingStart = nil
+        enteredInsertingFromProcessing = false
+    }
+
+    mutating func observe(
+        oldState: DictationViewModel.State,
+        newState: DictationViewModel.State,
+        selection: SetupWizardTestedSelection?,
+        completedInsertion: DictationInsertionCompletion? = nil
+    ) -> SetupWizardTestedSelection? {
+        if newState == .recording {
+            reset()
+            recordingSelection = selection
+            insertionIDAtRecordingStart = completedInsertion?.id
+        } else if selection != recordingSelection {
+            reset()
+        }
+        let evaluation = Self.evaluate(
+            oldState: oldState,
+            newState: newState,
+            enteredInsertingFromProcessing: enteredInsertingFromProcessing
+        )
+        enteredInsertingFromProcessing = evaluation.enteredInsertingFromProcessing
+        let completedSelection: SetupWizardTestedSelection?
+        if evaluation.granted,
+           let recordingSelection,
+           let completedInsertion,
+           completedInsertion.id != insertionIDAtRecordingStart,
+           completedInsertion.providerId == recordingSelection.providerId,
+           completedInsertion.modelId == recordingSelection.modelId {
+            completedSelection = recordingSelection
+        } else {
+            completedSelection = nil
+        }
+        switch newState {
+        case .idle, .error:
+            reset()
+        default:
+            break
+        }
+        return completedSelection
+    }
+
+    /// Identifies a potential completed cycle. `observe` must additionally
+    /// verify an explicit insertion result before granting the tested state.
+    static func evaluate(
+        oldState: DictationViewModel.State,
+        newState: DictationViewModel.State,
+        enteredInsertingFromProcessing: Bool
+    ) -> (granted: Bool, enteredInsertingFromProcessing: Bool) {
+        if oldState == .inserting, newState == .inserting {
+            // Re-entrant set inside the real insertion path (e.g. the
+            // post-processing fallback toast): keep the flag, grant nothing yet.
+            return (false, enteredInsertingFromProcessing)
+        }
+        if oldState == .processing, newState == .inserting {
+            return (false, true)
+        }
+        guard oldState == .inserting else {
+            return (false, enteredInsertingFromProcessing)
+        }
+        // Leaving .inserting: the flag has served its purpose — reset it, and
+        // grant only when a transcription actually ran beforehand.
+        return (newState == .idle && enteredInsertingFromProcessing, false)
     }
 }
 

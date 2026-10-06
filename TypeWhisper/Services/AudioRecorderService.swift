@@ -635,6 +635,7 @@ final class AudioRecorderService: ObservableObject, @unchecked Sendable {
     ) async throws -> URL)?
     var stopRecordingOverride: ((_ outputURL: URL) async throws -> URL?)?
     var currentBufferOverride: (() -> [Float])?
+    var hasMicrophonePermissionOverride: Bool?
 
     private var audioEngine: AVAudioEngine?
     private var micInputCaptureSession: AudioInputCaptureSession?
@@ -833,24 +834,23 @@ final class AudioRecorderService: ObservableObject, @unchecked Sendable {
             }
         } else {
             // Setup temp files
-            let tempDir = FileManager.default.temporaryDirectory
             let sessionId = UUID().uuidString
 
             do {
                 // Start mic recording
                 if micEnabled {
-                    guard AVAudioApplication.shared.recordPermission == .granted else {
+                    guard hasMicrophonePermissionOverride ?? (AVAudioApplication.shared.recordPermission == .granted) else {
                         throw RecorderError.microphonePermissionDenied
                     }
 
-                    let micURL = tempDir.appendingPathComponent("mic-\(sessionId).wav")
+                    let micURL = UserDataLocations.temporaryItemURL("Recorder-mic-\(sessionId).wav")
                     self.micTempURL = micURL
                     try startMicRecording(outputURL: micURL, microphoneSelection: microphoneSelection)
                 }
 
                 // Start system audio recording
                 if systemAudioEnabled {
-                    let sysURL = tempDir.appendingPathComponent("sys-\(sessionId).wav")
+                    let sysURL = UserDataLocations.temporaryItemURL("Recorder-sys-\(sessionId).wav")
                     self.systemTempURL = sysURL
                     try await startSystemAudioRecording(outputURL: sysURL)
                 }
@@ -906,6 +906,10 @@ final class AudioRecorderService: ObservableObject, @unchecked Sendable {
             audioEngine?.inputNode.removeTap(onBus: 0)
             audioEngine?.stop()
             audioEngine = nil
+            // The HAL session's stop drains its ring into the mic file, so it must
+            // finish before the file is closed or the recording loses its tail.
+            micInputCaptureSession?.stop()
+            micInputCaptureSession = nil
             micFileLock.withLock { $0 = nil }
         }
 
@@ -1199,7 +1203,8 @@ final class AudioRecorderService: ObservableObject, @unchecked Sendable {
         let session = try micInputCaptureFactory.startInputOnlyCapture(
             deviceID: deviceID,
             label: "recorder-mic",
-            bufferSize: 4096
+            bufferSize: 4096,
+            deliveryQueue: nil
         ) { [weak self] buffer in
             guard let self,
                   let writeBuffer = AudioInputBufferNormalizer.monoFloatBuffer(from: buffer) else { return }

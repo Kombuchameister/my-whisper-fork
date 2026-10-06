@@ -1,8 +1,12 @@
 import AppKit
 import AVFoundation
+#if !APPSTORE
 import CryptoKit
+#endif
 import Foundation
+#if !APPSTORE
 import Network
+#endif
 import SwiftUI
 import TypeWhisperPluginSDK
 import os
@@ -85,6 +89,9 @@ enum OpenAIPluginError: LocalizedError {
     }
 }
 
+// ChatGPT login is not part of the App Store edition: it needs a localhost
+// callback listener and the Codex OAuth client. Only API keys are supported there.
+#if !APPSTORE
 private enum OpenAIOAuthConfig {
     static let clientID = "app_EMoamEEZ73f0CkXaXp7hrann"
     static let issuer = "https://auth.openai.com"
@@ -504,6 +511,7 @@ private func extractOAuthMetadata(from tokens: OpenAIOAuthTokenResponse) -> Open
 
     return OpenAIOAuthMetadata(accountID: accountID, planType: planType, expiresAt: expiresAt)
 }
+#endif
 
 // MARK: - Responses API
 
@@ -551,7 +559,7 @@ struct OpenAIResponsesClient: Sendable {
         case 401:
             throw PluginChatError.invalidApiKey
         case 429:
-            throw PluginChatError.rateLimited
+            throw PluginChatError.rateLimitOrQuota(from: data)
         default:
             throw PluginChatError.apiError(Self.errorMessage(from: data, statusCode: httpResponse.statusCode))
         }
@@ -867,7 +875,7 @@ private struct OpenAIContextAwareFileTranscriptionClient: Sendable {
         case 413:
             throw PluginTranscriptionError.fileTooLarge
         case 429:
-            throw PluginTranscriptionError.rateLimited
+            throw PluginTranscriptionError.rateLimitOrQuota(from: responseData)
         default:
             let error = PluginTranscriptionError.apiError(
                 Self.errorMessage(from: responseData, response: httpResponse)
@@ -1804,10 +1812,18 @@ final class OpenAIPlugin: NSObject,
 
     private static let openAIAPIKeyCredentialLabel = "OpenAI API key"
     private static let chatGPTLoginCredentialLabel = "ChatGPT Login"
+    #if APPSTORE
+    private static let apiKeyOrChatGPTCredentialLabel = openAIAPIKeyCredentialLabel
+    #else
     private static let apiKeyOrChatGPTCredentialLabel = "OpenAI API key or ChatGPT Login"
+    #endif
     private static let transcriptionRequiresAPIKeyReason = "ChatGPT Login only enables prompt processing. OpenAI transcription requires an OpenAI API key."
     private static let ttsRequiresAPIKeyReason = "ChatGPT Login only enables prompt processing. OpenAI text-to-speech requires an OpenAI API key."
+    #if APPSTORE
+    private static let llmRequiresCredentialsReason = "OpenAI prompt processing requires an OpenAI API key."
+    #else
     private static let llmRequiresCredentialsReason = "OpenAI prompt processing requires an OpenAI API key or ChatGPT Login."
+    #endif
 
     private static let storageKeys = (
         apiKey: "api-key",
@@ -1867,6 +1883,7 @@ final class OpenAIPlugin: NSObject,
     func activate(host: HostServices) {
         self.host = host
         _apiKey = host.loadSecret(key: Self.storageKeys.apiKey)
+        #if !APPSTORE
         _oauthAccessToken = host.loadSecret(key: Self.storageKeys.oauthAccessToken)
         _oauthRefreshToken = host.loadSecret(key: Self.storageKeys.oauthRefreshToken)
         _oauthIDToken = host.loadSecret(key: Self.storageKeys.oauthIDToken)
@@ -1875,6 +1892,7 @@ final class OpenAIPlugin: NSObject,
            let authMode = OpenAIAuthMode(rawValue: rawMode) {
             _authMode = authMode
         }
+        #endif
         if let rawReasoningEffort = host.userDefault(forKey: Self.storageKeys.reasoningEffort) as? String,
            let reasoningEffort = OpenAIReasoningEffort(rawValue: rawReasoningEffort) {
             _reasoningEffort = reasoningEffort
@@ -1964,7 +1982,11 @@ final class OpenAIPlugin: NSObject,
     // MARK: - TranscriptionEnginePlugin
 
     var providerId: String { "openai" }
+    #if APPSTORE
+    var providerDisplayName: String { "OpenAI" }
+    #else
     var providerDisplayName: String { "OpenAI / ChatGPT" }
+    #endif
 
     var isConfigured: Bool {
         guard let key = _apiKey else { return false }
@@ -2478,12 +2500,16 @@ final class OpenAIPlugin: NSObject,
                 )
             )
         case .chatGPT:
+            #if APPSTORE
+            throw PluginChatError.notConfigured
+            #else
             return try await processWithChatGPT(
                 systemPrompt: systemPrompt,
                 userText: userText,
                 model: modelId,
                 reasoningEffort: reasoningEffort
             )
+            #endif
         }
     }
 
@@ -2575,7 +2601,7 @@ final class OpenAIPlugin: NSObject,
             case 401:
                 throw PluginTranscriptionError.invalidApiKey
             case 429:
-                throw PluginTranscriptionError.rateLimited
+                throw PluginTranscriptionError.rateLimitOrQuota(from: data)
             default:
                 throw PluginTranscriptionError.apiError(Self.errorMessage(from: data, statusCode: httpResponse.statusCode))
             }
@@ -2705,10 +2731,14 @@ final class OpenAIPlugin: NSObject,
             let models = await refreshFetchedLLMModels()
             return models.map { PluginModelInfo(id: $0.id, displayName: $0.id) }
         case .chatGPT:
+            #if APPSTORE
+            return []
+            #else
             let models = await fetchChatGPTModels()
             guard !models.isEmpty else { return [] }
             setFetchedChatGPTModels(models)
             return models.map { PluginModelInfo(id: $0.id, displayName: $0.displayName) }
+            #endif
         }
     }
 
@@ -2738,6 +2768,7 @@ final class OpenAIPlugin: NSObject,
         }
     }
 
+    #if !APPSTORE
     fileprivate func fetchChatGPTModels() async -> [OpenAIChatGPTModel] {
         do {
             let accessToken = try await validOAuthAccessToken()
@@ -2798,8 +2829,9 @@ final class OpenAIPlugin: NSObject,
     private static var chatGPTModelsClientVersion: String {
         let bundle = Bundle(for: OpenAIPlugin.self)
         return bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
-            ?? "1.3.3"
+            ?? "1.3.4"
     }
+    #endif
 
     fileprivate var ttsInstructions: String { _ttsInstructions }
 
@@ -2898,6 +2930,7 @@ final class OpenAIPlugin: NSObject,
         return "HTTP \(statusCode)"
     }
 
+    #if !APPSTORE
     fileprivate func loginWithChatGPTInBrowser() async throws {
         let state = randomState()
         let pkce = generatePKCECodes()
@@ -2950,6 +2983,7 @@ final class OpenAIPlugin: NSObject,
         )
         storeOAuthTokens(imported, preferredAccountID: store.tokens.account_id)
     }
+    #endif
 
     fileprivate func clearChatGPTLogin() {
         _oauthAccessToken = nil
@@ -2988,6 +3022,7 @@ final class OpenAIPlugin: NSObject,
         }
     }
 
+    #if !APPSTORE
     private func storeOAuthTokens(_ tokens: OpenAIOAuthTokenResponse, preferredAccountID: String? = nil) {
         let metadata = extractOAuthMetadata(from: tokens)
         let nextAccountID = preferredAccountID ?? metadata.accountID
@@ -3094,7 +3129,7 @@ final class OpenAIPlugin: NSObject,
         case 401:
             throw PluginChatError.invalidApiKey
         case 429:
-            throw PluginChatError.rateLimited
+            throw PluginChatError.rateLimitOrQuota(from: data)
         default:
             throw PluginChatError.apiError(parseChatGPTErrorMessage(from: data, statusCode: httpResponse.statusCode))
         }
@@ -3211,6 +3246,7 @@ final class OpenAIPlugin: NSObject,
         let completedText = completedParts.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
         return completedText.isEmpty ? nil : completedText
     }
+    #endif
 
     private static let chatPrefixes = ["gpt-", "o1-", "o3-", "o4-", "chatgpt-"]
     private static let excludeSuffixes = ["-transcribe", "-tts", "-embedding", "-realtime", "-search"]
@@ -3438,6 +3474,16 @@ struct OpenAIChatGPTModelCache: Codable, Sendable {
 
 // MARK: - Settings View
 
+enum OpenAIAPIKeyField {
+    /// Offer Remove only while the field shows the stored key (or is empty), so an edited key gets Save and can replace it.
+    /// A failed validation keeps Save available so the key can be retried.
+    static func showsRemove(storedKey: String?, input: String, validationResult: Bool?) -> Bool {
+        let storedKey = storedKey?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let input = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !storedKey.isEmpty && (input.isEmpty || input == storedKey) && validationResult != false
+    }
+}
+
 private struct OpenAISettingsView: View {
     let plugin: OpenAIPlugin
     @State private var authMode: OpenAIAuthMode = .apiKey
@@ -3458,18 +3504,23 @@ private struct OpenAISettingsView: View {
     @State private var fetchedLLMModels: [OpenAIFetchedModel] = []
     @State private var isRefreshingLLMModels = false
     @State private var llmRefreshMessage: String?
+    #if !APPSTORE
     @State private var oauthBusy = false
     @State private var oauthStatusMessage: String?
     @State private var oauthErrorMessage: String?
+    #endif
     private let bundle = Bundle(for: OpenAIPlugin.self)
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
+            #if APPSTORE
+            apiKeySection
+            #else
             VStack(alignment: .leading, spacing: 8) {
                 Text("Connection Method", bundle: bundle)
                     .font(.headline)
 
-                Picker("Connection Method", selection: $authMode) {
+                Picker(String(localized: "Connection Method", bundle: bundle), selection: $authMode) {
                     Text("API Key", bundle: bundle).tag(OpenAIAuthMode.apiKey)
                     Text("ChatGPT Login", bundle: bundle).tag(OpenAIAuthMode.chatGPT)
                 }
@@ -3492,6 +3543,7 @@ private struct OpenAISettingsView: View {
             } else {
                 chatGPTSection
             }
+            #endif
 
             if plugin.isConfigured {
                 Divider()
@@ -3615,7 +3667,11 @@ private struct OpenAISettingsView: View {
                 }
                 .buttonStyle(.borderless)
 
-                if plugin._apiKey?.isEmpty == false {
+                if OpenAIAPIKeyField.showsRemove(
+                    storedKey: plugin._apiKey,
+                    input: apiKeyInput,
+                    validationResult: validationResult
+                ) {
                     Button(String(localized: "Remove", bundle: bundle)) {
                         apiKeyInput = ""
                         validationResult = nil
@@ -3633,6 +3689,8 @@ private struct OpenAISettingsView: View {
                     .disabled(apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
+            // Lock the row until the result arrives so it always describes the key in the field.
+            .disabled(isValidating)
 
             if isValidating {
                 HStack(spacing: 4) {
@@ -3655,8 +3713,12 @@ private struct OpenAISettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
+        .onChange(of: apiKeyInput) {
+            validationResult = nil
+        }
     }
 
+    #if !APPSTORE
     private var chatGPTSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("ChatGPT Login", bundle: bundle)
@@ -3729,6 +3791,7 @@ private struct OpenAISettingsView: View {
             }
         }
     }
+    #endif
 
     private var ttsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -3745,7 +3808,7 @@ private struct OpenAISettingsView: View {
                 plugin.selectVoice(selectedVoiceId)
             }
 
-            TextField("Voice instructions", text: $ttsInstructions)
+            TextField(String(localized: "Voice instructions", bundle: bundle), text: $ttsInstructions)
                 .textFieldStyle(.roundedBorder)
                 .onChange(of: ttsInstructions) {
                     plugin.setTTSInstructions(ttsInstructions)
@@ -3848,7 +3911,7 @@ private struct OpenAISettingsView: View {
 
             if authMode == .apiKey {
                 VStack(alignment: .leading, spacing: 8) {
-                    Picker("Temperature Mode", selection: $llmTemperatureMode) {
+                    Picker(String(localized: "Temperature Mode", bundle: bundle), selection: $llmTemperatureMode) {
                         Text("Provider Default", bundle: bundle).tag(PluginLLMTemperatureMode.providerDefault)
                         Text("Custom", bundle: bundle).tag(PluginLLMTemperatureMode.custom)
                     }
@@ -3892,17 +3955,30 @@ private struct OpenAISettingsView: View {
         let trimmedKey = apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedKey.isEmpty else { return }
 
-        plugin.setApiKey(trimmedKey)
+        // A first key is stored right away because a key can fail the /v1/models check and still transcribe.
+        // A replacement is stored only once validated so a mistyped paste can't overwrite a working key.
+        let replacesStoredKey = plugin._apiKey?.isEmpty == false
+        if !replacesStoredKey {
+            plugin.setApiKey(trimmedKey)
+        }
+
+        func showResult(_ isValid: Bool) {
+            isValidating = false
+            // A focused field may still take typing while the row is disabled, so only label the key it still shows.
+            validationResult = apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines) == trimmedKey ? isValid : nil
+        }
 
         isValidating = true
         validationResult = nil
         Task {
             let isValid = await plugin.validateApiKey(trimmedKey)
             if isValid {
+                if replacesStoredKey {
+                    plugin.setApiKey(trimmedKey)
+                }
                 let models = await plugin.refreshFetchedLLMModels()
                 await MainActor.run {
-                    isValidating = false
-                    validationResult = true
+                    showResult(true)
                     if !models.isEmpty {
                         fetchedLLMModels = models
                         selectedLLMModel = plugin.selectedLLMModelId ?? models.first?.id ?? selectedLLMModel
@@ -3911,8 +3987,7 @@ private struct OpenAISettingsView: View {
                 }
             } else {
                 await MainActor.run {
-                    isValidating = false
-                    validationResult = false
+                    showResult(false)
                 }
             }
         }
@@ -3946,6 +4021,7 @@ private struct OpenAISettingsView: View {
         }
     }
 
+    #if !APPSTORE
     private func startBrowserLogin() {
         oauthBusy = true
         oauthStatusMessage = String(localized: "Complete the OpenAI login in your browser. TypeWhisper will finish the connection automatically.", bundle: bundle)
@@ -3984,6 +4060,7 @@ private struct OpenAISettingsView: View {
             oauthErrorMessage = error.localizedDescription
         }
     }
+    #endif
 }
 
 // MARK: - Utilities

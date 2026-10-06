@@ -104,9 +104,27 @@ public protocol HostMediaTranscriptionProviding: Sendable {
     ) async throws -> String
 }
 
+/// Hosts that unload local models right after each use report it here, so a
+/// plugin's settings can show that a model loads on demand instead of offering
+/// a Load button whose result is unloaded again a moment later.
+public protocol HostModelAutoUnloadPolicyProviding: Sendable {
+    var unloadsModelsImmediatelyAfterUse: Bool { get }
+}
+
 public extension HostServices {
     var shouldRestoreLoadedModelsPassively: Bool {
         (self as? any HostModelLifecyclePolicyProviding)?.shouldRestoreLoadedModelsPassively ?? true
+    }
+
+    var unloadsModelsImmediatelyAfterUse: Bool {
+        (self as? any HostModelAutoUnloadPolicyProviding)?.unloadsModelsImmediatelyAfterUse ?? false
+    }
+
+    /// The model the host loads on demand for this plugin while it unloads
+    /// models right after each use; nil under every other unload policy.
+    var modelIdLoadedOnDemand: String? {
+        guard unloadsModelsImmediatelyAfterUse else { return nil }
+        return userDefault(forKey: "loadedModel") as? String
     }
 
     var availableWorkflows: [PluginWorkflowInfo] { [] }
@@ -715,6 +733,9 @@ public enum PluginAudioUploadEncoder {
     public static let sampleRate = 16_000
     public static let minimumUploadDuration: TimeInterval = 1.0
     private static let compressedUploadChunkFrames = 16_000 * 30
+    // The default AAC rate for 16 kHz mono is about 27 kbit/s, which is too lossy for some
+    // languages: Deepgram Nova-3 returned empty Arabic transcripts at that rate.
+    static let compressedUploadBitRate = 48_000
 
     public static func normalizedAudioForUpload(_ audio: AudioData) -> AudioData {
         guard audio.duration < minimumUploadDuration else { return audio }
@@ -929,6 +950,7 @@ public enum PluginAudioUploadEncoder {
             AVFormatIDKey: kAudioFormatMPEG4AAC,
             AVSampleRateKey: Double(sampleRate),
             AVNumberOfChannelsKey: 1,
+            AVEncoderBitRateKey: compressedUploadBitRate,
         ]
         guard let format = AVAudioFormat(
             commonFormat: .pcmFormatFloat32,
@@ -989,7 +1011,7 @@ public enum PluginTranscriptionError: LocalizedError, Sendable {
         case .invalidApiKey:
             "Invalid API key. Please check your API key and try again."
         case .rateLimited:
-            "Rate limit exceeded. Please wait and try again."
+            "Rate limit or quota exceeded. Check your provider's usage limits and credit balance, or wait and try again."
         case .fileTooLarge:
             "Audio file too large for the API."
         case .apiError(let message):
@@ -1436,7 +1458,7 @@ public struct PluginOpenAITranscriptionHelper: Sendable {
         case 401:
             throw PluginTranscriptionError.invalidApiKey
         case 429:
-            throw PluginTranscriptionError.rateLimited
+            throw PluginTranscriptionError.rateLimitOrQuota(from: responseData)
         case 413:
             throw PluginTranscriptionError.fileTooLarge
         default:
@@ -1549,7 +1571,7 @@ public enum PluginChatError: LocalizedError, Sendable {
         case .invalidApiKey:
             "Invalid API key. Please check your API key and try again."
         case .rateLimited:
-            "Rate limit exceeded. Please wait and try again."
+            "Rate limit or quota exceeded. Check your provider's usage limits and credit balance, or wait and try again."
         case .apiError(let message):
             "API error: \(message)"
         case .networkError(let message):
@@ -1703,7 +1725,7 @@ public struct PluginOpenAIChatHelper: Sendable {
         case 401:
             throw PluginChatError.invalidApiKey
         case 429:
-            throw PluginChatError.rateLimited
+            throw PluginChatError.rateLimitOrQuota(from: data)
         default:
             throw PluginChatError.apiError(Self.errorMessage(from: data, statusCode: httpResponse.statusCode))
         }
@@ -1713,6 +1735,12 @@ public struct PluginOpenAIChatHelper: Sendable {
               let first = choices.first,
               let message = first["message"] as? [String: Any] else {
             throw PluginChatError.apiError("Failed to parse response")
+        }
+
+        // A reply cut off at the token limit is not the finished text. Failing
+        // here lets the caller fall back instead of pasting a partial result.
+        if (first["finish_reason"] as? String) == "length" {
+            throw PluginChatError.outputTruncated(limit: maxOutputTokens)
         }
 
         return Self.chatMessageContent(from: message).trimmingCharacters(in: .whitespacesAndNewlines)

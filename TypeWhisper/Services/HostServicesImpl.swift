@@ -27,7 +27,7 @@ private enum PassiveLoadedModelRestoreContext {
     }
 }
 
-final class HostServicesImpl: HostServices, HostModelLifecyclePolicyProviding, HostMediaTranscriptionProviding, @unchecked Sendable {
+final class HostServicesImpl: HostServices, HostModelLifecyclePolicyProviding, HostModelAutoUnloadPolicyProviding, HostMediaTranscriptionProviding, @unchecked Sendable {
     let pluginId: String
     let pluginDataDirectory: URL
     /// Whether this plugin backs the engine the user actually has selected,
@@ -97,7 +97,12 @@ final class HostServicesImpl: HostServices, HostModelLifecyclePolicyProviding, H
         }
 
         let scopedService = "\(pluginId).\(key)"
-        return KeychainService.load(service: scopedService)
+        // Plugins read credentials synchronously in activate(host:), so keychain
+        // latency is part of launch. The interval carries no key or value.
+        let signposter = LaunchSignposts.signposter
+        return signposter.withIntervalSignpost("Plugin.loadSecret", id: signposter.makeSignpostID()) {
+            KeychainService.load(service: scopedService)
+        }
     }
 
     // MARK: - UserDefaults (plugin-scoped)
@@ -134,6 +139,10 @@ final class HostServicesImpl: HostServices, HostModelLifecyclePolicyProviding, H
     var shouldRestoreLoadedModelsPassively: Bool {
         ModelAutoUnloadPolicy.shouldRestoreLoadedModelsPassively()
             && backsSelectedTranscriptionEngine
+    }
+
+    var unloadsModelsImmediatelyAfterUse: Bool {
+        ModelAutoUnloadPolicy.unloadsModelsImmediatelyAfterUse()
     }
 
     func performPluginActivation(
@@ -184,10 +193,11 @@ final class HostServicesImpl: HostServices, HostModelLifecyclePolicyProviding, H
 
     func openPluginSettings() {
         DispatchQueue.main.async { [pluginId] in
-            guard let plugin = PluginManager.shared?.loadedPlugins.first(where: {
+            guard PluginManager.shared?.loadedPlugins.contains(where: {
                 $0.id == pluginId && $0.isEnabled && $0.isRuntimeLoaded
-            }) else { return }
-            PluginSettingsWindowManager.shared.present(plugin)
+            }) == true else { return }
+            SettingsNavigationCoordinator.shared.navigate(to: .installedPlugin(pluginId: pluginId))
+            ManagedAppWindowOpener.shared.open(id: "settings")
         }
     }
 

@@ -133,7 +133,7 @@ final class PromptProcessingModelResolutionTests: XCTestCase {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        defaults.set("Gemma 4 (MLX)", forKey: UserDefaultsKeys.workflowDefaultLLMProviderId)
+        defaults.set("Local LLM (MLX)", forKey: UserDefaultsKeys.workflowDefaultLLMProviderId)
         defaults.set("gemma-4-large", forKey: UserDefaultsKeys.workflowDefaultLLMCloudModel)
         defaults.set("Groq", forKey: "llmProviderType")
         defaults.set("llama-3.3", forKey: "llmCloudModel")
@@ -142,7 +142,7 @@ final class PromptProcessingModelResolutionTests: XCTestCase {
 
         XCTAssertEqual(
             service.fallbackPriorityList.map { ($0.providerId, $0.modelId) }.map { "\($0.0)|\($0.1 ?? "")" },
-            ["Gemma 4 (MLX)|gemma-4-large", "Groq|llama-3.3"]
+            ["Local LLM (MLX)|gemma-4-large", "Groq|llama-3.3"]
         )
         XCTAssertNotEqual(service.fallbackPriorityList[0].id, service.fallbackPriorityList[1].id)
         XCTAssertNotNil(defaults.data(forKey: UserDefaultsKeys.llmFallbackPriorityList))
@@ -281,5 +281,58 @@ final class PromptProcessingModelResolutionTests: XCTestCase {
         } catch {
             XCTFail("Expected LLMFallbackExhaustedError, got \(error)")
         }
+    }
+}
+
+@MainActor
+final class PromptProcessingPrewarmTests: XCTestCase {
+    private final class PrewarmCountingProvider: LLMProvider, @unchecked Sendable {
+        var isAvailable = true
+        private(set) var prewarmCount = 0
+
+        func process(systemPrompt: String, userText: String) async throws -> String { userText }
+
+        func prewarm() {
+            prewarmCount += 1
+        }
+    }
+
+    private func makeService(fallbackProviderIds: [String]) throws -> (PromptProcessingService, PrewarmCountingProvider) {
+        let suiteName = "PromptProcessingPrewarmTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        addTeardownBlock { defaults.removePersistentDomain(forName: suiteName) }
+        let items = fallbackProviderIds.map { LLMFallbackPriorityItem(providerId: $0) }
+        defaults.set(try JSONEncoder().encode(items), forKey: UserDefaultsKeys.llmFallbackPriorityList)
+        let service = PromptProcessingService(userDefaults: defaults)
+        let provider = PrewarmCountingProvider()
+        service.testingSetAppleIntelligenceProvider(provider)
+        return (service, provider)
+    }
+
+    func testWorkflowWithAppleIntelligencePrewarmsIt() throws {
+        let (service, provider) = try makeService(fallbackProviderIds: ["groq"])
+
+        service.prewarmWorkflowLLMProvider(providerOverride: PromptProcessingService.appleIntelligenceId)
+
+        XCTAssertEqual(provider.prewarmCount, 1)
+    }
+
+    func testFallbackListStartingWithAppleIntelligencePrewarmsIt() throws {
+        let (service, provider) = try makeService(fallbackProviderIds: [PromptProcessingService.appleIntelligenceId, "groq"])
+
+        service.prewarmWorkflowLLMProvider(providerOverride: nil)
+
+        XCTAssertEqual(provider.prewarmCount, 1)
+    }
+
+    func testOtherFirstProviderOrUnavailableModelSkipsPrewarm() throws {
+        let (service, provider) = try makeService(fallbackProviderIds: ["groq", PromptProcessingService.appleIntelligenceId])
+
+        service.prewarmWorkflowLLMProvider(providerOverride: nil)
+        service.prewarmWorkflowLLMProvider(providerOverride: "groq")
+        provider.isAvailable = false
+        service.prewarmWorkflowLLMProvider(providerOverride: PromptProcessingService.appleIntelligenceId)
+
+        XCTAssertEqual(provider.prewarmCount, 0)
     }
 }

@@ -89,6 +89,2451 @@
         }
       }
     },
+    "Insert" : {
+      "comment" : "Button in the dictation indicator that inserts a transcript that did not reach a text field.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Einfügen"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "挿入"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "插入"
+          }
+        }
+      }
+    },
+    "No text field detected" : {
+      "comment" : "Shown in the dictation indicator when a dictation finished without a focused text field.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kein Textfeld erkannt"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "テキストフィールドが見つかりません"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未检测到文本字段"
+          }
+        }
+      }
+    },
+    "Or press %@" : {
+      "comment" : "Second line of the undelivered-transcript message. %@ is the Paste Last Transcription hotkey.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oder drücke %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "または %@ を押します"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "或按 %@"
+          }
+        }
+      }
+    },
+    "The text field changed" : {
+      "comment" : "Shown in the dictation indicator when the target text field changed before the transcript could be inserted.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das Textfeld wurde geändert"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "テキストフィールドが変更されました"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "文本字段已更改"
+          }
+        }
+      }
+    },
+    "Improve Dictionary Terms" : {
+      "comment" : "Shown above the dictionary when the selected engine needs a plugin setting for Terms.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Begriffe besser erkennen"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "辞書の用語の認識を改善"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "改进词典词条识别"
+          }
+        }
+      }
+    },
+    "Enable" : {
+      "comment" : "Button that turns on a transcription engine setting so dictionary Terms are used.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aktivieren"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "有効にする"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "启用"
+          }
+        }
+      }
+    },
+    "Setting up..." : {
+      "comment" : "Progress text while a transcription engine enables its dictionary Terms setting.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wird eingerichtet..."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "設定中…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在设置…"
+          }
+        }
+      }
+    },
+    "No Synced Devices" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keine synchronisierten Geräte"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "同期されたデバイスはありません"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "没有已同步的设备"
+          }
+        }
+      }
+    },
+    "Devices appear here after their first successful sync." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Geräte erscheinen hier nach ihrer ersten erfolgreichen Synchronisierung."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "デバイスは最初の同期が完了するとここに表示されます。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "设备首次成功同步后会显示在这里。"
+          }
+        }
+      }
+    },
+    "Removing a device only removes it from this list. Synced entries stay available, and the device appears again if it syncs later." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wenn du ein Gerät entfernst, wird es nur aus dieser Liste entfernt. Synchronisierte Einträge bleiben verfügbar und das Gerät erscheint wieder, sobald es erneut synchronisiert."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "デバイスを削除しても、このリストから外れるだけです。同期済みの項目は残り、デバイスが再び同期すると再表示されます。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "移除设备只会将其从此列表中移除。已同步的条目仍然可用，设备再次同步时会重新出现。"
+          }
+        }
+      }
+    },
+    "This Device" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieses Gerät"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このデバイス"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此设备"
+          }
+        }
+      }
+    },
+    "Platform" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Plattform"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "プラットフォーム"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "平台"
+          }
+        }
+      }
+    },
+    "App Version" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "App-Version"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "アプリのバージョン"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "App 版本"
+          }
+        }
+      }
+    },
+    "Device ID" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Geräte-ID"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "デバイスID"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "设备 ID"
+          }
+        }
+      }
+    },
+    "This is the current device." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dies ist das aktuelle Gerät."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "これは現在のデバイスです。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这是当前设备。"
+          }
+        }
+      }
+    },
+    "Remove Device" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gerät entfernen"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "デバイスを削除"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "移除设备"
+          }
+        }
+      }
+    },
+    "This keeps all synchronized entries. If the device syncs again, it will reappear in the list." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alle synchronisierten Einträge bleiben erhalten. Wenn das Gerät erneut synchronisiert, erscheint es wieder in der Liste."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "同期済みの項目はすべて残ります。デバイスが再び同期すると、リストに再表示されます。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "所有已同步的条目都会保留。设备再次同步时，会重新出现在列表中。"
+          }
+        }
+      }
+    },
+    "Remove this device from the sync list?" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieses Gerät aus der Synchronisierungsliste entfernen?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このデバイスを同期リストから削除しますか？"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "要将此设备从同步列表中移除吗？"
+          }
+        }
+      }
+    },
+    "Synchronized entries remain in your private sync folder. The device will reappear if it syncs again." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Synchronisierte Einträge bleiben in deinem privaten Synchronisierungsordner. Das Gerät erscheint wieder, sobald es erneut synchronisiert."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "同期済みの項目はプライベート同期フォルダに残ります。デバイスが再び同期すると再表示されます。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已同步的条目会保留在你的私有同步文件夹中。设备再次同步时会重新出现。"
+          }
+        }
+      }
+    },
+    "iPhone or iPad" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iPhone oder iPad"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iPhone または iPad"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iPhone 或 iPad"
+          }
+        }
+      }
+    },
+    "Device removed from the sync list. Synced data was kept." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das Gerät wurde aus der Synchronisierungsliste entfernt. Synchronisierte Daten wurden beibehalten."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "デバイスを同期リストから削除しました。同期済みのデータは残っています。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已将设备从同步列表中移除。已同步的数据已保留。"
+          }
+        }
+      }
+    },
+    "Update %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ aktualisieren"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Update %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@をアップデート"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "更新 %@"
+          }
+        }
+      }
+    },
+    "Clear balance" : {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guthaben löschen"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清除余额设置"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "残高をクリア"
+          }
+        }
+      }
+    },
+    "Last recognition" : {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Letzte Spracherkennung"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最近识别时间"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "前回の認識"
+          }
+        }
+      }
+    },
+    "Balance updated" : {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guthaben aktualisiert"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "余额更新时间"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "残高の更新日時"
+          }
+        }
+      }
+    },
+    "Spent since balance update" : {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbrauch seit Guthabenaktualisierung"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "余额更新后已用时长"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "残高更新後の使用量"
+          }
+        }
+      }
+    },
+    "Estimated remaining" : {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geschätztes Restguthaben"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "预计剩余时长"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "推定残量"
+          }
+        }
+      }
+    },
+    "Authorization Key is stored securely in the Keychain. If validation fails with a certificate error, install the SaluteSpeech certificate trusted by macOS." : {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Autorisierungsschlüssel wird sicher im Schlüsselbund gespeichert. Falls die Prüfung wegen eines Zertifikatfehlers scheitert, installiere das von macOS als vertrauenswürdig eingestufte SaluteSpeech-Zertifikat."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "授权密钥安全地存储在钥匙串中。如果验证因证书错误而失败，请安装受 macOS 信任的 SaluteSpeech 证书。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "認証キーはキーチェーンに安全に保存されます。確認時に証明書エラーが出る場合は、SaluteSpeechの証明書をインストールし、macOSで信頼する設定にしてください。"
+          }
+        }
+      }
+    },
+    "Local estimate. Update it from SaluteSpeech Studio." : {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lokale Schätzung. Aktualisiere sie anhand von SaluteSpeech Studio."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此为本地估算值。请根据 SaluteSpeech Studio 中的数据更新。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このMacでの推定値です。SaluteSpeech Studioで確認した残高に更新してください。"
+          }
+        }
+      }
+    },
+    "Reset tracked usage" : {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erfassten Verbrauch zurücksetzen"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重置已记录的用量"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "記録した使用量をリセット"
+          }
+        }
+      }
+    },
+    "Save balance" : {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guthaben speichern"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存余额"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "残高を保存"
+          }
+        }
+      }
+    },
+    "Valid until" : {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gültig bis"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有效期至"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "有効期限"
+          }
+        }
+      }
+    },
+    "Minutes" : {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minuten"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分钟"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "分"
+          }
+        }
+      }
+    },
+    "Studio remaining" : {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Studio-Restguthaben"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Studio 剩余时长"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Studioの残量"
+          }
+        }
+      }
+    },
+    "Tracked spent" : {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erfasster Verbrauch"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "累计已用时长"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "記録した使用量"
+          }
+        }
+      }
+    },
+    "Recognition Usage" : {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spracherkennungsnutzung"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "语音识别用量"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "音声認識の使用量"
+          }
+        }
+      }
+    },
+    "Corporate" : {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unternehmen"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "企业"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "法人"
+          }
+        }
+      }
+    },
+    "Personal" : {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Persönlich"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "个人"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "個人"
+          }
+        }
+      }
+    },
+    "OAuth Scope" : {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OAuth-Bereich"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OAuth 权限范围"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OAuthの権限範囲"
+          }
+        }
+      }
+    },
+    "Authorization Key" : {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autorisierungsschlüssel"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "授权密钥"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "認証キー"
+          }
+        }
+      }
+    },
+    "Reset Defaults" : {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardwerte wiederherstellen"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "恢复默认设置"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "初期設定に戻す"
+          }
+        }
+      }
+    },
+    "One word per line. Commas and semicolons are also accepted." : {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Wort pro Zeile. Kommas und Semikolons werden ebenfalls akzeptiert."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每行一个词，也可使用逗号或分号分隔。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1行に1語ずつ入力してください。カンマやセミコロンでも区切れます。"
+          }
+        }
+      }
+    },
+    "Filler words" : {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Füllwörter"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "填充词"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "取り除くつなぎ言葉"
+          }
+        }
+      }
+    },
+    "Connected" : {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbunden"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已连接"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "接続済み"
+          }
+        }
+      }
+    },
+    "No memories match your search." : {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Erinnerungen passen zu deiner Suche."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有找到匹配的记忆。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "検索に一致するメモリがありません。"
+          }
+        }
+      }
+    },
+    "Memories will appear here after transcriptions are processed." : {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nach der Verarbeitung von Transkriptionen erscheinen hier Erinnerungen."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "处理转录内容后，记忆会显示在这里。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "文字起こしの処理後に、メモリがここに表示されます。"
+          }
+        }
+      }
+    },
+    "No Memories" : {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Erinnerungen"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暂无记忆"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "メモリがありません"
+          }
+        }
+      }
+    },
+    "Search memories..." : {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erinnerungen durchsuchen …"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜索记忆…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "メモリを検索..."
+          }
+        }
+      }
+    },
+    "%lld memories stored" : {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld gespeicherte Erinnerungen"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已存储 %lld 条记忆"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld件のメモリを保存済み"
+          }
+        }
+      }
+    },
+    "Usage Statistics" : {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nutzungsstatistik"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用统计"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "利用統計"
+          }
+        }
+      }
+    },
+    "Not enough disk space to download %@. It needs %@ of free space, but only %@ is available on “%@”.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht genug Speicherplatz, um %1$@ herunterzuladen. Benötigt werden %2$@ freier Speicher, auf „%4$@“ sind aber nur %3$@ verfügbar."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ をダウンロードするための空き容量が足りません。%2$@ の空き容量が必要ですが、「%4$@」で使用できるのは %3$@ だけです。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "磁盘空间不足，无法下载 %1$@。需要 %2$@ 可用空间，但“%4$@”上只有 %3$@ 可用。"
+          }
+        }
+      }
+    },
+    "Not enough disk space to download %@. It needs %@ of free space, but only %@ is available.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht genug Speicherplatz, um %1$@ herunterzuladen. Benötigt werden %2$@ freier Speicher, verfügbar sind aber nur %3$@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ をダウンロードするための空き容量が足りません。%2$@ の空き容量が必要ですが、使用できるのは %3$@ だけです。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "磁盘空间不足，无法下载 %1$@。需要 %2$@ 可用空间，但只有 %3$@ 可用。"
+          }
+        }
+      }
+    },
+    "Other model downloads in progress still need %@.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Andere laufende Modell-Downloads benötigen noch %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行中の他のモデルのダウンロードに、まだ %@ が必要です。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "其他正在进行的模型下载仍需要 %@。"
+          }
+        }
+      }
+    },
+    "Free up space and try again.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gib Speicherplatz frei und versuche es erneut."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "空き容量を増やしてから、もう一度お試しください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请释放空间后重试。"
+          }
+        }
+      }
+    },
+    "Selected entry content": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inhalt des ausgewählten Eintrags"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所选条目内容"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "選択した項目の内容"
+          }
+        }
+      }
+    },
+    "First row is a header": {
+      "localizations": {
+        "de": { "stringUnit": { "state": "translated", "value": "Erste Zeile ist eine Kopfzeile" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "首行为标题行" } },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1行目を見出しとして扱う"
+          }
+        }
+      }
+    },
+    "Source files found on this Mac: %@.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quelldateien auf diesem Mac gefunden: %@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此 Mac 上找到来源文件：%@。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このMacで見つかった取込み元ファイル: %@。"
+          }
+        }
+      }
+    },
+    "Review Words...": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wörter prüfen …"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "预览词语…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "単語を確認..."
+          }
+        }
+      }
+    },
+    "Review Snippets...": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Snippets prüfen …"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "预览文本片段…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スニペットを確認..."
+          }
+        }
+      }
+    },
+    "Import from Wispr Flow or Handy...": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aus Wispr Flow oder Handy importieren …"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从 Wispr Flow 或 Handy 导入…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wispr FlowまたはHandyから取り込む..."
+          }
+        }
+      }
+    },
+    "This file does not have a supported import format.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Datei hat kein unterstütztes Importformat."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此文件的导入格式不受支持。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このファイルは対応する取込み形式ではありません。"
+          }
+        }
+      }
+    },
+    "The source could not be read safely. Quitting the source app and trying again may help. Nothing was imported.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Quelle konnte nicht sicher gelesen werden. Beende gegebenenfalls die Quell-App und versuche es erneut. Es wurde nichts importiert."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法安全读取来源。退出来源应用后重试可能有帮助。未导入任何内容。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "取込み元を安全に読み取れませんでした。元のアプリを終了して再試行してください。データは取り込まれていません。"
+          }
+        }
+      }
+    },
+    "The source exceeds the import limits. Nothing was imported.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Quelle überschreitet die Importgrenzen. Es wurde nichts importiert."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "来源超出导入限制。未导入任何内容。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "取込み元が取込み可能な上限を超えています。データは取り込まれていません。"
+          }
+        }
+      }
+    },
+    "The import could not be saved. Nothing was imported.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Import konnte nicht gespeichert werden. Es wurde nichts importiert."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法保存导入内容。未导入任何内容。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "取込み内容を保存できませんでした。データは取り込まれていません。"
+          }
+        }
+      }
+    },
+    "No source file was found. Use Choose File to locate it.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Quelldatei gefunden. Suche sie über „Datei auswählen“."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未找到来源文件。请使用“选择文件”定位文件。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "取込み元ファイルが見つかりません。「ファイルを選択」から指定してください。"
+          }
+        }
+      }
+    },
+    "Your list changed while you were reviewing. Nothing was imported. Please review the updated list.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Liste wurde während der Prüfung geändert. Es wurde nichts importiert. Bitte prüfe die aktualisierte Liste."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "列表在预览期间发生了变化。未导入任何内容。请检查更新后的列表。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "確認中に一覧が変更されました。データは取り込まれていません。更新後の一覧を確認してください。"
+          }
+        }
+      }
+    },
+    "Import Words from Another App": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wörter aus anderer App importieren"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从其他应用导入词语"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "他のアプリから単語を取り込む"
+          }
+        }
+      }
+    },
+    "Import Snippets from Another App": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Snippets aus anderer App importieren"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从其他应用导入文本片段"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "他のアプリからスニペットを取り込む"
+          }
+        }
+      }
+    },
+    "Review the entries before importing. Existing entries will not be overwritten.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prüfe die Einträge vor dem Import. Vorhandene Einträge werden nicht überschrieben."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请在导入前检查条目。现有条目不会被覆盖。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "取り込む前に内容を確認してください。既存の項目は上書きされません。"
+          }
+        }
+      }
+    },
+    "Source": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quelle"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "来源"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "取込み元"
+          }
+        }
+      }
+    },
+    "Read from App": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aus App lesen"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从应用读取"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "アプリから読み込む"
+          }
+        }
+      }
+    },
+    "Choose File...": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Datei auswählen …"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择文件…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ファイルを選択..."
+          }
+        }
+      }
+    },
+    "Reading source...": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quelle wird gelesen …"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在读取来源…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "取込み元を読込み中..."
+          }
+        }
+      }
+    },
+    "Term / Trigger": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Begriff / Auslöser"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "词语 / 触发词"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "単語 / 呼び出し語"
+          }
+        }
+      }
+    },
+    "Status": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "状态"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "状態"
+          }
+        }
+      }
+    },
+    "Import Selected": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auswahl importieren"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导入所选内容"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "選択した項目を取り込む"
+          }
+        }
+      }
+    },
+    "No compatible entries found. Nothing was changed.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine kompatiblen Einträge gefunden. Es wurde nichts geändert."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未找到兼容条目。未进行任何更改。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "取り込める項目が見つかりません。データは変更されていません。"
+          }
+        }
+      }
+    },
+    "Snippets containing TypeWhisper dynamic placeholders are excluded to preserve literal text.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Snippets mit dynamischen TypeWhisper-Platzhaltern werden ausgelassen, damit sich der Text nicht ungewollt verändert."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "含有 TypeWhisper 动态占位符的文本片段将被排除，以保留原始文本含义。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "元の文字列をそのまま保持するため、TypeWhisperの動的プレースホルダーを含むスニペットは取り込みません。"
+          }
+        }
+      }
+    },
+    "New": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新規"
+          }
+        }
+      }
+    },
+    "Duplicate": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duplikat"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重复"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重複"
+          }
+        }
+      }
+    },
+    "Conflict": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konflikt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "冲突"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "競合"
+          }
+        }
+      }
+    },
+    "Import from Another App...": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aus anderer App importieren …"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从其他应用导入…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "他のアプリから取り込む..."
+          }
+        }
+      }
+    },
+    "%lld selected, %lld duplicates, %lld conflicts.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ausgewählt: %lld · Duplikate: %lld · Konflikte: %lld"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已选择 %lld 项，%lld 项重复，%lld 项冲突。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "選択: %lld件、重複: %lld件、競合: %lld件。"
+          }
+        }
+      }
+    },
+    "%lld entries excluded (deleted, another entry type, empty or incompatible).": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ausgelassene Einträge: %lld (gelöscht, anderer Eintragstyp, leer oder inkompatibel)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已排除 %lld 个条目（已删除、其他类型、空白或不兼容）。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld件を除外（削除済み、種類が異なる、空、または非対応）。"
+          }
+        }
+      }
+    },
+    "Canary needs an explicit source language. Choose Greek or English for Sophea in Dictation settings." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Canary braucht eine konkrete Ausgangssprache. Wähle für Sophea Griechisch oder Englisch in den Diktateinstellungen."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Canaryでは入力言語の指定が必要です。Sopheaを使う場合は、音声入力設定でギリシャ語または英語を選択してください。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Canary 需要明确指定源语言。使用 Sophea 时，请在听写设置中选择希腊语或英语。"
+          }
+        }
+      }
+    },
+    "A model operation is already in progress. Wait for it to finish." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein Modellvorgang läuft bereits. Warte, bis er abgeschlossen ist."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "モデルの処理が進行中です。完了するまでお待ちください。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "模型操作正在进行中，请等待完成。"
+          }
+        }
+      }
+    },
+    "A token is only needed for private or gated models. It is used for this import and is not saved." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein Token ist nur für private oder zugangsbeschränkte Modelle nötig. Es wird für diesen Import verwendet und nicht gespeichert."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "非公開またはアクセス制限のあるモデルにのみトークンが必要です。このインポートにのみ使用され、保存されません。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仅私有或受限模型需要令牌。令牌仅用于此次导入，不会保存。"
+          }
+        }
+      }
+    },
+    "Add a model compatible with an installed local engine. The model is checked and loaded before the import completes." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Füge ein Modell für eine installierte lokale Engine hinzu. Das Modell wird vor Abschluss des Imports geprüft und geladen."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "インストール済みのローカルエンジンに対応するモデルを追加します。インポート完了前にモデルを検証して読み込みます。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "添加与已安装的本地引擎兼容的模型。导入完成前会验证并加载模型。"
+          }
+        }
+      }
+    },
+    "Cancelling…" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wird abgebrochen …"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "キャンセル中…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在取消…"
+          }
+        }
+      }
+    },
+    "Checking model compatibility…" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Modellkompatibilität wird geprüft …"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "モデルの互換性を確認中…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在检查模型兼容性…"
+          }
+        }
+      }
+    },
+    "Choose Folder…" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ordner auswählen …"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "フォルダを選択…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择文件夹…"
+          }
+        }
+      }
+    },
+    "Choose a model folder or enter a Hugging Face model URL (https://huggingface.co/owner/model)." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wähle einen Modellordner oder gib eine Hugging-Face-Modell-URL ein (https://huggingface.co/owner/model)."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "モデルフォルダを選ぶか、Hugging FaceモデルのURLを入力してください（https://huggingface.co/owner/model）。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请选择模型文件夹或输入 Hugging Face 模型网址（https://huggingface.co/owner/model）。"
+          }
+        }
+      }
+    },
+    "Choose the folder containing config.json, tokenizer files and weights. TypeWhisper keeps its own copy; your original files are not changed." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wähle den Ordner mit config.json, Tokenizer-Dateien und Gewichten. TypeWhisper erstellt eine eigene Kopie; deine Originaldateien bleiben unverändert."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "config.json、トークナイザー、重みを含むフォルダを選択してください。TypeWhisperはコピーを保存し、元のファイルは変更しません。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择包含 config.json、分词器文件和权重的文件夹。TypeWhisper 会保存副本，不会修改原始文件。"
+          }
+        }
+      }
+    },
+    "Hugging Face model URL" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hugging-Face-Modell-URL"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hugging FaceモデルのURL"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hugging Face 模型网址"
+          }
+        }
+      }
+    },
+    "Hugging Face returned HTTP %lld. For private or gated models, provide a token with access to the model." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hugging Face hat HTTP %lld zurückgegeben. Verwende für private oder zugangsbeschränkte Modelle ein Token mit Zugriff auf das Modell."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hugging FaceがHTTP %lldを返しました。非公開またはアクセス制限のあるモデルには、アクセス権のあるトークンを指定してください。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hugging Face 返回 HTTP %lld。私有或受限模型需要提供具有访问权限的令牌。"
+          }
+        }
+      }
+    },
+    "Hugging Face token (optional)" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hugging-Face-Token (optional)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hugging Faceトークン（任意）"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hugging Face 令牌（可选）"
+          }
+        }
+      }
+    },
+    "Import" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importieren"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "インポート"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "导入"
+          }
+        }
+      }
+    },
+    "Import Model…" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Modell importieren …"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "モデルをインポート…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "导入模型…"
+          }
+        }
+      }
+    },
+    "Import Speech Model" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Spracherkennungsmodell importieren"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "音声認識モデルをインポート"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "导入语音识别模型"
+          }
+        }
+      }
+    },
+    "Import a local speech model" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein lokales Spracherkennungsmodell importieren"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ローカル音声認識モデルをインポート"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "导入本地语音识别模型"
+          }
+        }
+      }
+    },
+    "Imported and loaded: %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importiert und geladen: %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "インポート・読み込み完了：%@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已导入并加载：%@"
+          }
+        }
+      }
+    },
+    "Importing and loading with %@…" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importieren und Laden mit %@ …"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@でインポート・読み込み中…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在使用 %@ 导入并加载…"
+          }
+        }
+      }
+    },
+    "Install or enable the %@ plugin in Integrations to import this model." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installiere oder aktiviere das Plugin %@ unter Integrationen, um dieses Modell zu importieren."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このモデルを取り込むには、「プラグイン」で%@プラグインをインストールまたは有効にしてください。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请在集成中安装或启用 %@ 插件，以导入此模型。"
+          }
+        }
+      }
+    },
+    "Local Folder" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lokaler Ordner"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ローカルフォルダ"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本地文件夹"
+          }
+        }
+      }
+    },
+    "Menu Bar & Dock" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Menüleiste & Dock"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "メニューバーと Dock"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "菜单栏与程序坞"
+          }
+        }
+      }
+    },
+    "The model architecture ‘%@’ is not supported by the installed engines. Importing its files cannot add a new engine." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Modellarchitektur „%@“ wird von den installierten Engines nicht unterstützt. Durch den Dateiimport kann keine neue Engine hinzugefügt werden."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "モデルアーキテクチャ「%@」に対応するエンジンがありません。ファイルのインポートでは新しいエンジンを追加できません。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已安装的引擎不支持模型架构“%@”。导入文件无法添加新的引擎。"
+          }
+        }
+      }
+    },
+    "The notch itself stays black. The theme applies to the area that expands below it." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der Notch selbst bleibt schwarz. Das Theme gilt für den Bereich, der darunter ausklappt."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ノッチ自体は黒のままです。テーマはその下に展開される領域に適用されます。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "刘海本身保持黑色。主题应用于其下方展开的区域。"
+          }
+        }
+      }
+    },
+    "Theme" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Design"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "テーマ"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "主题"
+          }
+        }
+      }
+    },
+    "This model cannot be imported: %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieses Modell kann nicht importiert werden: %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このモデルをインポートできません：%@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法导入此模型：%@"
+          }
+        }
+      }
+    },
+    "This model has already been imported." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieses Modell wurde bereits importiert."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このモデルはインポート済みです。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此模型已导入。"
+          }
+        }
+      }
+    },
+    "You can select the engine in Dictation settings and manage the model in Integrations." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Du kannst die Engine in den Diktateinstellungen auswählen und das Modell unter Integrationen verwalten."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "音声入力設定でエンジンを選択し、「プラグイン」でモデルを管理できます。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你可以在听写设置中选择引擎，在集成中管理模型。"
+          }
+        }
+      }
+    },
     "The last three successful dictations are also kept for up to 24 hours so you can retry an incomplete result. Immediately disables this retry buffer too." : {
       "localizations" : {
         "de" : {
@@ -227,6 +2672,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "没有集成命令"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "プラグインのコマンドがありません"
           }
         }
       }
@@ -449,24 +2900,24 @@
         }
       }
     },
-    "Double: press Esc twice to cancel. Single: press Esc once. Both show a cancellation banner for 1.5 seconds. Instant: press Esc once without a banner. Applies to recording and processing." : {
+    "Double: press Esc twice to cancel. Single: press Esc once. Both show a cancellation banner for 1.5 seconds. Instant: press Esc once without a banner. Disabled: Esc never cancels and passes through to the app. Applies to recording and processing." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Doppelt: Esc zweimal drücken. Einfach: Esc einmal drücken. Beide zeigen für 1,5 Sekunden eine Abbruchbestätigung. Instant: Esc einmal drücken, ohne Bestätigungsanzeige. Gilt für Aufnahme und Verarbeitung."
+            "value" : "Doppelt: Esc zweimal drücken. Einfach: Esc einmal drücken. Beide zeigen für 1,5 Sekunden eine Abbruchbestätigung. Instant: Esc einmal drücken, ohne Bestätigungsanzeige. Deaktiviert: Esc bricht nie ab und wird an die App weitergeleitet. Gilt für Aufnahme und Verarbeitung."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "双次：按两次 Esc 取消。单次：按一次 Esc 取消。这两种方式都会显示 1.5 秒的取消提示。即时：按一次 Esc 取消，不显示提示。适用于录音和处理。"
+            "value" : "双次：按两次 Esc 取消。单次：按一次 Esc 取消。这两种方式都会显示 1.5 秒的取消提示。即时：按一次 Esc 取消，不显示提示。禁用：Esc 不会取消，并传递给应用。适用于录音和处理。"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "2回：Escキーを2回押してキャンセルします。1回：Escキーを1回押します。どちらもキャンセル通知を1.5秒間表示します。即時：Escキーを1回押すと、通知を表示せずにキャンセルします。録音中と処理中の両方に適用されます。"
+            "value" : "2回：Escキーを2回押してキャンセルします。1回：Escキーを1回押します。どちらもキャンセル通知を1.5秒間表示します。即時：Escキーを1回押すと、通知を表示せずにキャンセルします。無効：Escを押してもキャンセルされず、アプリにそのまま渡されます。録音中と処理中の両方に適用されます。"
           }
         }
       }
@@ -489,6 +2940,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "较小的数保留原来的文字写法。小数和逐位口述的数字串仍会转换为数字。已有的数字保持不变。"
+          }
+        }
+      }
+    },
+    "cancellationBehavior.disabled" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deaktiviert"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "禁用"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Disabled"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無効"
           }
         }
       }
@@ -778,6 +3257,12 @@
             "state" : "translated",
             "value" : "已选择 %@"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@を選択済み"
+          }
         }
       }
     },
@@ -948,6 +3433,12 @@
             "state" : "translated",
             "value" : "已选择 %1$d/%2$d 个类别"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%d / %dカテゴリを選択済み"
+          }
         }
       }
     },
@@ -963,6 +3454,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%d 个待处理"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%d件待機中"
           }
         }
       }
@@ -1366,6 +3863,18 @@
       "comment" : "A label that describes the number of downloaded models. The argument is the number of models.",
       "isCommentAutoGenerated" : true,
       "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ダウンロード済みモデル%lld件"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld heruntergeladene Modelle"
+          }
+        },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
@@ -1459,7 +3968,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%1$lld Einträge importiert."
+            "value" : "Importierte Einträge: %1$lld."
           }
         },
         "ja" : {
@@ -1524,6 +4033,18 @@
       "comment" : "Pluralization key for the number of languages.",
       "isCommentAutoGenerated" : true,
       "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld言語"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld Sprachen"
+          }
+        },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
@@ -1840,6 +4361,12 @@
     },
     "1 downloaded model" : {
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 heruntergeladenes Modell"
+          }
+        },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
@@ -1850,6 +4377,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "1 个已下载模型"
+          }
+        }
+      }
+    },
+    "1 recent transcription" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最近の文字起こし1件"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 条最近转录"
           }
         }
       }
@@ -2022,6 +4565,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "商业许可证可解锁全部高级功能。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "商用ライセンスで、両方のプレミアム機能を利用できます。"
           }
         }
       }
@@ -2374,6 +4923,12 @@
             "state" : "translated",
             "value" : "已启用"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "有効"
+          }
         }
       }
     },
@@ -2612,7 +5167,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Eigenen Sound hinzufuegen"
+            "value" : "Eigenen Sound hinzufügen"
           }
         },
         "ja" : {
@@ -3729,7 +6284,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "APIキーが必要です - 統合設定で構成してください"
+            "value" : "APIキーが必要です。「プラグイン」で設定してください。"
           }
         },
         "zh-Hans" : {
@@ -4559,24 +7114,24 @@
         }
       }
     },
-    "Recovery recordings are stored only on this Mac. Immediately prevents TypeWhisper from creating local recovery WAV files. History audio is controlled separately, and cloud engines may still receive audio for transcription." : {
+    "Recovery recordings are stored only on this Mac. Immediately prevents TypeWhisper from creating local recovery audio files. History audio is controlled separately, and cloud engines may still receive audio for transcription." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Wiederherstellungsaufnahmen werden nur auf diesem Mac gespeichert. „Sofort“ verhindert, dass TypeWhisper lokale Wiederherstellungs-WAV-Dateien erstellt. Verlaufs-Audio wird separat gesteuert und Cloud-Engines können weiterhin Audio zur Transkription erhalten."
+            "value" : "Wiederherstellungsaufnahmen werden nur auf diesem Mac gespeichert. „Sofort“ verhindert, dass TypeWhisper lokale Wiederherstellungs-Audiodateien erstellt. Verlaufs-Audio wird separat gesteuert und Cloud-Engines können weiterhin Audio zur Transkription erhalten."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "復元用録音はこのMacにのみ保存されます。「すぐに」を選ぶと、TypeWhisperはローカルの復元用WAVファイルを作成しません。履歴の音声保存は別に管理され、クラウドエンジンは文字起こしのために音声を受信する場合があります。"
+            "value" : "復元用録音はこのMacにのみ保存されます。「すぐに」を選ぶと、TypeWhisperはローカルの復元用音声ファイルを作成しません。履歴の音声保存は別に管理され、クラウドエンジンは文字起こしのために音声を受信する場合があります。"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "恢复录音仅存储在这台 Mac 上。选择“立即”后，TypeWhisper 不会创建本地恢复 WAV 文件。历史记录中的音频由单独的设置控制，云端引擎仍可能接收音频以进行转录。"
+            "value" : "恢复录音仅存储在这台 Mac 上。选择“立即”后，TypeWhisper 不会创建本地恢复音频文件。历史记录中的音频由单独的设置控制，云端引擎仍可能接收音频以进行转录。"
           }
         }
       }
@@ -4781,6 +7336,12 @@
             "state" : "translated",
             "value" : "自动学习修正"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "修正内容の自動学習"
+          }
         }
       }
     },
@@ -4792,6 +7353,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "自动 iCloud 同步"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iCloudで自動同期"
           }
         }
       }
@@ -5059,6 +7626,12 @@
             "state" : "translated",
             "value" : "备份失败"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "バックアップに失敗しました"
+          }
         }
       }
     },
@@ -5166,6 +7739,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "增强"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "認識の優先度調整"
           }
         }
       }
@@ -5513,6 +8092,12 @@
             "state" : "translated",
             "value" : "购买或输入许可证密钥"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ライセンスを購入またはキーを入力"
+          }
         }
       }
     },
@@ -5793,7 +8378,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Sounddatei auswaehlen"
+            "value" : "Sounddatei auswählen"
           }
         },
         "ja" : {
@@ -5840,7 +8425,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Waehle eine Transkriptions-Engine. Jede Engine muss ein Modell herunterladen. Oeffne die Einstellungen zum Konfigurieren."
+            "value" : "Wähle eine Transkriptions-Engine. Jede Engine muss ein Modell herunterladen. Öffne die Einstellungen zum Konfigurieren."
           }
         },
         "ja" : {
@@ -6488,15 +9073,33 @@
             "state" : "translated",
             "value" : "清除统计数据"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "統計を消去"
+          }
         }
       }
     },
     "Clear Usage Statistics" : {
       "localizations" : {
+        "de" : {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nutzungsstatistik löschen"
+          }
+        },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "清除使用统计数据"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "利用統計を消去"
           }
         }
       }
@@ -6507,6 +9110,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "要清除使用统计数据吗？"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "利用統計を消去しますか？"
           }
         }
       }
@@ -6678,6 +9287,12 @@
             "state" : "translated",
             "value" : "云端文件夹"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "クラウドフォルダ"
+          }
         }
       }
     },
@@ -6756,6 +9371,12 @@
             "state" : "translated",
             "value" : "云端文件夹同步需要有效的高级版权益。"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "クラウドフォルダの同期には、有効なプレミアム利用権が必要です。"
+          }
         }
       }
     },
@@ -6767,6 +9388,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "云端操作记录将被删除，但本地词典条目和文本片段仍会保留在这台 Mac 上。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "クラウド上の操作記録は削除されますが、このMacの辞書とスニペットは残ります。"
           }
         }
       }
@@ -6945,6 +9572,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "商业许可证已激活。从一处管理纠正学习和同步。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "商用ライセンスが有効です。修正の学習と同期をここで管理できます。"
           }
         }
       }
@@ -7148,7 +9781,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「統合」でプロバイダーを設定してください。"
+            "value" : "「プラグイン」でプロバイダーを設定してください。"
           }
         },
         "zh-Hans" : {
@@ -7542,6 +10175,12 @@
             "state" : "translated",
             "value" : "修正示例"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "修正例"
+          }
         }
       }
     },
@@ -7557,6 +10196,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "已撤销修正学习"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "修正の学習を取り消しました"
           }
         }
       }
@@ -7620,6 +10265,12 @@
             "state" : "translated",
             "value" : "仅在编辑结果明确可信时才学习纠正。含义不明确的更改会被跳过。"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "修正内容を確実に判断できる場合のみ学習します。判断が曖昧な変更は学習しません。"
+          }
         }
       }
     },
@@ -7627,6 +10278,12 @@
       "comment" : "Description of a dictionary support type when corrections are only supported.",
       "isCommentAutoGenerated" : true,
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nur Korrekturen"
+          }
+        },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
@@ -7665,6 +10322,12 @@
     },
     "Could Not Remove Model" : {
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Modell konnte nicht entfernt werden"
+          }
+        },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
@@ -7681,6 +10344,12 @@
     },
     "Could Not Remove Plugin Bundle" : {
       "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "プラグインバンドルを削除できませんでした"
+          }
+        },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
@@ -7889,6 +10558,12 @@
             "state" : "translated",
             "value" : "跨设备高级版账户"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "複数デバイスで使うプレミアムアカウント"
+          }
         }
       }
     },
@@ -7997,6 +10672,12 @@
             "state" : "translated",
             "value" : "自定义 AI 提示词操作。内置预设不会被导出。"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自分で作成したAIプロンプトアクション。組込みのプリセットは書き出されません。"
+          }
         }
       }
     },
@@ -8028,6 +10709,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "自定义文件夹"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "任意のフォルダ"
           }
         }
       }
@@ -8098,6 +10785,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "自定义工作流的触发条件、模板和输出规则。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自分で作成したワークフローの起動条件・テンプレート・出力ルール。"
           }
         }
       }
@@ -8303,6 +10996,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "停用失败：%@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無効化に失敗しました: %@"
           }
         }
       }
@@ -8623,6 +11322,12 @@
             "state" : "translated",
             "value" : "删除账户"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "アカウントを削除"
+          }
         }
       }
     },
@@ -8717,6 +11422,12 @@
             "state" : "translated",
             "value" : "删除同步数据"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "同期データを削除"
+          }
         }
       }
     },
@@ -8728,6 +11439,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "删除同步文件夹"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "同期フォルダを削除"
           }
         }
       }
@@ -8741,6 +11458,12 @@
             "state" : "translated",
             "value" : "要删除 TypeWhisper 的专用同步文件夹吗？"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "TypeWhisper専用の非公開同期フォルダを削除しますか？"
+          }
         }
       }
     },
@@ -8752,6 +11475,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "要删除 TypeWhisper 账户吗？"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "TypeWhisperアカウントを削除しますか？"
           }
         }
       }
@@ -8946,6 +11675,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "设备"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "デバイス"
           }
         }
       }
@@ -9181,6 +11916,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "词典：已导入 %1$d 条，跳过 %2$d 条（已存在）"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "辞書: %d件を取り込み、%d件をスキップ（登録済み）"
           }
         }
       }
@@ -11130,6 +13871,12 @@
             "state" : "translated",
             "value" : "导出设置…"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "設定を書き出す…"
+          }
         }
       }
     },
@@ -11190,6 +13937,12 @@
             "state" : "translated",
             "value" : "将工作流、词典条目、快捷短语、配置文件、提示词操作、快捷键绑定、已安装的社区插件、转录历史记录（仅文本，不含已保存的音频）和更新频道导出到一个文件，可在另一台 Mac 上导入。重新安装插件时会获取市场中的最新版本，并且需要网络连接。服务提供商 API 密钥、许可证和通用偏好设置不会导出。"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ワークフロー、辞書、スニペット、プロファイル、プロンプトアクション、ホットキー、インストール済みのコミュニティ製プラグイン、文字起こし履歴（テキストのみ・保存音声は含まない）、更新チャンネルを1つのファイルに書き出し、他のMacに取り込めます。プラグインはマーケットプレイスの最新版が再インストールされるため、ネットワーク接続が必要です。プロバイダーのAPIキー、ライセンス、一般設定は含まれません。"
+          }
         }
       }
     },
@@ -11206,11 +13959,23 @@
             "state" : "translated",
             "value" : "将工作流、词典条目、快捷短语、配置文件、提示词操作、快捷键绑定、已安装的社区插件、转录历史记录（仅文本，不含已保存的音频）、更新频道，以及“通用”“听写”“听写恢复”“文件转录”和“录音”页面中的偏好设置导出到一个文件，可在另一台 Mac 上导入。重新安装插件时会获取市场中的最新版本，并且需要网络连接。服务提供商 API 密钥、许可证、登录时启动、所选引擎和模型，以及其他设备专用设置不会导出。"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ワークフロー、辞書、スニペット、プロファイル、プロンプトアクション、ホットキー、インストール済みのコミュニティ製プラグイン、文字起こし履歴（テキストのみ・保存音声は含まない）、更新チャンネルと、一般・音声入力・音声入力の復元・ファイル文字起こし・レコーダーの各設定を1つのファイルに書き出し、他のMacに取り込めます。プラグインはマーケットプレイスの最新版が再インストールされるため、ネットワーク接続が必要です。プロバイダーのAPIキー、ライセンス、ログイン時の起動、選択したエンジンやモデルなど、Macごとに異なる設定は含まれません。"
+          }
         }
       }
     },
     "External plugin bundle %@ is incompatible with this runtime." : {
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das externe Plugin-Bundle %@ ist mit dieser Laufzeit nicht kompatibel."
+          }
+        },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
@@ -11227,6 +13992,12 @@
     },
     "External plugin bundle %@ was kept for an older TypeWhisper line." : {
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das externe Plugin-Bundle %@ wurde für eine ältere TypeWhisper-Linie beibehalten."
+          }
+        },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
@@ -11243,6 +14014,12 @@
     },
     "External plugin bundle %@ was skipped; the built-in plugin is active instead." : {
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das externe Plugin-Bundle %@ wurde übersprungen; stattdessen ist das integrierte Plugin aktiv."
+          }
+        },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
@@ -11547,6 +14324,72 @@
         }
       }
     },
+    "Start speaking right away" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sofort losreden"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "すぐに話し始める"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "立即开始说话"
+          }
+        }
+      }
+    },
+    "Keeps the microphone running between dictations and holds the last half second of audio in memory only, so your first words are not cut off. Nothing is saved, sent, or processed until you start dictating. The orange microphone indicator stays on while this is enabled." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hält das Mikrofon zwischen Diktaten aktiv und speichert nur die letzte halbe Sekunde Audio im Arbeitsspeicher, damit deine ersten Wörter nicht abgeschnitten werden. Bis du ein Diktat startest, wird nichts gespeichert, gesendet oder verarbeitet. Der orangefarbene Mikrofonindikator bleibt eingeschaltet, solange die Option aktiv ist."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "音声入力の合間もマイクを動作させ、直近0.5秒分の音声だけをメモリ内に保持します。これにより最初の言葉が切れません。音声入力を開始するまで、何も保存・送信・処理されません。この設定が有効な間は、オレンジ色のマイクインジケータが表示されたままになります。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在两次听写之间保持麦克风运行，仅在内存中保留最近半秒的音频，这样开头的几个字不会被截掉。在你开始听写之前，不会保存、发送或处理任何内容。启用期间，橙色麦克风指示器会一直亮着。"
+          }
+        }
+      }
+    },
+    "On Macs where the built-in microphone needs voice processing, it cannot stay active between dictations. This setting has no effect there; choose another microphone to use it." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auf Macs, deren eingebautes Mikrofon Sprachverarbeitung benötigt, kann es zwischen Diktaten nicht aktiv bleiben. Die Option hat dort keine Wirkung; wähle ein anderes Mikrofon, um sie zu nutzen."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "内蔵マイクで音声処理が必要なMacでは、音声入力の合間にマイクを動作させたままにできません。その場合、この設定は効果がありません。使用するには別のマイクを選んでください。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在内置麦克风需要语音处理的 Mac 上，两次听写之间无法保持麦克风运行，此选项在这些机器上不起作用；请选择其他麦克风来使用它。"
+          }
+        }
+      }
+    },
     "Fastest" : {
       "comment" : "A description of the \"Fastest\" transcription engine.",
       "isCommentAutoGenerated" : true,
@@ -11573,6 +14416,12 @@
     },
     "File automation" : {
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Datei-Automatisierung"
+          }
+        },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
@@ -11708,6 +14557,35 @@
         }
       }
     },
+    "Finish Later" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Finish Later"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Später abschließen"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "後で完了"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "稍后完成"
+          }
+        }
+      }
+    },
     "Finish the Discord authorization flow in your browser, then refresh the status here." : {
       "comment" : "A message that instructs the user to finish the Discord authorization flow and refresh the status.",
       "isCommentAutoGenerated" : true,
@@ -11814,6 +14692,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "已选择文件夹"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "フォルダを選択済み"
           }
         }
       }
@@ -12251,6 +15135,34 @@
             "state" : "translated",
             "value" : "全局键盘快捷键。导入时仅填充空白位置 - 绝不覆盖现有绑定。"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "アプリ共通のキーボードショートカット。取込み時は未設定の項目にのみ適用し、既存の割り当ては上書きしません。"
+          }
+        }
+      }
+    },
+    "Glass follows your system appearance and uses Liquid Glass on macOS 26. Earlier versions show a translucent material." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Glas folgt dem Erscheinungsbild des Systems und nutzt ab macOS 26 Liquid Glass. Ältere Versionen zeigen ein transluzentes Material."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ガラスはシステムの外観に従い、macOS 26ではLiquid Glassを使用します。それ以前のバージョンでは半透明のマテリアルを表示します。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "玻璃主题跟随系统外观，在 macOS 26 上使用 Liquid Glass，更早的版本显示半透明材质。"
+          }
         }
       }
     },
@@ -12328,7 +15240,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "統合へ"
+            "value" : "プラグインを開く"
           }
         },
         "zh-Hans" : {
@@ -12611,6 +15523,12 @@
             "state" : "translated",
             "value" : "历史记录：已导入 %d 条"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "履歴: %d件を取り込み"
+          }
         }
       }
     },
@@ -12626,6 +15544,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "历史记录：已跳过 %d 条（超出保留期限）"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "履歴: %d件をスキップ（設定した保存期間より古い）"
           }
         }
       }
@@ -12746,6 +15670,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "快捷键：已应用 %1$d 个，跳过 %2$d 个（已被占用）"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ホットキー: %d件を適用、%d件をスキップ（割り当て済み）"
           }
         }
       }
@@ -13218,6 +16148,12 @@
             "state" : "translated",
             "value" : "导入设置…"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "設定を取り込む…"
+          }
         }
       }
     },
@@ -13334,6 +16270,12 @@
             "state" : "translated",
             "value" : "包含 %@"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@を含める"
+          }
         }
       }
     },
@@ -13435,6 +16377,50 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "继承默认设置的 LLM 工作流会按顺序尝试这些服务提供商。指定服务提供商的工作流只使用所选项。"
+          }
+        }
+      }
+    },
+    "Process long dictations in segments" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lange Diktate abschnittsweise verarbeiten"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "分段处理长篇听写"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "長い音声入力を分割して処理する"
+          }
+        }
+      }
+    },
+    "Speeds up long dictations by processing the text in parts. With a streaming engine and live preview, finished sentences are processed while you speak; otherwise, with cloud providers, the parts run in parallel after recording. Uses more requests. Not suitable for workflows that need the whole text at once, such as summaries or JSON." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Beschleunigt lange Diktate, indem der Text in Abschnitten verarbeitet wird. Mit einer Streaming-Engine und Live-Vorschau werden fertige Sätze schon während des Sprechens verarbeitet, sonst laufen die Abschnitte bei Cloud-Anbietern nach der Aufnahme parallel. Verursacht mehr Anfragen. Nicht geeignet für Workflows, die den ganzen Text auf einmal brauchen, etwa Zusammenfassungen oder JSON."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将文本分段处理，以加快长篇听写的速度。使用流式引擎并开启实时预览时，已说完的句子会在你说话时同步处理；否则，使用云服务提供商时，各段会在录音结束后并行处理。会产生更多请求。不适用于需要一次性处理全文的工作流，例如摘要或 JSON。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "長い音声入力を分割して処理し、処理時間を短縮します。逐次認識に対応するエンジンとリアルタイム表示を使う場合は、話している間に完了した文から処理します。それ以外のクラウドプロバイダーでは、録音後に分割した内容を並列で処理します。リクエスト数が増えます。要約やJSON出力など、全文をまとめて処理するワークフローには向きません。"
           }
         }
       }
@@ -13654,7 +16640,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ワークフローエンジンの上書きを使用する前に、「統合」で文字起こしエンジンをインストールしてください。"
+            "value" : "ワークフローで別のエンジンを指定するには、先に「プラグイン」で文字起こしエンジンをインストールしてください。"
           }
         },
         "zh-Hans" : {
@@ -13698,7 +16684,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「統合」タブで他のLLMプロバイダーをインストールしてください。"
+            "value" : "「プラグイン」で他のLLMプロバイダーをインストールしてください。"
           }
         },
         "zh-Hans" : {
@@ -13714,7 +16700,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ワークフローの上書きを使用する前に、「統合」でLLMプロバイダをインストールしてください。"
+            "value" : "ワークフローで別のプロバイダーを指定するには、先に「プラグイン」でLLMプロバイダーをインストールしてください。"
           }
         },
         "zh-Hans" : {
@@ -14061,7 +17047,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "統合"
+            "value" : "プラグイン"
           }
         },
         "zh-Hans" : {
@@ -14189,6 +17175,90 @@
         }
       }
     },
+    "indicatorTheme.classic" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Klassisch"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Classic"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "クラシック"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "经典"
+          }
+        }
+      }
+    },
+    "indicatorTheme.glass" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Glas"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Glass"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ガラス"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "玻璃"
+          }
+        }
+      }
+    },
+    "indicatorTheme.light" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hell"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Light"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ライト"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "浅色"
+          }
+        }
+      }
+    },
     "just_now" : {
       "localizations" : {
         "de" : {
@@ -14245,6 +17315,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "词典和快捷短语会随你的云文件夹同步，在任何地方都可使用。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "クラウドフォルダの同期先でも、辞書とスニペットを使えます。"
           }
         }
       }
@@ -14579,6 +17655,12 @@
             "state" : "translated",
             "value" : "从插入后的编辑中学习纠正"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "入力後の編集から修正内容を学習する"
+          }
         }
       }
     },
@@ -14617,6 +17699,12 @@
             "state" : "translated",
             "value" : "已学习“%1$@”→“%2$@”"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」→「%@」の修正を学習しました"
+          }
         }
       }
     },
@@ -14632,6 +17720,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "已学习 %d 条修正"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%d件の修正を学習しました"
           }
         }
       }
@@ -14649,6 +17743,12 @@
             "state" : "translated",
             "value" : "学习中"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "学習"
+          }
         }
       }
     },
@@ -14664,6 +17764,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "直接插入后学习"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "直接入力後に学習"
           }
         }
       }
@@ -15234,6 +18340,12 @@
     },
     "Loaded" : {
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Geladen"
+          }
+        },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
@@ -15297,6 +18409,12 @@
             "state" : "translated",
             "value" : "正在加载音频 %lld%%"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "音声を読込み中 %lld%%"
+          }
         }
       }
     },
@@ -15340,6 +18458,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "本地"
+          }
+        }
+      }
+    },
+    "Local & Cloud" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ローカルとクラウド"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本地和云端"
           }
         }
       }
@@ -15479,7 +18613,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "統合で管理"
+            "value" : "プラグインで管理"
           }
         },
         "zh-Hans" : {
@@ -15568,6 +18702,12 @@
     },
     "Manual" : {
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Manuell"
+          }
+        },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
@@ -15652,6 +18792,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "手动：%@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "手動: %@"
           }
         }
       }
@@ -15754,6 +18900,12 @@
     },
     "Marketplace replacement %@ is available, but replacing external bundle %@ requires confirmation." : {
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Marketplace-Version %1$@ ist verfügbar, das Ersetzen des externen Bundles %2$@ muss aber bestätigt werden."
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "new",
@@ -15842,6 +18994,12 @@
     },
     "Meeting Notes" : {
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Besprechungsnotizen"
+          }
+        },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
@@ -16226,6 +19384,12 @@
     },
     "Missing SDK compatibility metadata for this TypeWhisper runtime." : {
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Für diese TypeWhisper-Laufzeit fehlen die SDK-Kompatibilitätsangaben."
+          }
+        },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
@@ -16572,6 +19736,12 @@
             "state" : "translated",
             "value" : "将 %@ 前移"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@を前に移動"
+          }
         }
       }
     },
@@ -16583,6 +19753,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "将 %@ 后移"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@を後ろに移動"
           }
         }
       }
@@ -16616,6 +19792,12 @@
             "state" : "translated",
             "value" : "前移"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "前に移動"
+          }
         }
       }
     },
@@ -16627,6 +19809,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "后移"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "後ろに移動"
           }
         }
       }
@@ -17215,6 +20403,12 @@
     },
     "No available plugins match this search or filter." : {
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keine verfügbaren Plugins passen zu dieser Suche oder diesem Filter."
+          }
+        },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
@@ -17234,7 +20428,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Noch keine Community-Pakete verfuegbar."
+            "value" : "Noch keine Community-Pakete verfügbar."
           }
         },
         "ja" : {
@@ -17367,6 +20561,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "未选择文件夹"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "フォルダ未選択"
           }
         }
       }
@@ -17630,7 +20830,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "アクティブなメモリ保存プラグインがありません。統合から1つを有効にしてください。"
+            "value" : "メモリ保存用のプラグインが有効になっていません。「プラグイン」で有効にしてください。"
           }
         },
         "zh-Hans" : {
@@ -18098,7 +21298,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Keine Transkriptions-Engines verfuegbar."
+            "value" : "Keine Transkriptions-Engines verfügbar."
           }
         },
         "ja" : {
@@ -18122,13 +21322,13 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Keine Transkriptions-Engines installiert. Engines ueber Integrationen installieren."
+            "value" : "Keine Transkriptions-Engines installiert. Engines über Integrationen installieren."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "インストールされた文字起こしエンジンがありません。統合からエンジンをインストールしてください。"
+            "value" : "文字起こしエンジンがインストールされていません。「プラグイン」でインストールしてください。"
           }
         },
         "zh-Hans" : {
@@ -18511,6 +21711,12 @@
             "state" : "translated",
             "value" : "尚未设置"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未設定"
+          }
         }
       }
     },
@@ -18686,6 +21892,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "开启"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "オン"
           }
         }
       }
@@ -18916,7 +22128,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Oeffne die Einstellungen einer Engine, um ein Modell herunterzuladen."
+            "value" : "Öffne die Einstellungen einer Engine, um ein Modell herunterzuladen."
           }
         },
         "ja" : {
@@ -18963,13 +22175,13 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Integrationen oeffnen"
+            "value" : "Integrationen öffnen"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "統合を開く"
+            "value" : "プラグインを開く"
           }
         },
         "zh-Hans" : {
@@ -19112,8 +22324,36 @@
         }
       }
     },
+    "Open Settings" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Einstellungen öffnen"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "設定を開く"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打开设置"
+          }
+        }
+      }
+    },
     "Open Setup Wizard" : {
       "localizations" : {
+        "de" : {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einrichtungsassistent öffnen"
+          }
+        },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
@@ -19865,6 +23105,12 @@
             "state" : "translated",
             "value" : "按应用 / 按 URL 的设置配置文件。"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "アプリごと・URLごとの設定プロファイル。"
+          }
         }
       }
     },
@@ -20299,6 +23545,12 @@
             "state" : "translated",
             "value" : "插件：已安装 %1$d 个，跳过 %2$d 个（已安装或不可用）"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "プラグイン: %d件をインストール、%d件をスキップ（インストール済みまたは利用不可）"
+          }
         }
       }
     },
@@ -20331,6 +23583,12 @@
             "state" : "translated",
             "value" : "可迁移的偏好设置，包括“通用”“听写”“听写恢复”“文件转录”和“录音”页面中的设置，以及所选更新频道。"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "一般・音声入力・音声入力の復元・ファイル文字起こし・レコーダーの各設定のうち、別のMacでも使える設定と、選択した更新チャンネル。"
+          }
         }
       }
     },
@@ -20358,6 +23616,12 @@
     },
     "Post-processing" : {
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nachbearbeitung"
+          }
+        },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
@@ -20425,6 +23689,12 @@
             "state" : "translated",
             "value" : "精准"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正確さ重視"
+          }
         }
       }
     },
@@ -20457,6 +23727,12 @@
             "state" : "translated",
             "value" : "偏好设置"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "環境設定"
+          }
         }
       }
     },
@@ -20472,6 +23748,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "偏好设置：已应用 %d 项"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "環境設定: %d件を適用"
           }
         }
       }
@@ -20507,6 +23789,12 @@
             "state" : "translated",
             "value" : "高级版账户已激活。可在一个位置管理跨设备同步。"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "プレミアムアカウントが有効です。デバイス間の同期をここで管理できます。"
+          }
         }
       }
     },
@@ -20519,6 +23807,12 @@
             "state" : "translated",
             "value" : "需要高级版账户"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "プレミアムアカウントが必要です"
+          }
         }
       }
     },
@@ -20530,6 +23824,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "高级版已激活"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "プレミアム有効"
           }
         }
       }
@@ -20547,6 +23847,12 @@
             "state" : "translated",
             "value" : "高级功能中心"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "プレミアム機能の管理"
+          }
         }
       }
     },
@@ -20558,6 +23864,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "高级版同步"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "プレミアム同期"
           }
         }
       }
@@ -21135,6 +24447,35 @@
         }
       }
     },
+    "Press Command Return to finish setup later." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Press Command Return to finish setup later."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Drücke Befehlstaste Return, um das Setup später abzuschließen."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Command＋Returnキーを押すと、設定の完了を後回しにできます。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "按 Command＋Return 键，稍后再完成设置。"
+          }
+        }
+      }
+    },
     "Press Enter Automatically" : {
       "localizations" : {
         "ja" : {
@@ -21523,6 +24864,12 @@
             "state" : "translated",
             "value" : "已处理"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "処理済み"
+          }
         }
       }
     },
@@ -21799,6 +25146,12 @@
             "state" : "translated",
             "value" : "配置文件：已导入 %d 个"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "プロファイル: %d件を取り込み"
+          }
         }
       }
     },
@@ -21837,6 +25190,12 @@
             "state" : "translated",
             "value" : "提示词操作"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "プロンプトアクション"
+          }
         }
       }
     },
@@ -21852,6 +25211,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "提示词操作：已导入 %d 个"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "プロンプトアクション: %d件を取り込み"
           }
         }
       }
@@ -22515,6 +25880,12 @@
             "state" : "translated",
             "value" : "实时"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "リアルタイム"
+          }
         }
       }
     },
@@ -22590,6 +25961,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "识别修正和替换词条。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "音声認識の修正と置換用の単語。"
           }
         }
       }
@@ -22795,7 +26172,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Speichert ein Transkript fuer Recorder-Aufnahmen. Die Auswahl unten gilt nur fuer den System Audio Recorder, nicht fuer normale Dictation."
+            "value" : "Speichert ein Transkript für Recorder-Aufnahmen. Die Auswahl unten gilt nur für den System-Audio-Recorder, nicht für normale Diktate."
           }
         },
         "en" : {
@@ -22936,7 +26313,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Die finale Transkription hat keinen Text zurueckgegeben."
+            "value" : "Die finale Transkription hat keinen Text zurückgegeben."
           }
         },
         "en" : {
@@ -23286,7 +26663,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ライブテキストウィンドウを使用するには、統合からライブテキストプラグインをインストールしてください。"
+            "value" : "録音中の文字起こしを表示するには、「プラグイン」でLive Transcriptをインストールしてください。"
           }
         },
         "zh-Hans" : {
@@ -23387,7 +26764,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Keine Engine ausgewaehlt"
+            "value" : "Keine Engine ausgewählt"
           }
         },
         "en" : {
@@ -23667,7 +27044,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live-Transkript waehrend der Aufnahme anzeigen"
+            "value" : "Live-Transkript während der Aufnahme anzeigen"
           }
         },
         "en" : {
@@ -24003,7 +27380,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Transkription fehlgeschlagen waehrend %@: %@"
+            "value" : "Transkription fehlgeschlagen während %@: %@"
           }
         },
         "en" : {
@@ -24031,7 +27408,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Transkription fehlgeschlagen fuer %@, %@ waehrend %@: %@"
+            "value" : "Transkription fehlgeschlagen für %@, %@ während %@: %@"
           }
         },
         "en" : {
@@ -24059,7 +27436,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Aktiviere das Transkript, um Engine, Modell, Sprache und Aufgabe fuer Recorder-Aufnahmen zu aendern."
+            "value" : "Aktiviere das Transkript, um Engine, Modell, Sprache und Aufgabe für Recorder-Aufnahmen zu ändern."
           }
         },
         "en" : {
@@ -24087,7 +27464,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Dictation-Standard-Engine verwenden"
+            "value" : "Diktat-Standard-Engine verwenden"
           }
         },
         "en" : {
@@ -24582,6 +27959,18 @@
       "comment" : "A confirmation message that asks the user to confirm the deletion of a downloaded model. The first argument is the name of the model. The second argument is the name of the plugin.",
       "isCommentAutoGenerated" : true,
       "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@を削除しますか？ダウンロード済みのモデルファイルが削除され、%2$@が無効になります。"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ entfernen? Dadurch werden die heruntergeladenen Modelldateien gelöscht und %2$@ deaktiviert."
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "new",
@@ -24600,6 +27989,18 @@
       "comment" : "A confirmation message for removing a downloaded model. The first argument is the name of the model. The second argument is the name of the plugin.",
       "isCommentAutoGenerated" : true,
       "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@を削除しますか？ダウンロード済みのモデルファイルが削除されます。%2$@はインストール済みかつ有効のままです。"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ entfernen? Dadurch werden die heruntergeladenen Modelldateien gelöscht. %2$@ bleibt installiert und aktiviert."
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "new",
@@ -24616,6 +28017,12 @@
     },
     "Remove %@? This will delete the incompatible plugin bundle, its stored data, and its credentials." : {
       "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@を削除しますか？互換性のないプラグインバンドル、保存データ、認証情報が削除されます。"
+          }
+        },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
@@ -24632,6 +28039,12 @@
     },
     "Remove downloaded model" : {
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Heruntergeladenes Modell entfernen"
+          }
+        },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
@@ -24648,6 +28061,12 @@
     },
     "Remove Downloaded Model" : {
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Heruntergeladenes Modell entfernen"
+          }
+        },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
@@ -24680,6 +28099,12 @@
     },
     "Remove incompatible bundle for %@" : {
       "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@の互換性のないバンドルを削除"
+          }
+        },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
@@ -24696,6 +28121,12 @@
     },
     "Remove Incompatible Plugin Bundle" : {
       "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "互換性のないプラグインバンドルを削除"
+          }
+        },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
@@ -24804,6 +28235,12 @@
     },
     "Replace" : {
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ersetzen"
+          }
+        },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
@@ -24820,6 +28257,12 @@
     },
     "Replace %@ with the Marketplace version" : {
       "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@をマーケットプレイス版に置き換える"
+          }
+        },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
@@ -24836,6 +28279,12 @@
     },
     "Replace Legacy Plugin Bundle" : {
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Altes Plugin-Bundle ersetzen"
+          }
+        },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
@@ -24852,6 +28301,12 @@
     },
     "Replace with Marketplace Version" : {
       "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "マーケットプレイス版に置き換える"
+          }
+        },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
@@ -25079,6 +28534,18 @@
       "comment" : "A message indicating that a bundle requires a specific version of the SDK, but the bundle declares a different version.",
       "isCommentAutoGenerated" : true,
       "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SDK %1$@が必要ですが、このバンドルは%2$@を宣言しています。"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Benötigt SDK %1$@, dieses Bundle gibt jedoch %2$@ an."
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "new",
@@ -25120,7 +28587,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Erfordert einen laufenden API-Server. Das CLI-Tool verbindet sich mit TypeWhispers API fuer schnelle Transkription ohne Modell-Kaltstart."
+            "value" : "Erfordert einen laufenden API-Server. Das CLI-Tool verbindet sich mit TypeWhispers API für schnelle Transkription ohne Modell-Kaltstart."
           }
         },
         "ja" : {
@@ -25207,6 +28674,18 @@
       "comment" : "A message that appears when TypeWhisper needs to be restarted to finish updating.",
       "isCommentAutoGenerated" : true,
       "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "TypeWhisperを再起動してアップデートを完了してください。"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Starte TypeWhisper neu, um das Update abzuschließen."
+          }
+        },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
@@ -25874,6 +29353,12 @@
             "state" : "translated",
             "value" : "已将 %d 条修正保存到词典"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%d件の修正を辞書に保存しました"
+          }
         }
       }
     },
@@ -25889,6 +29374,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "已保存到词典：“%1$@”→“%2$@”"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "辞書に保存しました: 「%@」→「%@」"
           }
         }
       }
@@ -26116,6 +29607,22 @@
         }
       }
     },
+    "Search recent transcriptions..." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最近の文字起こしを検索..."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "搜索最近转录…"
+          }
+        }
+      }
+    },
     "Search workflows" : {
       "localizations" : {
         "ja" : {
@@ -26128,22 +29635,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "搜索工作流"
-          }
-        }
-      }
-    },
-    "Search workflows and recent transcriptions..." : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ワークフローと最近の文字起こしを検索..."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "搜索工作流和最近转录…"
           }
         }
       }
@@ -26211,6 +29702,12 @@
             "state" : "translated",
             "value" : "%@ 中已启用“安全输入”。标准的按键+修饰键快捷键应仍可使用。在该应用退出密码或敏感输入状态前，仅依赖备用机制的快捷键类型可能无法使用。"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@でセキュア入力が有効です。通常のキーと修飾キーを組み合わせたショートカットは引き続き使えるはずです。代替方式のみを使うショートカットは、そのアプリでパスワードなどの機密情報の入力を終えるまで動作しない場合があります。"
+          }
         }
       }
     },
@@ -26222,6 +29719,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "无法生成安全登录数据。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "安全なサインイン用データを生成できませんでした。"
           }
         }
       }
@@ -26358,6 +29861,12 @@
             "state" : "translated",
             "value" : "全选"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "すべて選択"
+          }
         }
       }
     },
@@ -26445,6 +29954,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "全部取消选择"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "選択をすべて解除"
           }
         }
       }
@@ -26669,6 +30184,12 @@
     },
     "Set a spoken language to configure punctuation behavior." : {
       "localizations" : {
+        "de" : {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wähle eine gesprochene Sprache, um die Satzzeichenerkennung zu konfigurieren."
+          }
+        },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
@@ -26905,7 +30426,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ordnerueberwachung"
+            "value" : "Ordnerüberwachung"
           }
         },
         "en" : {
@@ -27288,6 +30809,12 @@
             "state" : "translated",
             "value" : "请登录 iCloud 并启用 iCloud 云盘以使用自动同步。"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自動同期を使うには、iCloudにサインインしてiCloud Driveを有効にしてください。"
+          }
         }
       }
     },
@@ -27299,6 +30826,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "请先在上方通过 Apple 登录，并关联许可证或 App Store 订阅以开始同步。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "同期を始めるには、上の「Appleでサインイン」からサインインし、ライセンスまたはApp Storeのサブスクリプションを紐づけてください。"
           }
         }
       }
@@ -27312,6 +30845,12 @@
             "state" : "translated",
             "value" : "无法完成通过 Apple 登录。"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Appleでのサインインを完了できませんでした。"
+          }
         }
       }
     },
@@ -27323,6 +30862,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "退出登录"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "サインアウト"
           }
         }
       }
@@ -27461,6 +31006,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "快捷短语：已导入 %1$d 条，跳过 %2$d 条（已存在）"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スニペット: %d件を取り込み、%d件をスキップ（登録済み）"
           }
         }
       }
@@ -27653,6 +31204,12 @@
     },
     "Spoken Punctuation" : {
       "localizations" : {
+        "de" : {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gesprochene Satzzeichen"
+          }
+        },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
@@ -28088,6 +31645,12 @@
             "state" : "translated",
             "value" : "强"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "強め"
+          }
         }
       }
     },
@@ -28420,6 +31983,12 @@
             "state" : "translated",
             "value" : "同步"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "同期"
+          }
         }
       }
     },
@@ -28431,6 +32000,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "同步数据保存在您选择的云端位置，且绝不会经过 TypeWhisper 账户服务。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "同期データは選択したクラウドの保存先に保管され、TypeWhisperのアカウントサービスを経由しません。"
           }
         }
       }
@@ -28448,6 +32023,12 @@
             "state" : "translated",
             "value" : "通过你自己的 iCloud Drive、Dropbox、OneDrive、Syncthing 或自定义文件夹同步词典和快捷短语。"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自分のiCloud Drive、Dropbox、OneDrive、Syncthing、または任意のフォルダを使って、辞書とスニペットを同期します。"
+          }
         }
       }
     },
@@ -28459,6 +32040,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "同步已关闭"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "同期はオフです"
           }
         }
       }
@@ -28499,6 +32086,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "已同步 %lld 项更改；跳过了 %lld 个无效文件。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld件の変更を同期し、%2$lld件の無効なファイルをスキップしました。"
           }
         }
       }
@@ -28603,6 +32196,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "同步中"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "同期中"
           }
         }
       }
@@ -28816,6 +32415,12 @@
             "state" : "translated",
             "value" : "让 TypeWhisper 学习你的纠正习惯，并在多台 Mac 之间同步词典和快捷短语。"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "TypeWhisperに修正内容を学習させ、複数のMacで辞書とスニペットを同期します。"
+          }
         }
       }
     },
@@ -28967,7 +32572,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Haeufige Begriffe aus Datenanalyse und KI fuer bessere Spracherkennung."
+            "value" : "Häufige Begriffe aus Datenanalyse und KI für bessere Spracherkennung."
           }
         },
         "en" : {
@@ -28996,7 +32601,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Haeufige Design-Begriffe fuer bessere Spracherkennung."
+            "value" : "Häufige Design-Begriffe für bessere Spracherkennung."
           }
         },
         "en" : {
@@ -29025,7 +32630,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Haeufige DevOps- und Cloud-Begriffe fuer bessere Spracherkennung."
+            "value" : "Häufige DevOps- und Cloud-Begriffe für bessere Spracherkennung."
           }
         },
         "en" : {
@@ -29054,7 +32659,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Haeufige iOS- und macOS-Begriffe fuer bessere Spracherkennung."
+            "value" : "Häufige iOS- und macOS-Begriffe für bessere Spracherkennung."
           }
         },
         "en" : {
@@ -29083,7 +32688,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Haeufige Begriffe aus der Webentwicklung fuer bessere Spracherkennung."
+            "value" : "Häufige Begriffe aus der Webentwicklung für bessere Spracherkennung."
           }
         },
         "en" : {
@@ -29132,6 +32737,12 @@
       "comment" : "Badge text for a dictionary engine support row.",
       "isCommentAutoGenerated" : true,
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Begriffe + Korrekturen"
+          }
+        },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
@@ -29250,6 +32861,12 @@
       "comment" : "Description of a dictionary engine support status when the user needs to set a plugin.",
       "isCommentAutoGenerated" : true,
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Begriffe erfordern eine Plugin-Einstellung"
+          }
+        },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
@@ -29359,7 +32976,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Text eingefuegt"
+            "value" : "Text eingefügt"
           }
         },
         "ja" : {
@@ -29372,6 +32989,29 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "文本已插入"
+          }
+        }
+      }
+    },
+    "Text may not have been inserted" : {
+      "comment" : "Text shown in a toast notification when a paste left the readable focused text field unchanged.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Text wurde möglicherweise nicht eingefügt"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "テキストが挿入されなかった可能性があります"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "文本可能未插入"
           }
         }
       }
@@ -29512,6 +33152,12 @@
             "state" : "translated",
             "value" : "该文件不是有效的 TypeWhisper 设置备份。"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このファイルは有効なTypeWhisperの設定バックアップではありません。"
+          }
         }
       }
     },
@@ -29565,6 +33211,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "不兼容的插件包位于受管插件文件夹之外，无法移除。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "互換性のないプラグインが、アプリの管理するPluginsフォルダの外にあるため削除できません。"
           }
         }
       }
@@ -29688,6 +33340,12 @@
             "state" : "translated",
             "value" : "无法验证高级版权益签名。"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "プレミアム利用権の署名を検証できませんでした。"
+          }
         }
       }
     },
@@ -29699,6 +33357,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "专用同步文件夹已删除。本地数据已保留。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "非公開の同期フォルダを削除しました。このMacのデータは保持されています。"
           }
         }
       }
@@ -29829,6 +33493,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "无法验证“通过 Apple 登录”的响应。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Appleでのサインインの応答を検証できませんでした。"
           }
         }
       }
@@ -30090,6 +33760,12 @@
             "state" : "translated",
             "value" : "此不兼容的插件包已取消注册。"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この互換性のないプラグインは、すでに登録が解除されています。"
+          }
         }
       }
     },
@@ -30290,7 +33966,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "このプロバイダの準備がまだ完了していません。このワークフローで使用するには、先に「統合」でセットアップを完了してください。"
+            "value" : "このプロバイダーの設定がまだ完了していません。ワークフローで使うには、先に「プラグイン」で設定を完了してください。"
           }
         },
         "zh-Hans" : {
@@ -30309,6 +33985,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "此操作会移除账户及其权益关联。本地条目和专用云端文件不会被删除。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "アカウントと利用権の紐づけを削除します。このMacの項目や非公開のクラウドファイルは削除されません。"
           }
         }
       }
@@ -30444,6 +34126,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "此操作将永久删除词数、应用、节省时间和活动的汇总统计数据。转写历史记录不会更改。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "単語数、利用アプリ、短縮できた時間、利用状況の集計を完全に削除します。文字起こし履歴は変更されません。"
           }
         }
       }
@@ -30693,6 +34381,12 @@
             "state" : "translated",
             "value" : "阈值"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "しきい値"
+          }
         }
       }
     },
@@ -30796,7 +34490,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "AIプロンプトを使用するには、セットアップ後に「統合」タブからLLMプロバイダー（例: Groq、OpenAI）をインストールしてください。"
+            "value" : "AIプロンプトを使うには、初期設定後に「プラグイン」でLLMプロバイダー（Groq、OpenAIなど）をインストールしてください。"
           }
         },
         "zh-Hans" : {
@@ -30888,7 +34582,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Zu kurz, halte den Hotkey etwas laenger"
+            "value" : "Zu kurz, halte den Hotkey etwas länger"
           }
         },
         "ja" : {
@@ -31155,6 +34849,12 @@
     },
     "Transcribe short / quiet clips more aggressively" : {
       "localizations" : {
+        "de" : {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kurze oder leise Aufnahmen stärker berücksichtigen"
+          }
+        },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
@@ -31335,6 +35035,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "包含转录历史的文本和元数据，绝不会包含已保存的音频。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "文字起こし履歴のテキストと付随情報。保存した音声は含まれません。"
           }
         }
       }
@@ -31686,6 +35392,12 @@
             "state" : "translated",
             "value" : "输入触发词后自动展开为指定文本的快捷短语。"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "呼び出し語から定型文を入力するショートカット。"
+          }
         }
       }
     },
@@ -31938,6 +35650,12 @@
             "state" : "translated",
             "value" : "TypeWhisper 可在直接听写插入后短暂监视目标文本框，仅学习明确可信的纠正。含义不明确的编辑会被跳过。"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "TypeWhisperは音声入力を直接挿入した後、入力欄を短時間確認し、確実に判断できる修正のみを学習します。判断が曖昧な編集は学習しません。"
+          }
         }
       }
     },
@@ -31977,6 +35695,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "通过工作流，让 TypeWhisper 更贴合你的使用方式"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "使うたびにTypeWhisperが使いやすくなります"
           }
         }
       }
@@ -32100,6 +35824,12 @@
             "state" : "translated",
             "value" : "TypeWhisper 在直接插入后会自动学习明确可信的纠正，无需询问每次编辑。"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "TypeWhisperは直接入力後の修正のうち、確実に判断できるものを学習します。編集のたびに確認することはありません。"
+          }
         }
       }
     },
@@ -32143,6 +35873,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "TypeWhisper 专用 iCloud 容器"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "TypeWhisper専用の非公開iCloud領域"
           }
         }
       }
@@ -32372,6 +36108,12 @@
             "state" : "translated",
             "value" : "撤销"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "取り消す"
+          }
         }
       }
     },
@@ -32423,6 +36165,18 @@
       "comment" : "A title for an alert that indicates that an uninstall operation failed.",
       "isCommentAutoGenerated" : true,
       "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "アンインストールに失敗しました"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deinstallation fehlgeschlagen"
+          }
+        },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
@@ -32671,7 +36425,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Update verfuegbar"
+            "value" : "Update verfügbar"
           }
         },
         "ja" : {
@@ -32722,6 +36476,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "更新渠道设置已生效"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "更新チャンネルを適用しました"
           }
         }
       }
@@ -33161,18 +36921,18 @@
         }
       }
     },
-    "Uses this value only for this prompt. Gemma 4 supports values from 0.0 to 1.0." : {
+    "Uses this value only for this prompt. Local MLX models support values from 0.0 to 1.0." : {
       "localizations" : {
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "このプロンプトでのみこの値を使用します。Gemma 4は0.0から1.0の値をサポートしています。"
+            "value" : "このプロンプトでのみこの値を使用します。ローカルMLXモデルは0.0から1.0の値をサポートしています。"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "此值仅用于当前提示词。Gemma 4 支持 0.0 到 1.0 之间的值。"
+            "value" : "此值仅用于当前提示词。本地 MLX 模型支持 0.0 到 1.0 之间的值。"
           }
         }
       }
@@ -33201,6 +36961,12 @@
     },
     "Utility" : {
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Werkzeug"
+          }
+        },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
@@ -33539,7 +37305,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ueberwachung beim App-Start beginnen"
+            "value" : "Überwachung beim App-Start beginnen"
           }
         },
         "en" : {
@@ -33567,7 +37333,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Quelldateien nach Transkription loeschen"
+            "value" : "Quelldateien nach Transkription löschen"
           }
         },
         "en" : {
@@ -33595,7 +37361,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ueberwacht den ausgewaehlten Ordner auf neue Audiodateien und transkribiert sie automatisch."
+            "value" : "Überwacht den ausgewählten Ordner auf neue Audiodateien und transkribiert sie automatisch."
           }
         },
         "en" : {
@@ -33679,7 +37445,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Das gewaehlte Untertitel-Format benoetigt Zeitstempel, aber die Engine hat keine Segmente geliefert."
+            "value" : "Das gewählte Untertitel-Format benötigt Zeitstempel, aber die Engine hat keine Segmente geliefert."
           }
         },
         "en" : {
@@ -33763,7 +37529,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Verlauf loeschen"
+            "value" : "Verlauf löschen"
           }
         },
         "en" : {
@@ -33905,7 +37671,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Kein Ordner ausgewaehlt"
+            "value" : "Kein Ordner ausgewählt"
           }
         },
         "en" : {
@@ -33961,7 +37727,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Gleicher Ordner wie Ueberwachungsordner"
+            "value" : "Gleicher Ordner wie Überwachungsordner"
           }
         },
         "en" : {
@@ -34045,7 +37811,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ordner auswaehlen..."
+            "value" : "Ordner auswählen..."
           }
         },
         "en" : {
@@ -34073,7 +37839,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ordner fuer die Audio-Ueberwachung auswaehlen"
+            "value" : "Ordner für die Audio-Überwachung auswählen"
           }
         },
         "en" : {
@@ -34101,7 +37867,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ordner fuer die Transkriptions-Ausgabe auswaehlen"
+            "value" : "Ordner für die Transkriptions-Ausgabe auswählen"
           }
         },
         "en" : {
@@ -34157,7 +37923,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ueberwachung starten"
+            "value" : "Überwachung starten"
           }
         },
         "en" : {
@@ -34185,7 +37951,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ueberwachung stoppen"
+            "value" : "Überwachung stoppen"
           }
         },
         "en" : {
@@ -34213,7 +37979,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ueberwachter Ordner"
+            "value" : "Überwachter Ordner"
           }
         },
         "en" : {
@@ -34885,6 +38651,28 @@
         }
       }
     },
+    "While this page is open, the indicator runs as a live preview on your screen." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Solange diese Seite geöffnet ist, läuft der Indikator als Live-Vorschau auf deinem Bildschirm."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このページを開いている間、インジケーターは画面上でライブプレビューとして動作します。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打开此页面期间，指示器会在屏幕上以实时预览方式运行。"
+          }
+        }
+      }
+    },
     "Whisper Mode" : {
       "localizations" : {
         "ja" : {
@@ -35290,6 +39078,12 @@
             "state" : "translated",
             "value" : "已导入 %d 个工作流"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ワークフロー: %d件を取り込み"
+          }
         }
       }
     },
@@ -35329,6 +39123,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "支持"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "対応する利用権"
           }
         }
       }
@@ -35457,7 +39257,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "設定後、『統合』タブで他のエンジンをインストールできます。"
+            "value" : "初期設定後に「プラグイン」で他のエンジンをインストールできます。"
           }
         },
         "zh-Hans" : {
@@ -35495,7 +39295,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "設定後、『プロンプト』および『統合』タブでプロンプトを管理し、他のプロバイダーをインストールできます。"
+            "value" : "初期設定後に「プロンプト」でプロンプトを管理し、「プラグイン」で他のプロバイダーをインストールできます。"
           }
         },
         "zh-Hans" : {
@@ -35662,6 +39462,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "您的 Apple 账户可让 Polar 和 App Store 权益在 Mac 和 iPhone 上保持可用。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Appleアカウントを使って、PolarとApp Storeの利用権をMacとiPhoneで共有できます。"
           }
         }
       }
@@ -36266,30 +40072,170 @@
         }
       }
     },
-    "calendarMeeting.settings.description" : {
+    "calendarMeeting.settings.detectAdHoc" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Lass dich vor geplanten Meetings erinnern oder starte die Aufnahme automatisch, sobald du wirklich beitrittst."
+            "value" : "Anrufe ohne Kalendertermin erkennen"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Get reminders for scheduled meetings or start recording automatically after you actually join."
+            "value" : "Detect calls without a calendar event"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "予定したミーティングの通知を受け取るか、実際の参加後に自動で録音を開始します。"
+            "value" : "カレンダーにない通話を検出"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "获取预定会议提醒，或在你实际加入后自动开始录音。"
+            "value" : "检测没有日历事件的通话"
+          }
+        }
+      }
+    },
+    "calendarMeeting.settings.detectAdHocHelp" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Erkennt auch Mikrofonaktivität von Zoom und Teams sowie Browser-Meetings wie Google Meet, auch in Hintergrund-Tabs. Kalenderzugriff ist optional. Der gewählte Startmodus und die ausgewählten Anbieter gelten auch für diese Anrufe."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Also detect Zoom and Teams microphone activity and browser meetings such as Google Meet, even in background tabs. Calendar access is optional. The selected start mode and providers apply to these calls too."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ZoomとTeamsのマイク使用、およびバックグラウンドのタブを含むGoogle Meetなどのブラウザでのミーティングも検出します。カレンダーへのアクセスは任意です。選択した開始モードとサービスはこれらの通話にも適用されます。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "同时检测 Zoom 和 Teams 的麦克风活动，以及 Google Meet 等浏览器会议，包括后台标签页。无需授予日历访问权限。所选的启动模式和服务也适用于这些通话。"
+          }
+        }
+      }
+    },
+    "calendarMeeting.settings.autoStopNotificationsOptional" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ohne Mitteilungen bleibt „Aufnahme fortsetzen“ in der Aufnahmeanzeige verfügbar. Sie wird während des Countdowns auch dann eingeblendet, wenn sie sonst ausgeblendet ist."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Without notifications, Continue recording remains available in the recording indicator, which is shown during the countdown even if normally hidden."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "通知がなくても、録音インジケーターの「録音を続ける」を使用できます。通常は非表示でも、カウントダウン中は表示されます。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "即使没有通知，仍可在录音指示器中选择“继续录音”。即使平时隐藏，指示器也会在倒计时期间显示。"
+          }
+        }
+      }
+    },
+    "calendarMeeting.settings.adHocAutoStopHelp" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bei Anrufen ohne Kalendertermin beginnt der Stopp-Countdown erst nach 90 Sekunden ohne Meeting-Audio. Kurze Unterbrechungen beenden die Aufnahme dadurch nicht."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Calls without a calendar event allow 90 seconds without meeting audio before the stop countdown begins, so brief interruptions do not end the recording."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "カレンダーにない通話では、ミーティング音声が90秒間使用されなくなってから停止カウントダウンが始まるため、短い中断で録音が終了することはありません。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "对于没有日历事件的通话，连续 90 秒未检测到会议音频活动后，才会开始停止录音的倒计时，避免短暂中断导致录音结束。"
+          }
+        }
+      }
+    },
+    "calendarMeeting.detected.titleFormat" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@-Anruf"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ call"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@の通話"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 通话"
+          }
+        }
+      }
+    },
+    "calendarMeeting.settings.description" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lass dich an Meetings erinnern oder starte Aufnahmen automatisch, wenn ein Anruf erkannt wird."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Get meeting reminders or start recording automatically when a call is detected."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ミーティングの通知を受け取るか、通話の検出時に自動で録音を開始します。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "获取会议提醒，或在检测到通话时自动开始录音。"
           }
         }
       }
@@ -36495,53 +40441,25 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Wenn das Meeting beendet scheint, warnt dich TypeWhisper sofort und stoppt die Aufnahme 15 Sekunden später, sofern du sie nicht fortsetzt."
+            "value" : "Wenn das Meeting beendet scheint, zeigt die Aufnahmeanzeige einen 15-Sekunden-Countdown mit „Aufnahme fortsetzen“. macOS-Mitteilungen sind optional."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "When the meeting appears to have ended, TypeWhisper warns you immediately and stops the recording 15 seconds later unless you continue it."
+            "value" : "When the meeting appears to have ended, the recording indicator shows a 15-second countdown with Continue recording. macOS notifications are optional."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ミーティングが終了したように見えると、TypeWhisperはすぐに警告し、「録音を続ける」を選ばない限り15秒後に録音を停止します。"
+            "value" : "ミーティングが終了したように見えると、録音インジケーターに15秒のカウントダウンと「録音を続ける」が表示されます。macOSの通知は任意です。"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "当会议似乎已结束时，TypeWhisper 会立即发出警告，并在 15 秒后停止录音，除非你选择继续录音。"
-          }
-        }
-      }
-    },
-    "calendarMeeting.settings.autoStopNotificationsRequired" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Auto-Stop benötigt erlaubte macOS-Mitteilungen und bleibt sonst ausgeschaltet."
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Auto-stop requires macOS notifications and stays off when they are unavailable."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "自動停止にはmacOSの通知許可が必要です。通知を利用できない場合はオフのままになります。"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "自动停止需要允许 macOS 通知；通知不可用时将保持关闭。"
+            "value" : "当会议似乎已结束时，录音指示器会显示 15 秒倒计时和“继续录音”按钮。macOS 通知不是必需的。"
           }
         }
       }
@@ -36663,25 +40581,25 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mitteilungen werden für Meeting-Hinweise und für die Warnung vor dem automatischen Stopp verwendet."
+            "value" : "Der Erinnerungsmodus benötigt macOS-Mitteilungen. Automatische Aufnahmen und der Stopp-Countdown in der App funktionieren auch ohne sie."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Notifications are used for meeting reminders and the warning before an automatic stop."
+            "value" : "Reminder mode needs macOS notifications. Automatic recording and the in-app stop countdown also work without them."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "通知はミーティングのリマインダーと、自動停止前の警告に使用されます。"
+            "value" : "通知モードにはmacOSの通知許可が必要です。自動録音とアプリ内の停止カウントダウンは、通知なしでも動作します。"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "通知用于会议提醒和自动停止前的警告。"
+            "value" : "提醒模式需要 macOS 通知。自动录音和应用内的停止倒计时无需通知也能正常运行。"
           }
         }
       }
@@ -39290,6 +43208,118 @@
         }
       }
     },
+    "premium.window.learning.repeatCount.label" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Korrektur speichern"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Save a correction"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "修正を保存するタイミング"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保存修正的时机"
+          }
+        }
+      }
+    },
+    "premium.window.learning.repeatCount.immediately" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sofort"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Immediately"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "すぐに"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "立即"
+          }
+        }
+      }
+    },
+    "premium.window.learning.repeatCount.afterFormat" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nach %lld Korrekturen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "After %lld corrections"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld回修正した後"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "修正 %lld 次后"
+          }
+        }
+      }
+    },
+    "premium.window.learning.repeatCount.help" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bei einer höheren Anzahl wird eine Korrektur erst im Wörterbuch gespeichert, wenn du dieselbe innerhalb von 30 Tagen so oft vorgenommen hast. Einmalige Änderungen werden ignoriert."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "With a higher count, a correction is only saved to the Dictionary after you have made the same correction that many times within 30 days. One-off edits are ignored."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "回数を増やすと、同じ修正を30日以内にその回数行ったときにだけ辞書へ保存されます。1回限りの編集は無視されます。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "次数设得更高时，只有在 30 天内做了相同次数的同一修正，才会保存到词典。一次性的编辑会被忽略。"
+          }
+        }
+      }
+    },
     "premium.window.learning.noActivity" : {
       "localizations" : {
         "de" : {
@@ -39538,6 +43568,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "修正已存在"
+          }
+        }
+      }
+    },
+    "premium.window.learning.outcome.awaitingRepeat" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Korrektur vorgemerkt, wird bei Wiederholung gespeichert"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Correction noted, saved when repeated"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "修正を記録しました。繰り返されると保存されます"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已记录修正，再次出现时保存"
           }
         }
       }
@@ -40667,25 +44725,25 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Lass dich vor dem Meeting erinnern oder starte die Aufnahme automatisch, sobald du dem geplanten Meeting tatsächlich beitrittst."
+            "value" : "Wähle eine Erinnerung zum Starten der Aufnahme oder die automatische Aufnahme mit abbrechbarem Countdown."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Get a reminder before the meeting, or start recording automatically after you actually join the scheduled meeting."
+            "value" : "Choose a reminder that lets you start recording, or automatic recording with a cancellable countdown."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ミーティングの前に通知を受け取るか、予定したミーティングへの実際の参加後に自動録音を開始します。"
+            "value" : "録音を開始できる通知、またはキャンセル可能なカウントダウン付きの自動録音を選択します。"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "在会议前获取提醒，或在你实际加入预定会议后自动开始录音。"
+            "value" : "选择通过提醒手动开始录音，或在可取消的倒计时后自动录音。"
           }
         }
       }
@@ -40810,6 +44868,7 @@
     "Audio download failed" : {"localizations":{"de":{"stringUnit":{"state":"translated","value":"Audio-Download fehlgeschlagen"}},"ja":{"stringUnit":{"state":"translated","value":"音声のダウンロードに失敗しました"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"音频下载失败"}}}},
     "Audio is available in iCloud." : {"localizations":{"de":{"stringUnit":{"state":"translated","value":"Audio ist in iCloud verfügbar."}},"ja":{"stringUnit":{"state":"translated","value":"音声はiCloudで利用できます。"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"音频可从 iCloud 获取。"}}}},
     "Changes" : {"localizations":{"de":{"stringUnit":{"state":"translated","value":"Änderungen"}},"ja":{"stringUnit":{"state":"translated","value":"変更"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"更改"}}}},
+    "Changes Unavailable" : {"localizations":{"de":{"stringUnit":{"state":"translated","value":"Änderungen nicht verfügbar"}},"ja":{"stringUnit":{"state":"translated","value":"変更を表示できません"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"无法显示更改"}}}},
     "Choose an entry to read its text, audio, and details." : {"localizations":{"de":{"stringUnit":{"state":"translated","value":"Wähle einen Eintrag aus, um Text, Audio und Details anzuzeigen."}},"ja":{"stringUnit":{"state":"translated","value":"テキスト、音声、詳細を表示する項目を選択してください。"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"选择一个条目以查看文本、音频和详细信息。"}}}},
     "Copy, export, complete, reopen, or delete the selected entries." : {"localizations":{"de":{"stringUnit":{"state":"translated","value":"Ausgewählte Einträge kopieren, exportieren, abschließen, erneut öffnen oder löschen."}},"ja":{"stringUnit":{"state":"translated","value":"選択した項目をコピー、書き出し、完了、再開、削除できます。"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"可以复制、导出、完成、重新打开或删除所选条目。"}}}},
     "Corrections added to the dictionary" : {"localizations":{"de":{"stringUnit":{"state":"translated","value":"Korrekturen zum Wörterbuch hinzugefügt"}},"ja":{"stringUnit":{"state":"translated","value":"修正を辞書に追加しました"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"已将更正添加到词典"}}}},
@@ -40881,6 +44940,7 @@
     "This Month" : {"localizations":{"de":{"stringUnit":{"state":"translated","value":"Dieser Monat"}},"ja":{"stringUnit":{"state":"translated","value":"今月"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"本月"}}}},
     "This deletes all history from every synchronized device. This cannot be undone." : {"localizations":{"de":{"stringUnit":{"state":"translated","value":"Dadurch wird der gesamte Verlauf von allen synchronisierten Geräten gelöscht. Dies kann nicht rückgängig gemacht werden."}},"ja":{"stringUnit":{"state":"translated","value":"すべての同期デバイスから履歴がすべて削除されます。この操作は取り消せません。"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"这会从所有已同步设备中删除全部历史记录，且无法撤销。"}}}},
     "This deletes all history stored on this Mac. This cannot be undone." : {"localizations":{"de":{"stringUnit":{"state":"translated","value":"Dadurch wird der gesamte auf diesem Mac gespeicherte Verlauf gelöscht. Dies kann nicht rückgängig gemacht werden."}},"ja":{"stringUnit":{"state":"translated","value":"このMacに保存された履歴がすべて削除されます。この操作は取り消せません。"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"这会删除此 Mac 上存储的全部历史记录，且无法撤销。"}}}},
+    "This entry is too long to compare word by word. Use Final or Original to read the full text." : {"localizations":{"de":{"stringUnit":{"state":"translated","value":"Dieser Eintrag ist zu lang für einen wortweisen Vergleich. Verwende „Final“ oder „Original“, um den vollständigen Text zu lesen."}},"ja":{"stringUnit":{"state":"translated","value":"この項目は長すぎるため、単語単位で比較できません。全文を読むには「最終版」または「オリジナル」を使用してください。"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"此条目过长，无法逐词比较。请使用“最终版本”或“原始版本”阅读全文。"}}}},
     "This removes the selected history from every synchronized device. This cannot be undone." : {"localizations":{"de":{"stringUnit":{"state":"translated","value":"Dadurch wird der ausgewählte Verlauf von allen synchronisierten Geräten entfernt. Dies kann nicht rückgängig gemacht werden."}},"ja":{"stringUnit":{"state":"translated","value":"選択した履歴がすべての同期デバイスから削除されます。この操作は取り消せません。"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"这会从所有已同步设备中移除所选历史记录，且无法撤销。"}}}},
     "This removes the selected history from this Mac. This cannot be undone." : {"localizations":{"de":{"stringUnit":{"state":"translated","value":"Dadurch wird der ausgewählte Verlauf von diesem Mac entfernt. Dies kann nicht rückgängig gemacht werden."}},"ja":{"stringUnit":{"state":"translated","value":"選択した履歴がこのMacから削除されます。この操作は取り消せません。"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"这会从此 Mac 中移除所选历史记录，且无法撤销。"}}}},
     "With Audio" : {"localizations":{"de":{"stringUnit":{"state":"translated","value":"Mit Audio"}},"ja":{"stringUnit":{"state":"translated","value":"音声あり"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"含音频"}}}},
@@ -40895,37 +44955,661 @@
     "iPad App" : {"localizations":{"de":{"stringUnit":{"state":"translated","value":"iPad-App"}},"ja":{"stringUnit":{"state":"translated","value":"iPadアプリ"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"iPad App"}}}},
     "iPhone App" : {"localizations":{"de":{"stringUnit":{"state":"translated","value":"iPhone-App"}},"ja":{"stringUnit":{"state":"translated","value":"iPhoneアプリ"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"iPhone App"}}}},
     "Mac Dictation" : {"localizations":{"de":{"stringUnit":{"state":"translated","value":"Mac-Diktat"}},"ja":{"stringUnit":{"state":"translated","value":"Macの音声入力"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"Mac 听写"}}}},
+    "Windows Dictation" : {"localizations":{"de":{"stringUnit":{"state":"translated","value":"Windows-Diktat"}},"ja":{"stringUnit":{"state":"translated","value":"Windowsの音声入力"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"Windows 听写"}}}},
+    "Windows" : {"localizations":{"de":{"stringUnit":{"state":"translated","value":"Windows"}},"ja":{"stringUnit":{"state":"translated","value":"Windows"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"Windows"}}}},
+    "Recorder" : {"localizations":{"de":{"stringUnit":{"state":"translated","value":"Recorder"}},"ja":{"stringUnit":{"state":"translated","value":"レコーダー"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"录音"}}}},
     "More History Options" : {"localizations":{"de":{"stringUnit":{"state":"translated","value":"Weitere Verlaufsoptionen"}},"ja":{"stringUnit":{"state":"translated","value":"その他の履歴オプション"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"更多历史记录选项"}}}},
     "No Failed Entries" : {"localizations":{"de":{"stringUnit":{"state":"translated","value":"Keine fehlgeschlagenen Einträge"}},"ja":{"stringUnit":{"state":"translated","value":"失敗した項目はありません"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"没有失败的条目"}}}},
     "Save Changes?" : {"localizations":{"de":{"stringUnit":{"state":"translated","value":"Änderungen speichern?"}},"ja":{"stringUnit":{"state":"translated","value":"変更を保存しますか？"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"保存更改？"}}}},
     "Save or discard your changes before leaving this entry." : {"localizations":{"de":{"stringUnit":{"state":"translated","value":"Speichere oder verwirf deine Änderungen, bevor du diesen Eintrag verlässt."}},"ja":{"stringUnit":{"state":"translated","value":"この項目を離れる前に変更を保存または破棄してください。"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"离开此条目前，请保存或放弃更改。"}}}},
     "Smart Mailboxes" : {"localizations":{"de":{"stringUnit":{"state":"translated","value":"Intelligente Postfächer"}},"ja":{"stringUnit":{"state":"translated","value":"スマートメールボックス"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"智能邮箱"}}}},
-    "Enable the integration to open this page." : {"localizations":{"de":{"stringUnit":{"state":"translated","value":"Aktiviere die Integration, um diese Seite zu öffnen."}},"ja":{"stringUnit":{"state":"translated","value":"このページを開くにはインテグレーションを有効にしてください。"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"启用集成后即可打开此页面。"}}}},
-    "Integration Unavailable" : {"localizations":{"de":{"stringUnit":{"state":"translated","value":"Integration nicht verfügbar"}},"ja":{"stringUnit":{"state":"translated","value":"インテグレーションを利用できません"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"集成不可用"}}}},
+    "Enable the integration to open this page." : {"localizations":{"de":{"stringUnit":{"state":"translated","value":"Aktiviere die Integration, um diese Seite zu öffnen."}},"ja":{"stringUnit":{"state":"translated","value":"このページを開くには、プラグインを有効にしてください。"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"启用集成后即可打开此页面。"}}}},
+    "Integration Unavailable" : {"localizations":{"de":{"stringUnit":{"state":"translated","value":"Integration nicht verfügbar"}},"ja":{"stringUnit":{"state":"translated","value":"プラグインを利用できません"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"集成不可用"}}}},
     "calendarMeeting.settings.howItWorks" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "TypeWhisper startet erst, wenn dein Mac erkennt, dass du dem passenden geplanten Meeting beigetreten bist."
+            "value" : "Die Erkennung nutzt die Audioaktivität von Meeting-Apps und Meeting-URLs, auch in Hintergrund-Tabs. Bei mehrdeutigen Browser-Meetings startet keine Aufnahme."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "TypeWhisper starts only after your Mac detects that you joined the matching scheduled meeting."
+            "value" : "Detection uses meeting app audio activity and meeting URLs, including background tabs. Ambiguous browser meetings do not start a recording."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "TypeWhisperは、対応する予定済みミーティングへの参加をMacが検出した後にのみ開始します。"
+            "value" : "検出にはミーティングアプリの音声使用状況と、バックグラウンドのタブを含むミーティングURLを使用します。ブラウザのミーティングを特定できない場合は録音を開始しません。"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "只有当 Mac 检测到你已加入匹配的预定会议后，TypeWhisper 才会启动。"
+            "value" : "检测会使用会议应用的音频活动和会议网址，包括后台标签页。无法明确识别浏览器中的会议时，不会开始录音。"
+          }
+        }
+      }
+    },
+    "Visual Keyboard" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Visuelle Tastatur"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ビジュアルキーボード"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "可视化键盘"
+          }
+        }
+      }
+    },
+    "Click modifiers, then a key." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Klicke auf Modifikatoren und dann auf eine Taste."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "修飾キーを選んでから、キーをクリックしてください。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "先点击修饰键，再点击其他按键。"
+          }
+        }
+      }
+    },
+    "Current combination: %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aktuelle Kombination: %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "現在の組み合わせ：%@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前组合：%@"
+          }
+        }
+      }
+    },
+    "Conflicts with %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Konflikt mit %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ と競合しています"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "与 %@ 冲突"
+          }
+        }
+      }
+    },
+    "Conflicts with %@. Saving will reassign it." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Konflikt mit %@. Beim Speichern wird er neu zugewiesen."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ と競合しています。保存すると割り当てが変更されます。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "与 %@ 冲突。保存后，此快捷键将改为用于当前功能。"
+          }
+        }
+      }
+    },
+    "Conflicting" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "In Konflikt"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "競合"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "冲突"
+          }
+        }
+      }
+    },
+    "Reserved" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reserviert"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "予約済み"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "不可用"
+          }
+        }
+      }
+    },
+    "Reserved, cannot be recorded" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reserviert, kann nicht aufgenommen werden"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "予約済みのため、登録できません"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此按键不可用于设置快捷键"
+          }
+        }
+      }
+    },
+    "Double-tap" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Doppeltippen"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "2回押し"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "连按两次"
+          }
+        }
+      }
+    },
+    "More Keys" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Weitere Tasten"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "その他のキー"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "更多按键"
+          }
+        }
+      }
+    },
+    "Follows your current macOS input source." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Folgt der aktuellen macOS-Eingabequelle."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "現在のmacOSの入力ソースに合わせて表示します。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "按键显示随当前 macOS 输入源变化。"
+          }
+        }
+      }
+    },
+    "Space" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Leertaste"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スペース"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "空格"
+          }
+        }
+      }
+    },
+    "Clear composed shortcut" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zusammengestellten Shortcut löschen"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "編集中のショートカットをクリア"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "清除当前快捷键组合"
+          }
+        }
+      }
+    },
+    "Save Shortcut" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shortcut speichern"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ショートカットを保存"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保存快捷键"
+          }
+        }
+      }
+    },
+    "Save composed shortcut" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zusammengestellten Shortcut speichern"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "編集中のショートカットを保存"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保存当前快捷键组合"
+          }
+        }
+      }
+    },
+    "Edit with visual keyboard" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mit visueller Tastatur bearbeiten"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ビジュアルキーボードで編集"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "使用可视化键盘编辑"
+          }
+        }
+      }
+    },
+    "Edit shortcut with visual keyboard" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shortcut mit visueller Tastatur bearbeiten"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ビジュアルキーボードでショートカットを編集"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "使用可视化键盘编辑快捷键"
+          }
+        }
+      }
+    },
+    "Left Command" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Linke Command-Taste"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "左Command"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "左 Command"
+          }
+        }
+      }
+    },
+    "Right Command" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rechte Command-Taste"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "右Command"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "右 Command"
+          }
+        }
+      }
+    },
+    "Left Option" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Linke Option-Taste"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "左Option"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "左 Option"
+          }
+        }
+      }
+    },
+    "Right Option" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rechte Option-Taste"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "右Option"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "右 Option"
+          }
+        }
+      }
+    },
+    "Left Control" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Linke Control-Taste"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "左Control"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "左 Control"
+          }
+        }
+      }
+    },
+    "Right Control" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rechte Control-Taste"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "右Control"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "右 Control"
+          }
+        }
+      }
+    },
+    "Left Shift" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Linke Umschalttaste"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "左Shift"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "左 Shift"
+          }
+        }
+      }
+    },
+    "Right Shift" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rechte Umschalttaste"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "右Shift"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "右 Shift"
+          }
+        }
+      }
+    },
+    "the “%@” workflow shortcut" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "dem Shortcut des Workflows „%@“"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ワークフロー「%@」のショートカット"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "工作流“%@”的快捷键"
+          }
+        }
+      }
+    },
+    "the “%@” profile shortcut" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "dem Shortcut des Profils „%@“"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "プロファイル「%@」のショートカット"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "配置文件“%@”的快捷键"
           }
         }
       }

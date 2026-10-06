@@ -71,11 +71,12 @@ final class RecentTranscriptionPaletteHandler {
                 titleLineLimit: 2,
                 emptyStateTitle: String(localized: "No recent transcriptions")
             ),
-            items: items
-        ) { [weak self] item in
-            guard let self, let entry = entriesByID[item.id] else { return }
-            self.startInsertion(entry)
-        }
+            items: items,
+            onSelect: { [weak self] item in
+                guard let self, let entry = entriesByID[item.id] else { return }
+                self.startInsertion(entry)
+            }
+        )
     }
 
     private func startInsertion(_ entry: RecentTranscriptionStore.Entry) {
@@ -91,12 +92,29 @@ final class RecentTranscriptionPaletteHandler {
 
     private func insert(_ entry: RecentTranscriptionStore.Entry) async {
         do {
-            _ = try await textInsertionService.insertText(
+            let result = try await textInsertionService.insertText(
                 entry.finalText,
                 preserveClipboard: getPreserveClipboard?() ?? false,
-                autoEnter: false
+                autoEnter: false,
+                awaitPasteVerification: true
             )
-            onShowNotchFeedback?(String(localized: "Text inserted"), "checkmark.circle.fill", 2.5, false, nil)
+#if APPSTORE
+            if result == .copiedToClipboard {
+                onShowNotchFeedback?(AppStoreInputAccess.manualPasteMessage, "doc.on.clipboard.fill", 4, false, nil)
+                return
+            }
+#endif
+            if result.leftFocusedTextUnchanged {
+                onShowNotchFeedback?(
+                    String(localized: "Text may not have been inserted"),
+                    "exclamationmark.circle.fill",
+                    2.5,
+                    false,
+                    nil
+                )
+            } else {
+                onShowNotchFeedback?(String(localized: "Text inserted"), "checkmark.circle.fill", 2.5, false, nil)
+            }
         } catch {
             onShowNotchFeedback?(error.localizedDescription, "xmark.circle.fill", 2.5, true, "recentTranscriptions")
         }

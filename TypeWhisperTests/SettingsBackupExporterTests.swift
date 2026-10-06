@@ -175,6 +175,112 @@ final class SettingsBackupExporterTests: XCTestCase {
         XCTAssertEqual(destination.snippetService.snippets.first?.trigger, ";sig")
     }
 
+    func testRoundTripPreservesSegmentedPostProcessingFlag() async throws {
+        let source = try makeFixture()
+        defer { teardown(source) }
+
+        source.workflowService.addWorkflow(
+            name: "Long Cleanup",
+            template: .cleanedText,
+            trigger: .manual(),
+            behavior: WorkflowBehavior(segmentedPostProcessingEnabled: true)
+        )
+        source.workflowService.addWorkflow(name: "Summary", template: .summary, trigger: .manual())
+
+        let backup = try SettingsBackupExporter.buildBackup(
+            workflowService: source.workflowService,
+            dictionaryService: source.dictionaryService,
+            snippetService: source.snippetService,
+            profileService: source.profileService,
+            promptActionService: source.promptActionService,
+            pluginManager: source.pluginManager,
+            historyService: source.historyService,
+            userDefaults: source.userDefaults
+        )
+        let data = try SettingsBackupExporter.encodedJSON(backup)
+        // Workflows that keep the default write no new key, so older builds read them unchanged.
+        let json = String(decoding: data, as: UTF8.self)
+        XCTAssertEqual(json.components(separatedBy: "segmentedPostProcessingEnabled").count - 1, 1)
+
+        let destination = try makeFixture()
+        defer { teardown(destination) }
+
+        let result = await SettingsBackupExporter.importBackup(
+            try SettingsBackupExporter.parse(data),
+            workflowService: destination.workflowService,
+            dictionaryService: destination.dictionaryService,
+            snippetService: destination.snippetService,
+            profileService: destination.profileService,
+            promptActionService: destination.promptActionService,
+            pluginManager: destination.pluginManager,
+            pluginRegistryService: destination.pluginRegistryService,
+            historyService: destination.historyService,
+            usageStatisticsService: destination.usageStatisticsService,
+            userDefaults: destination.userDefaults
+        )
+
+        XCTAssertEqual(result.workflowsImported, 2)
+        let imported = Dictionary(uniqueKeysWithValues: destination.workflowService.workflows.map { ($0.name, $0) })
+        XCTAssertEqual(imported["Long Cleanup"]?.behavior.segmentedPostProcessingEnabled, true)
+        XCTAssertEqual(imported["Long Cleanup"]?.usesSegmentedPostProcessing, true)
+        XCTAssertNil(imported["Summary"]?.behavior.segmentedPostProcessingEnabled)
+        XCTAssertEqual(imported["Summary"]?.usesSegmentedPostProcessing, false)
+    }
+
+    func testImportingWorkflowBackupWithoutSegmentedFlagKeepsItOff() async throws {
+        let source = try makeFixture()
+        defer { teardown(source) }
+
+        source.workflowService.addWorkflow(
+            name: "Long Cleanup",
+            template: .cleanedText,
+            trigger: .manual(),
+            behavior: WorkflowBehavior(segmentedPostProcessingEnabled: true)
+        )
+        let backup = try SettingsBackupExporter.buildBackup(
+            workflowService: source.workflowService,
+            dictionaryService: source.dictionaryService,
+            snippetService: source.snippetService,
+            profileService: source.profileService,
+            promptActionService: source.promptActionService,
+            pluginManager: source.pluginManager,
+            historyService: source.historyService,
+            userDefaults: source.userDefaults
+        )
+
+        // Simulate a backup written by a build that predates the field.
+        let data = try SettingsBackupExporter.encodedJSON(backup)
+        var root = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        var workflows = try XCTUnwrap(root["workflows"] as? [[String: Any]])
+        var behavior = try XCTUnwrap(workflows[0]["behavior"] as? [String: Any])
+        XCTAssertEqual(behavior.removeValue(forKey: "segmentedPostProcessingEnabled") as? Bool, true)
+        workflows[0]["behavior"] = behavior
+        root["workflows"] = workflows
+        let legacyData = try JSONSerialization.data(withJSONObject: root)
+
+        let destination = try makeFixture()
+        defer { teardown(destination) }
+
+        let result = await SettingsBackupExporter.importBackup(
+            try SettingsBackupExporter.parse(legacyData),
+            workflowService: destination.workflowService,
+            dictionaryService: destination.dictionaryService,
+            snippetService: destination.snippetService,
+            profileService: destination.profileService,
+            promptActionService: destination.promptActionService,
+            pluginManager: destination.pluginManager,
+            pluginRegistryService: destination.pluginRegistryService,
+            historyService: destination.historyService,
+            usageStatisticsService: destination.usageStatisticsService,
+            userDefaults: destination.userDefaults
+        )
+
+        XCTAssertEqual(result.workflowsImported, 1)
+        let workflow = try XCTUnwrap(destination.workflowService.workflows.first)
+        XCTAssertNil(workflow.behavior.segmentedPostProcessingEnabled)
+        XCTAssertFalse(workflow.usesSegmentedPostProcessing)
+    }
+
     func testProfilePromptActionIdIsRemappedOnImport() async throws {
         let source = try makeFixture()
         defer { teardown(source) }
@@ -586,6 +692,7 @@ final class SettingsBackupExporterTests: XCTestCase {
         source.userDefaults.set(0.35, forKey: UserDefaultsKeys.audioDuckingLevel)
         source.userDefaults.set(3, forKey: UserDefaultsKeys.indicatorTranscriptPreviewFontSizeOffset)
         source.userDefaults.set("overlay", forKey: UserDefaultsKeys.indicatorStyle)
+        source.userDefaults.set("glass", forKey: UserDefaultsKeys.indicatorTheme)
         source.userDefaults.set("instant", forKey: UserDefaultsKeys.cancellationBehavior)
         source.userDefaults.set(false, forKey: UserDefaultsKeys.indicatorVisibleInScreenCaptures)
         source.userDefaults.set(true, forKey: UserDefaultsKeys.liveFieldTranscriptEnabled)
@@ -612,6 +719,7 @@ final class SettingsBackupExporterTests: XCTestCase {
         XCTAssertEqual(backup.preferences.audioDuckingLevel, 0.35)
         XCTAssertEqual(backup.preferences.indicatorTranscriptPreviewFontSizeOffset, 3)
         XCTAssertEqual(backup.preferences.indicatorStyle, "overlay")
+        XCTAssertEqual(backup.preferences.indicatorTheme, "glass")
         XCTAssertEqual(backup.preferences.cancellationBehavior, "instant")
         XCTAssertEqual(backup.preferences.indicatorVisibleInScreenCaptures, false)
         XCTAssertEqual(backup.preferences.liveFieldTranscriptEnabled, true)
@@ -623,6 +731,7 @@ final class SettingsBackupExporterTests: XCTestCase {
         var appliedRecoveryRetentionPolicy: DictationRecoveryRetentionPolicy?
         var appliedLiveFieldTranscriptEnabled: Bool?
         var appliedCancellationBehavior: CancellationBehavior?
+        var appliedIndicatorTheme: IndicatorTheme?
 
         let result = await SettingsBackupExporter.importBackup(
             backup,
@@ -638,6 +747,7 @@ final class SettingsBackupExporterTests: XCTestCase {
             userDefaults: destination.userDefaults,
             liveFieldTranscriptEnabledDidChange: { appliedLiveFieldTranscriptEnabled = $0 },
             cancellationBehaviorDidChange: { appliedCancellationBehavior = $0 },
+            indicatorThemeDidChange: { appliedIndicatorTheme = $0 },
             recoveryRetentionPolicyDidChange: { appliedRecoveryRetentionPolicy = $0 }
         )
 
@@ -648,6 +758,8 @@ final class SettingsBackupExporterTests: XCTestCase {
         XCTAssertEqual(destination.userDefaults.bool(forKey: UserDefaultsKeys.translationEnabled), true)
         XCTAssertEqual(destination.userDefaults.bool(forKey: UserDefaultsKeys.showMenuBarIcon), false)
         XCTAssertEqual(destination.userDefaults.string(forKey: UserDefaultsKeys.indicatorStyle), "overlay")
+        XCTAssertEqual(destination.userDefaults.string(forKey: UserDefaultsKeys.indicatorTheme), "glass")
+        XCTAssertEqual(appliedIndicatorTheme, .glass)
         XCTAssertEqual(
             destination.userDefaults.object(forKey: UserDefaultsKeys.indicatorVisibleInScreenCaptures) as? Bool,
             false
@@ -659,6 +771,40 @@ final class SettingsBackupExporterTests: XCTestCase {
         XCTAssertEqual(destination.userDefaults.integer(forKey: UserDefaultsKeys.dictationRecoveryRetentionDays), 7)
         XCTAssertEqual(appliedRecoveryRetentionPolicy, .sevenDays)
         XCTAssertNil(destination.userDefaults.string(forKey: UserDefaultsKeys.fileTranscriptionEngine))
+    }
+
+    func testUnknownIndicatorThemeInBackupPreservesDestinationTheme() async throws {
+        let destination = try makeFixture()
+        defer { teardown(destination) }
+        destination.userDefaults.set("light", forKey: UserDefaultsKeys.indicatorTheme)
+        var preferences = SettingsBackupExporter.PreferencesDTO.empty
+        preferences.indicatorTheme = "neon"
+        let backup = SettingsBackupExporter.SettingsBackup(
+            schemaVersion: SettingsBackupExporter.schemaVersion,
+            exportedAt: Date(), appVersion: "1.0",
+            workflows: [], dictionaryEntries: [], snippets: [], promptActions: [], profiles: [],
+            hotkeys: [:], plugins: [], history: [], updateChannel: nil, preferences: preferences
+        )
+        var appliedIndicatorTheme: IndicatorTheme?
+
+        let result = await SettingsBackupExporter.importBackup(
+            backup,
+            workflowService: destination.workflowService,
+            dictionaryService: destination.dictionaryService,
+            snippetService: destination.snippetService,
+            profileService: destination.profileService,
+            promptActionService: destination.promptActionService,
+            pluginManager: destination.pluginManager,
+            pluginRegistryService: destination.pluginRegistryService,
+            historyService: destination.historyService,
+            usageStatisticsService: destination.usageStatisticsService,
+            userDefaults: destination.userDefaults,
+            indicatorThemeDidChange: { appliedIndicatorTheme = $0 }
+        )
+
+        XCTAssertEqual(result.preferencesApplied, 0)
+        XCTAssertEqual(destination.userDefaults.string(forKey: UserDefaultsKeys.indicatorTheme), "light")
+        XCTAssertNil(appliedIndicatorTheme)
     }
 
     func testBuildBackupExportsEffectiveRegisteredRecoveryRetentionPolicy() throws {

@@ -8,8 +8,10 @@ import SwiftUI
 struct NotchIndicatorView: View {
     @ObservedObject private var viewModel = DictationViewModel.shared
     @ObservedObject private var recorder = AudioRecorderViewModel.shared
+    @ObservedObject private var preview = IndicatorPreviewSession.shared
     @ObservedObject private var countdownModel: CalendarMeetingCountdownModel
     @ObservedObject var geometry: NotchGeometry
+    @Environment(\.colorScheme) private var systemColorScheme
     @State private var textExpanded = false
     @State private var dotPulse = false
 
@@ -27,7 +29,7 @@ struct NotchIndicatorView: View {
     }
 
     private var presentation: IndicatorPresentationData {
-        IndicatorPresentationData.make(dictation: viewModel, recorder: recorder)
+        IndicatorPresentationData.make(dictation: viewModel, recorder: recorder, preview: preview)
     }
 
     private var countdownPresentation: CalendarMeetingCountdownPresentation? {
@@ -88,6 +90,13 @@ struct NotchIndicatorView: View {
         presentation.state == .processing && presentation.processingPhase != nil
     }
 
+    /// The model still loads while the recording runs. A visible transcript stays below the label.
+    private var hasModelLoadingStatus: Bool {
+        presentation.state == .recording
+            && !presentation.isPreparingMicrophone
+            && presentation.modelLoadingLabel != nil
+    }
+
     private var showTranscriptPreview: Bool {
         viewModel.indicatorTranscriptPreviewEnabled && !suppressStreamingText
     }
@@ -105,12 +114,16 @@ struct NotchIndicatorView: View {
         if hasCancelWarning { return .feedback }
         if transcriptBodyVisible { return .transcript }
         if hasActionFeedback { return .feedback }
-        if hasProcessingPhase { return .processing }
+        if hasProcessingPhase || hasModelLoadingStatus { return .processing }
         return .closed
     }
 
     private var currentWidth: CGFloat {
-        NotchIndicatorLayout.containerWidth(closedWidth: closedWidth, mode: expansionMode)
+        let width = NotchIndicatorLayout.containerWidth(closedWidth: closedWidth, mode: expansionMode)
+        guard expansionMode == .feedback, hasActionFeedback, countdownPresentation == nil, !hasCancelWarning else {
+            return width
+        }
+        return max(width, actionFeedbackBody.width)
     }
 
     private var bottomCornerRadius: CGFloat {
@@ -139,6 +152,9 @@ struct NotchIndicatorView: View {
         if hasCancelWarning {
             return feedbackBodyHeight
         }
+        if hasModelLoadingStatus {
+            return processingBodyHeight + transcriptBodyHeight
+        }
         if hasTranscriptSection {
             return transcriptBodyHeight
         }
@@ -146,9 +162,18 @@ struct NotchIndicatorView: View {
             return processingBodyHeight
         }
         if hasActionFeedback {
-            return feedbackBodyHeight
+            return actionFeedbackBody.height
         }
         return 0
+    }
+
+    private var actionFeedbackBody: IndicatorFeedbackPanelLayout.FeedbackBody {
+        IndicatorFeedbackPanelLayout.feedbackBody(
+            for: .notch,
+            message: presentation.actionFeedbackMessage,
+            actionTitle: presentation.actionFeedbackActionTitle,
+            notchClosedWidth: closedWidth
+        )
     }
 
     private var presentationRevealScale: CGFloat {
@@ -165,7 +190,7 @@ struct NotchIndicatorView: View {
             expandedBody
         }
         .frame(width: currentWidth)
-        .background(.black)
+        .background(alignment: .top) { notchBackground }
         .clipShape(NotchShape(bottomCornerRadius: bottomCornerRadius))
         .mask(alignment: .top) {
             Rectangle()
@@ -173,14 +198,14 @@ struct NotchIndicatorView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .opacity(presentationOpacity)
-        .preferredColorScheme(.dark)
         .onHover { hovered in
             guard hasActionFeedback else { return }
             viewModel.setActionFeedbackHovered(hovered)
         }
         .animation(.easeOut(duration: 0.22), value: geometry.isPresented)
-        .animation(.easeOut(duration: 0.24), value: currentWidth)
-        .animation(.easeOut(duration: 0.24), value: expandedBodyHeight)
+        // A light spring so the body visibly grows out of the notch instead of sliding.
+        .animation(IndicatorMotion.expand, value: currentWidth)
+        .animation(IndicatorMotion.expand, value: expandedBodyHeight)
         .animation(.easeInOut(duration: 0.18), value: presentation.state)
         // Matches the ~30 Hz (33ms) level-publish throttle shared by both
         // audio level sources (AudioRecordingService's dictation pipeline and
@@ -189,10 +214,24 @@ struct NotchIndicatorView: View {
         // tiny stutter instead of a continuous glide.
         .animation(.linear(duration: 0.033), value: presentation.audioLevel)
         .onChange(of: presentation.partialText) {
-            if showTranscriptPreview, !presentation.partialText.isEmpty, !textExpanded {
+            if presentation.source == .preview, presentation.partialText.isEmpty {
+                // The preview loop restarts: collapse so the expand animation replays.
+                withAnimation(IndicatorMotion.expand) {
+                    textExpanded = false
+                }
+            } else if showTranscriptPreview, !presentation.partialText.isEmpty, !textExpanded {
                 withAnimation(.easeOut(duration: 0.24)) {
                     textExpanded = true
                 }
+            }
+        }
+        .onChange(of: presentation.source) {
+            // A real session replacing the preview starts with an empty
+            // transcript; the preview taking over again shows what it has.
+            withAnimation(IndicatorMotion.expand) {
+                textExpanded = presentation.source == .preview
+                    && showTranscriptPreview
+                    && !presentation.partialText.isEmpty
             }
         }
         .onChange(of: presentation.state) {
@@ -247,7 +286,7 @@ struct NotchIndicatorView: View {
             if let warning = presentation.cancelWarningMessage {
                 return warning
             }
-            return String(localized: "Processing transcription")
+            return presentation.modelLoadingLabel ?? String(localized: "Processing transcription")
         case .inserting:
             if let feedback = presentation.actionFeedbackMessage {
                 return feedback
@@ -264,10 +303,49 @@ struct NotchIndicatorView: View {
         statusBar
             .frame(width: currentWidth, height: geometry.notchHeight)
             .frame(maxWidth: .infinity)
+            // The cap is always black, so its content always renders dark.
+            .environment(\.colorScheme, .dark)
+    }
+
+    private var theme: IndicatorTheme {
+        viewModel.indicatorTheme
+    }
+
+    /// The cap always extends the hardware notch in black. Classic keeps the
+    /// whole shape black, the other themes draw their surface behind the
+    /// expanded body only.
+    @ViewBuilder
+    private var notchBackground: some View {
+        if theme == .classic {
+            Color.black
+        } else {
+            Color.black.frame(height: geometry.notchHeight)
+        }
+    }
+
+    private var expandedBodyShape: UnevenRoundedRectangle {
+        UnevenRoundedRectangle(
+            bottomLeadingRadius: bottomCornerRadius,
+            bottomTrailingRadius: bottomCornerRadius,
+            style: .continuous
+        )
     }
 
     @ViewBuilder
     private var expandedBody: some View {
+        if theme == .classic {
+            expandedBodyFrame
+                .environment(\.colorScheme, .dark)
+        } else {
+            expandedBodyFrame
+                .indicatorSurface(theme: theme, shape: expandedBodyShape)
+                // Classic and Light pin their scheme, Glass inherits the system
+                // appearance from the panel.
+                .environment(\.colorScheme, theme.preferredColorScheme ?? systemColorScheme)
+        }
+    }
+
+    private var expandedBodyFrame: some View {
         expandedBodyContent
             .frame(maxWidth: .infinity, alignment: .topLeading)
             .frame(height: expandedBodyHeight, alignment: .top)
@@ -291,21 +369,17 @@ struct NotchIndicatorView: View {
                 iconColor: .yellow,
                 contentPadding: contentPadding
             )
+        } else if hasModelLoadingStatus {
+            VStack(spacing: 0) {
+                statusLine(presentation.modelLoadingLabel ?? "")
+                if transcriptBodyVisible {
+                    transcriptText
+                }
+            }
         } else if hasTranscriptSection {
-            IndicatorExpandableText(
-                text: presentation.partialText,
-                fontSize: transcriptFontSize,
-                expandedHeight: viewModel.indicatorTranscriptPreviewExpandedHeight(for: .notch),
-                expanded: true,
-                contentPadding: 34
-            )
-            .opacity(textExpanded ? 1 : 0.72)
+            transcriptText
         } else if hasProcessingPhase {
-            Text(presentation.processingPhase ?? "")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.white.opacity(0.7))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 6)
+            statusLine(presentation.processingPhase ?? "")
         } else if hasActionFeedback {
             IndicatorActionFeedback(
                 message: presentation.actionFeedbackMessage ?? "",
@@ -317,11 +391,32 @@ struct NotchIndicatorView: View {
                 onAction: presentation.actionFeedbackActionTitle == nil ? nil : {
                     viewModel.performActionFeedbackAction()
                 },
-                remainingFraction: presentation.actionFeedbackRemainingFraction
+                remainingFraction: presentation.actionFeedbackRemainingFraction,
+                bodyHeight: actionFeedbackBody.height,
+                lineLimit: actionFeedbackBody.lineLimit
             )
         } else {
             Color.clear
         }
+    }
+
+    private var transcriptText: some View {
+        IndicatorExpandableText(
+            text: presentation.partialText,
+            fontSize: transcriptFontSize,
+            expandedHeight: viewModel.indicatorTranscriptPreviewExpandedHeight(for: .notch),
+            expanded: true,
+            contentPadding: 34
+        )
+        .opacity(textExpanded ? 1 : 0.72)
+    }
+
+    private func statusLine(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(Color.primary.opacity(0.7))
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 6)
     }
 
     @ViewBuilder

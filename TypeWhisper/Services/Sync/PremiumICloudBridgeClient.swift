@@ -6,6 +6,17 @@ protocol PremiumICloudBridging: Sendable {
 
     func synchronize() async throws
     func deleteRemotePackage() async throws
+    func removeDevice(_ deviceID: String) async throws
+}
+
+enum PremiumICloudBridgeFactory {
+    static func makeDefault() -> any PremiumICloudBridging {
+        #if APPSTORE
+        AppStoreICloudMirror()
+        #else
+        PremiumICloudBridgeClient()
+        #endif
+    }
 }
 
 private final class PremiumICloudBridgeReplyGate: @unchecked Sendable {
@@ -59,6 +70,12 @@ final class PremiumICloudBridgeClient: PremiumICloudBridging, @unchecked Sendabl
     func deleteRemotePackage() async throws {
         try await perform { proxy, reply in
             proxy.deleteRemotePackage(reply: reply)
+        }
+    }
+
+    func removeDevice(_ deviceID: String) async throws {
+        try await perform { proxy, reply in
+            proxy.removeDevice(deviceID, reply: reply)
         }
     }
 

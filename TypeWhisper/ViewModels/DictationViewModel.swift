@@ -14,7 +14,7 @@ private struct CorrectionContributionContext: Sendable {
 }
 
 struct DictationSessionTranscription: Sendable, Equatable {
-    let text: String
+    var text: String
     let rawText: String
     let timestamp: Date
     let appName: String?
@@ -24,7 +24,7 @@ struct DictationSessionTranscription: Sendable, Equatable {
     let language: String?
     let engine: String
     let model: String?
-    let wordsCount: Int
+    var wordsCount: Int
 }
 
 struct DictationSessionSnapshot: Sendable, Equatable {
@@ -39,6 +39,12 @@ struct DictationSessionSnapshot: Sendable, Equatable {
     let status: Status
     let transcription: DictationSessionTranscription?
     let error: String?
+}
+
+struct DictationInsertionCompletion: Sendable, Equatable {
+    let id: UUID
+    let providerId: String
+    let modelId: String?
 }
 
 @MainActor
@@ -96,9 +102,9 @@ enum AutomaticRecoveryFallbackErrorPolicy {
 
         if let transcriptionError = error as? TranscriptionEngineError {
             switch transcriptionError {
-            case .unsupportedTask(_):
-                return false
-            case .modelNotLoaded,
+            case .noEngineSelected,
+                 .engineUnavailable(_, _),
+                 .modelNotLoaded,
                  .appleSpeechModelNotLoaded,
                  .transcriptionFailed(_),
                  .modelLoadFailed(_),
@@ -154,12 +160,13 @@ final class DictationViewModel: ObservableObject {
         let usedRecoveryFallback: Bool
     }
 
-    private struct AutomaticRecoveryFallbackFailure: LocalizedError {
-        let primaryDescription: String
+    struct AutomaticRecoveryFallbackFailure: LocalizedError {
+        let primaryError: Error
         let fallbackDescription: String
 
         var errorDescription: String? {
-            localizedAppText(
+            let primaryDescription = primaryError.localizedDescription
+            return localizedAppText(
                 "Primary transcription failed: \(primaryDescription). Recovery fallback failed: \(fallbackDescription)",
                 de: "Primäre Transkription fehlgeschlagen: \(primaryDescription). Recovery-Fallback fehlgeschlagen: \(fallbackDescription)"
             )
@@ -214,6 +221,8 @@ final class DictationViewModel: ObservableObject {
     private enum ActionFeedbackAction {
         case undoLearnedCorrections([LearnedDictionaryCorrection])
         case openDictationRecovery
+        case openSettings(SettingsTab)
+        case insertUndeliveredTranscript(UndeliveredTranscript)
 
         var title: String {
             switch self {
@@ -221,9 +230,42 @@ final class DictationViewModel: ObservableObject {
                 String(localized: "Undo")
             case .openDictationRecovery:
                 String(localized: "Open Recovery")
+            case .openSettings:
+                String(localized: "Open Settings")
+            case .insertUndeliveredTranscript:
+                String(localized: "Insert")
             }
         }
     }
+
+    /// A finished transcript that did not reach a text field. The indicator offers to insert it
+    /// into the field the user focuses next.
+    private struct UndeliveredTranscript {
+        enum Reason {
+            case noTextField
+            case textFieldChanged
+        }
+
+        let text: String
+        let rawTranscript: String
+        let outputFormat: String?
+        let reason: Reason
+        /// Recorded as the latest successful dictation once Insert lands.
+        let completion: DictationInsertionCompletion
+
+        func with(reason: Reason) -> UndeliveredTranscript {
+            UndeliveredTranscript(
+                text: text,
+                rawTranscript: rawTranscript,
+                outputFormat: outputFormat,
+                reason: reason,
+                completion: completion
+            )
+        }
+    }
+
+    /// Long enough to focus another text field before clicking Insert. Hovering pauses it.
+    static let undeliveredTranscriptFeedbackDuration: TimeInterval = 30
 
     private struct PendingHotkeyDictationStart {
         let forcedWorkflowId: UUID?
@@ -232,9 +274,12 @@ final class DictationViewModel: ObservableObject {
 
     @Published var state: State = .idle {
         didSet {
-            hotkeyService.isCancellationAvailable = cancelWarningTargetForCurrentState() != nil
+            refreshCancellationAvailability()
             updateSubmitOnEnterAvailability()
             clearCancelWarningIfStateNoLongerMatches()
+            if state != .recording, state != .processing {
+                modelManager.endDictationModelPrewarm()
+            }
         }
     }
     @Published var audioLevel: Float = 0
@@ -288,7 +333,16 @@ final class DictationViewModel: ObservableObject {
         didSet { Self.persistTranscribeShortQuietClipsAggressively(transcribeShortQuietClipsAggressively) }
     }
     @Published var cancellationBehavior: CancellationBehavior {
-        didSet { Self.persistCancellationBehavior(cancellationBehavior) }
+        didSet {
+            Self.persistCancellationBehavior(cancellationBehavior)
+            refreshCancellationAvailability()
+            // A Double-mode cancel warning must not survive the switch to
+            // Disabled: Escape can't cancel anymore, so the "press Esc again"
+            // indicator would lie.
+            if cancellationBehavior == .disabled {
+                clearCancelWarning()
+            }
+        }
     }
     @Published var microphoneBoostEnabled: Bool {
         didSet {
@@ -301,6 +355,8 @@ final class DictationViewModel: ObservableObject {
     }
     @Published private(set) var lastTranscribedText: String?
     @Published private(set) var lastTranscriptionLanguage: String?
+    /// Updated only by the completed text-insertion path, never by indicator feedback.
+    @Published private(set) var lastSuccessfulDictationInsertion: DictationInsertionCompletion?
     @Published var hotkeyLabelsVersion = 0
     var hybridHotkeyLabel: String { Self.loadHotkeyLabel(for: .hybrid) }
     var pttHotkeyLabel: String { Self.loadHotkeyLabel(for: .pushToTalk) }
@@ -310,10 +366,13 @@ final class DictationViewModel: ObservableObject {
     var copyLastTranscriptionHotkeyLabel: String { Self.loadHotkeyLabel(for: .copyLastTranscription) }
     var pasteLastTranscriptionHotkeyLabel: String { Self.loadHotkeyLabel(for: .pasteLastTranscription) }
     var recorderToggleHotkeyLabel: String { Self.loadHotkeyLabel(for: .recorderToggle) }
+    var undoLastDictationHotkeyLabel: String { Self.loadHotkeyLabel(for: .undoLastDictation) }
+    var restoreRawTranscriptHotkeyLabel: String { Self.loadHotkeyLabel(for: .restoreRawTranscript) }
     @Published var activeRuleName: String?
     @Published var activeRuleReasonLabel: String?
     @Published var activeRuleExplanation: String?
     @Published var processingPhase: String?
+    @Published private(set) var isModelLoading = false
     @Published private(set) var isRecordingInputReady = false
     @Published var actionFeedbackMessage: String?
     @Published var actionFeedbackIcon: String?
@@ -325,9 +384,14 @@ final class DictationViewModel: ObservableObject {
     private var actionDisplayDuration: TimeInterval = 3.5
     private let indicatorFeedbackLifetime = IndicatorFeedbackLifetime()
     private var actionFeedbackAction: ActionFeedbackAction?
+    private var isInsertingUndeliveredTranscript = false
 
     @Published var indicatorStyle: IndicatorStyle {
         didSet { Self.persistIndicatorStyle(indicatorStyle) }
+    }
+
+    @Published var indicatorTheme: IndicatorTheme {
+        didSet { Self.persistIndicatorTheme(indicatorTheme) }
     }
 
     @Published var notchIndicatorVisibility: NotchIndicatorVisibility {
@@ -388,6 +452,34 @@ final class DictationViewModel: ObservableObject {
     private var capturedWindowText: String?
     private var capturedSelectedText: String?
 
+    /// Session-only safe undo / raw-transcript restore for the most recent
+    /// direct text insertion (issue #999). Independent of history settings.
+    private(set) lazy var dictationUndoService: DictationUndoService = {
+        DictationUndoService(
+            textInsertionService: textInsertionService,
+            isPersistencePending: { [weak self] id in
+                guard let self else { return true }
+                // The indicator may already be idle while this dictation is still
+                // awaiting URL/audio persistence. Gate the relevant ID, including
+                // history-disabled sessions, before reflecting a verified restore.
+                return pendingPostInsertionDictationIndex(id: id) != nil
+            },
+            isDictationBusy: { [weak self] in
+                guard let self else { return true }
+                switch state {
+                case .idle, .error:
+                    return false
+                case .recording, .processing, .inserting,
+                     .promptSelection, .promptProcessing:
+                    return true
+                }
+            },
+            didRestoreRawTranscript: { [weak self] id, rawText in
+                self?.reflectRawTranscriptRestore(id: id, rawText: rawText)
+            }
+        )
+    }()
+
     private var cancellables = Set<AnyCancellable>()
     private var recordingTimer: Timer?
     private var recordingStartTime: Date?
@@ -411,8 +503,16 @@ final class DictationViewModel: ObservableObject {
     private var cancelConfirmationWindow: Duration = .seconds(3)
     private let cancelConfirmationClock = ContinuousClock()
     private var cancelWarningDeadline: ContinuousClock.Instant?
-    private var urlResolutionTask: Task<Void, Never>?
+    /// Resolves the browser URL after recording starts and returns it, so work after insertion
+    /// can still use a URL that was not awaited before insertion.
+    private var urlResolutionTask: Task<String?, Never>?
     private var metadataCaptureTask: Task<Void, Never>?
+    /// Persists completed dictations (history, completion events, usage statistics) after the
+    /// text was inserted. Chained so records keep their completion order.
+    private var postInsertionPersistenceTask: Task<Void, Never>?
+    /// Inserted dictations that `postInsertionPersistenceTask` has not persisted yet, in completion
+    /// order. `flushPendingPostInsertionPersistence()` persists them when the app terminates first.
+    private var pendingPostInsertionDictations: [CompletedDictation] = []
     var pasteboardProvider: () -> NSPasteboard = { .general }
     /// Snapshot of the streaming params used in the most recent `streamingHandler.start(...)`.
     /// Used to detect when an on-the-fly rule refinement (e.g. browser URL resolution)
@@ -432,7 +532,18 @@ final class DictationViewModel: ObservableObject {
     /// dictation engine. When false (a distinct preview engine), the live session's
     /// text is display-only and must never be promoted to the final transcription.
     private var lastPreviewFollowsDictationEngine = true
+    /// Whether the most recent live session ran with the preview hidden. Its partial
+    /// text then never replaces a failed finalization; the full recording is
+    /// transcribed instead.
+    private var lastStreamingPreviewHidden = false
+    /// A website workflow may still switch the engine once the browser URL resolves,
+    /// so a hidden live-dictation session waits for that instead of streaming audio
+    /// to the global engine first.
+    private var hiddenLiveSessionAwaitsWebsiteWorkflow = false
     private var liveFieldTranscriptSession: LiveFieldTranscriptSession?
+    /// Workflow LLM segments processed while recording (opt-in per workflow).
+    /// Belongs to the current recording; the stop path takes ownership of it.
+    private var incrementalWorkflowPostProcessing: WorkflowIncrementalPostProcessingSession?
     private struct PendingLiveFieldCapture {
         let activeApp: (name: String?, bundleId: String?, url: String?)
         let pinnedTarget: TextInsertionService.PinnedInsertionTarget
@@ -450,9 +561,12 @@ final class DictationViewModel: ObservableObject {
     private var shouldPlayRecordingStartSoundWhenReady = false
     private var pendingRecordingAudioDuckingLevel: Float?
     private var pendingRecordingAudioDuckingTask: Task<Void, Never>?
+    private var recordingUsesBluetoothInput = false
+    private var recordingRestoresSystemAudio = false
     private var dictationSessions: [UUID: DictationSessionSnapshot] = [:]
     private var dictationSessionOrder: [UUID] = []
     private let maxTrackedDictationSessions = 100
+    private var dictationLatencyTraces: [UUID: DictationLatencyTrace] = [:]
 
     var cancelWarningMessage: String? {
         switch (state, cancelWarningTarget) {
@@ -529,7 +643,8 @@ final class DictationViewModel: ObservableObject {
             ?? WorkflowTextProcessingService(
                 promptProcessingService: promptProcessingService,
                 translationService: translationService,
-                workflowService: workflowService
+                workflowService: workflowService,
+                vocabularyProvider: { [dictionaryService] in dictionaryService.vocabularyForPrompt() }
             )
         self.speechFeedbackService = speechFeedbackService
         self.accessibilityAnnouncementService = accessibilityAnnouncementService
@@ -623,6 +738,7 @@ final class DictationViewModel: ObservableObject {
         self.microphoneBoostEnabled = Self.loadMicrophoneBoostEnabled()
         self.spokenFeedbackEnabled = UserDefaults.standard.bool(forKey: UserDefaultsKeys.spokenFeedbackEnabled)
         self.indicatorStyle = Self.loadIndicatorStyle()
+        self.indicatorTheme = Self.loadIndicatorTheme()
         self.notchIndicatorVisibility = UserDefaults.standard.string(forKey: UserDefaultsKeys.notchIndicatorVisibility)
             .flatMap { NotchIndicatorVisibility(rawValue: $0) } ?? .duringActivity
         self.notchIndicatorLeftContent = UserDefaults.standard.string(forKey: UserDefaultsKeys.notchIndicatorLeftContent)
@@ -645,6 +761,11 @@ final class DictationViewModel: ObservableObject {
             }
             if self.partialText != text {
                 self.partialText = text
+                if self.state == .recording,
+                   !self.isStopInFlight,
+                   self.streamingHandler.hasActiveLiveTranscriptionSession {
+                    self.incrementalWorkflowPostProcessing?.ingest(confirmedText: text)
+                }
                 let elapsed = self.recordingStartTime.map { Date().timeIntervalSince($0) } ?? 0
                 EventBus.shared.emit(.partialTranscriptionUpdate(PartialTranscriptionPayload(
                     text: text,
@@ -655,8 +776,8 @@ final class DictationViewModel: ObservableObject {
         streamingHandler.onStreamingStateChange = { [weak self] streaming in
             self?.isStreaming = streaming
         }
-        audioRecordingService.onFirstRecordingAudioBuffer = { [weak self] in
-            self?.handleFirstRecordingAudioBuffer()
+        audioRecordingService.onFirstRecordingAudioBuffer = { [weak self] uptimeNanoseconds in
+            self?.handleFirstRecordingAudioBuffer(at: uptimeNanoseconds)
         }
 
         promptPaletteHandler.onShowNotchFeedback = { [weak self] message, icon, duration, isError, category in
@@ -690,8 +811,11 @@ final class DictationViewModel: ObservableObject {
         hotkeyService.discardPushToTalkRecordingOnExtraKeyPress = true
     }
 
+    /// True when the selected engine can transcribe, or when the automatic recovery
+    /// engine can stand in for it after the primary attempt fails.
     var canDictate: Bool {
         modelManager.canTranscribe
+            || recoveryFallbackConfigurationProvider(modelManager.selectedProviderId, effectiveTask) != nil
     }
 
     @available(*, deprecated, renamed: "activeRuleName")
@@ -706,7 +830,13 @@ final class DictationViewModel: ObservableObject {
     }
 
     nonisolated static func loadLiveFieldTranscriptEnabled(defaults: UserDefaults = .standard) -> Bool {
-        defaults.object(forKey: UserDefaultsKeys.liveFieldTranscriptEnabled) as? Bool ?? false
+        #if APPSTORE
+        // Needs Accessibility access to the target field, which the sandbox does
+        // not allow; a value restored from a backup must not turn it on.
+        return false
+        #else
+        return defaults.object(forKey: UserDefaultsKeys.liveFieldTranscriptEnabled) as? Bool ?? false
+        #endif
     }
 
     nonisolated static func persistLiveFieldTranscriptEnabled(_ enabled: Bool, defaults: UserDefaults = .standard) {
@@ -760,6 +890,15 @@ final class DictationViewModel: ObservableObject {
 
     nonisolated static func persistIndicatorStyle(_ style: IndicatorStyle, defaults: UserDefaults = .standard) {
         defaults.set(style.rawValue, forKey: UserDefaultsKeys.indicatorStyle)
+    }
+
+    nonisolated static func loadIndicatorTheme(defaults: UserDefaults = .standard) -> IndicatorTheme {
+        defaults.string(forKey: UserDefaultsKeys.indicatorTheme)
+            .flatMap { IndicatorTheme(rawValue: $0) } ?? .classic
+    }
+
+    nonisolated static func persistIndicatorTheme(_ theme: IndicatorTheme, defaults: UserDefaults = .standard) {
+        defaults.set(theme.rawValue, forKey: UserDefaultsKeys.indicatorTheme)
     }
 
     nonisolated static func loadTranscribeShortQuietClipsAggressively(defaults: UserDefaults = .standard) -> Bool {
@@ -829,8 +968,38 @@ final class DictationViewModel: ObservableObject {
 
     var needsAccessibilityPermission: Bool {
         if AppConstants.isScreenshotAutomation { return false }
+#if APPSTORE
+        // A clipboard-only build never asks for PostEvent access.
+        guard AppStoreInputAccess.isAutoPasteEnabled else { return false }
+#endif
         return !textInsertionService.isAccessibilityGranted
     }
+
+#if APPSTORE
+    /// Input Monitoring is only needed for shortcuts that Carbon cannot register.
+    var needsInputMonitoringPermission: Bool {
+        if AppConstants.isScreenshotAutomation { return false }
+        return hotkeyService.requiresEventObservation && !AppStoreInputAccess.canListenToEvents
+    }
+
+    var isInputMonitoringGranted: Bool {
+        AppStoreInputAccess.canListenToEvents
+    }
+
+    func requestInputMonitoringPermission() { settingsHandler.requestInputMonitoringPermission() }
+
+    /// Rechecks permissions, e.g. when the user returns from System Settings.
+    func refreshInputPermissions() { settingsHandler.pollPermissionStatus() }
+
+    private func showManualPasteFeedback() {
+        showNotchFeedback(
+            message: AppStoreInputAccess.manualPasteMessage,
+            icon: "doc.on.clipboard.fill",
+            duration: 4.0,
+            action: AppStoreInputAccess.isAutoPasteEnabled ? .openSettings(.home) : nil
+        )
+    }
+#endif
 
     // MARK: - HTTP API
 
@@ -839,7 +1008,19 @@ final class DictationViewModel: ObservableObject {
     }
 
     var canStartAPIRecording: Bool {
-        state == .idle
+        state == .idle || canReplaceUndeliveredTranscriptOffer
+    }
+
+    /// The Insert offer stays up for a while, so a new dictation replaces it, as the dictation
+    /// hotkey does. A running Insert must finish first, or its paste could land during the
+    /// new dictation.
+    private var canReplaceUndeliveredTranscriptOffer: Bool {
+        guard state == .inserting,
+              !isInsertingUndeliveredTranscript,
+              case .insertUndeliveredTranscript? = actionFeedbackAction else {
+            return false
+        }
+        return true
     }
 
     var activeWorkflowId: UUID? {
@@ -866,6 +1047,9 @@ final class DictationViewModel: ObservableObject {
     }
 
     func apiStartRecording(forcedWorkflowId: UUID? = nil) -> UUID {
+        if canReplaceUndeliveredTranscriptOffer {
+            indicatorFeedbackLifetime.finishImmediately()
+        }
         let sessionID = UUID()
         startRecording(
             forcedWorkflowId: forcedWorkflowId,
@@ -896,10 +1080,15 @@ final class DictationViewModel: ObservableObject {
         await startTask?.value
     }
 
+    func testingWaitForPostInsertionPersistence() async {
+        await postInsertionPersistenceTask?.value
+    }
+
     func prepareScreenshotIndicatorFixture(partialText: String = "") {
         guard AppConstants.isScreenshotAutomation else { return }
 
         indicatorStyle = .overlay
+        indicatorTheme = .classic
         indicatorTranscriptPreviewEnabled = true
         indicatorVisibleInScreenCaptures = true
         notchIndicatorVisibility = .duringActivity
@@ -948,6 +1137,10 @@ final class DictationViewModel: ObservableObject {
         return nil
     }
 
+    func apiDictationLatency(id: UUID) -> DictationLatencyTrace? {
+        dictationLatencyTraces[id]
+    }
+
     private func beginDictationSession(id: UUID) {
         activeDictationSessionID = id
         storeDictationSession(DictationSessionSnapshot(id: id, status: .recording, transcription: nil, error: nil))
@@ -965,8 +1158,198 @@ final class DictationViewModel: ObservableObject {
         }
     }
 
+    private struct CompletedDictation {
+        let sessionID: UUID?
+        let transcriptionID: UUID
+        let timestamp: Date
+        let rawText: String
+        let finalText: String
+        let appName: String?
+        let appBundleIdentifier: String?
+        var appURL: String?
+        let durationSeconds: Double
+        let language: String?
+        let detectedLanguage: String?
+        let engineUsed: String
+        let modelUsed: String?
+        let ruleName: String?
+        let wordsCount: Int
+        let historyEnabled: Bool
+        /// `HistoryService.clearGeneration` at insertion. Clearing history afterwards drops the record.
+        let historyClearGeneration: Int
+        let audioSamples: [Float]?
+        let pipelineSteps: [String]?
+        /// Set when `.transcriptionCompleted` went out before persistence, so it is emitted once.
+        var completionEventEmitted = false
+    }
+
+    /// Persists a dictation after its text was inserted, so history audio encoding, SwiftData
+    /// saves, and statistics no longer delay insertion or the next recording. The session is
+    /// reported as completed only after its history record exists.
+    private func schedulePostInsertionPersistence(
+        _ dictation: CompletedDictation,
+        pendingURLResolution: Task<String?, Never>?
+    ) {
+        let dictationID = dictation.transcriptionID
+        pendingPostInsertionDictations.append(dictation)
+        let previousTask = postInsertionPersistenceTask
+        postInsertionPersistenceTask = Task { @MainActor [weak self] in
+            await previousTask?.value
+            guard let self else { return }
+            saveDeferredPostProcessingUsageCounts()
+            // After each wait, stop if the termination flush already persisted the dictation.
+            if dictation.appURL == nil, let pendingURLResolution {
+                let resolvedURL = await pendingURLResolution.value
+                guard let index = pendingPostInsertionDictationIndex(id: dictationID) else { return }
+                pendingPostInsertionDictations[index].appURL = resolvedURL
+            }
+            var historyAudioFileName: String?
+            if storesHistoryRecord(for: dictation), let audioSamples = dictation.audioSamples {
+                historyAudioFileName = await historyService.writeAudioFileInBackground(
+                    audioSamples,
+                    forRecordID: dictationID
+                )
+            }
+            guard let index = pendingPostInsertionDictationIndex(id: dictationID) else { return }
+            let pendingDictation = pendingPostInsertionDictations.remove(at: index)
+            persistCompletedDictation(pendingDictation, historyAudioFileName: historyAudioFileName)
+        }
+    }
+
+    /// Emits `.transcriptionCompleted` for dictations whose persistence still waits, for
+    /// example for the browser URL, before a new recording starts. Subscribers then see the
+    /// previous completion before the next `.recordingStarted`. The events carry the metadata
+    /// known now, so the URL may be nil; the history record still gets the URL later.
+    private func emitPendingTranscriptionCompletedEvents() {
+        for index in pendingPostInsertionDictations.indices
+        where !pendingPostInsertionDictations[index].completionEventEmitted {
+            emitTranscriptionCompleted(for: pendingPostInsertionDictations[index])
+            pendingPostInsertionDictations[index].completionEventEmitted = true
+        }
+    }
+
+    private func emitTranscriptionCompleted(for dictation: CompletedDictation) {
+        EventBus.shared.emit(.transcriptionCompleted(TranscriptionCompletedPayload(
+            timestamp: dictation.timestamp,
+            rawText: dictation.rawText,
+            finalText: dictation.finalText,
+            language: dictation.language,
+            engineUsed: dictation.engineUsed,
+            modelUsed: dictation.modelUsed,
+            durationSeconds: dictation.durationSeconds,
+            appName: dictation.appName,
+            bundleIdentifier: dictation.appBundleIdentifier,
+            url: dictation.appURL,
+            ruleName: dictation.ruleName
+        )))
+    }
+
+    private func pendingPostInsertionDictationIndex(id: UUID) -> Int? {
+        pendingPostInsertionDictations.firstIndex { $0.transcriptionID == id }
+    }
+
+    /// History cleared after insertion drops the record; statistics and the completion event
+    /// are still recorded, as clearing history does not clear them.
+    private func storesHistoryRecord(for dictation: CompletedDictation) -> Bool {
+        dictation.historyEnabled && dictation.historyClearGeneration == historyService.clearGeneration
+    }
+
+    /// Synchronously persists dictations still waiting for the optional browser URL lookup or
+    /// the background history audio write, for example before the app terminates. They are
+    /// persisted with the metadata known at this point.
+    func flushPendingPostInsertionPersistence() {
+        guard !pendingPostInsertionDictations.isEmpty else { return }
+        let dictations = pendingPostInsertionDictations
+        pendingPostInsertionDictations.removeAll()
+        saveDeferredPostProcessingUsageCounts()
+        for dictation in dictations {
+            var historyAudioFileName: String?
+            if storesHistoryRecord(for: dictation) {
+                historyAudioFileName = dictation.audioSamples.flatMap {
+                    historyService.writeAudioFile($0, forRecordID: dictation.transcriptionID)
+                }
+            } else if dictation.audioSamples != nil {
+                // History was cleared after insertion, so no record will reference the audio.
+                // Remove a file the background write already created and stop one still running.
+                historyService.discardAudioFile(forRecordID: dictation.transcriptionID)
+            }
+            persistCompletedDictation(dictation, historyAudioFileName: historyAudioFileName)
+        }
+    }
+
+    /// Snippet and correction usage counters are saved after insertion, not during post-processing.
+    private func saveDeferredPostProcessingUsageCounts() {
+        snippetService.saveDeferredUsageCounts()
+        dictionaryService.saveDeferredUsageCounts()
+    }
+
+    private func persistCompletedDictation(_ dictation: CompletedDictation, historyAudioFileName: String?) {
+        let appURL = dictation.appURL
+        if dictation.historyEnabled {
+            // Also rejects the record, and removes its audio file, if history was cleared
+            // while the audio was written in the background.
+            historyService.addRecord(
+                id: dictation.transcriptionID,
+                timestamp: dictation.timestamp,
+                rawText: dictation.rawText,
+                finalText: dictation.finalText,
+                appName: dictation.appName,
+                appBundleIdentifier: dictation.appBundleIdentifier,
+                appURL: appURL,
+                durationSeconds: dictation.durationSeconds,
+                language: dictation.language,
+                engineUsed: dictation.engineUsed,
+                modelUsed: dictation.modelUsed,
+                audioFileName: historyAudioFileName,
+                pipelineSteps: dictation.pipelineSteps,
+                capturedInClearGeneration: dictation.historyClearGeneration
+            )
+        }
+
+        if !dictation.completionEventEmitted {
+            emitTranscriptionCompleted(for: dictation)
+        }
+
+        usageStatisticsRecorder?.recordTranscription(
+            timestamp: dictation.timestamp,
+            wordsCount: dictation.wordsCount,
+            durationSeconds: dictation.durationSeconds,
+            appBundleIdentifier: dictation.appBundleIdentifier,
+            appName: dictation.appName,
+            engineUsed: dictation.engineUsed,
+            modelUsed: dictation.modelUsed
+        )
+
+        if let sessionID = dictation.sessionID {
+            completeDictationSession(
+                id: sessionID,
+                transcription: DictationSessionTranscription(
+                    text: dictation.finalText,
+                    rawText: dictation.rawText,
+                    timestamp: dictation.timestamp,
+                    appName: dictation.appName,
+                    appBundleIdentifier: dictation.appBundleIdentifier,
+                    appURL: appURL,
+                    duration: dictation.durationSeconds,
+                    language: dictation.detectedLanguage,
+                    engine: dictation.engineUsed,
+                    model: dictation.modelUsed,
+                    wordsCount: dictation.wordsCount
+                )
+            )
+        }
+    }
+
     private func failDictationSession(id: UUID, error: String) {
         storeDictationSession(DictationSessionSnapshot(id: id, status: .failed, transcription: nil, error: error))
+        if dictationLatencyTraces[id]?.isComplete == false {
+            dictationLatencyTraces[id]?.failed = true
+            // Once text was inserted, `finishLatencyTraceAfterInsertion` completes the trace
+            // after the paste verification and clipboard restore resolved.
+            if dictationLatencyTraces[id]?.insertion == nil {
+                finishLatencyTrace(sessionID: id)
+            }
+        }
         if activeDictationSessionID == id {
             activeDictationSessionID = nil
         }
@@ -980,6 +1363,22 @@ final class DictationViewModel: ObservableObject {
     private func restoreRecordingSideEffects() {
         audioDuckingService.restoreAudio()
         mediaPlaybackService.resumeIfWePaused()
+        recordingUsesBluetoothInput = false
+        recordingRestoresSystemAudio = false
+    }
+
+    private var bluetoothStopBehavior: AudioRecordingService.BluetoothStopBehavior {
+        Self.bluetoothStopBehavior(
+            usesBluetoothInput: recordingUsesBluetoothInput,
+            restoresSystemAudio: recordingRestoresSystemAudio
+        )
+    }
+
+    static func bluetoothStopBehavior(
+        usesBluetoothInput: Bool,
+        restoresSystemAudio: Bool
+    ) -> AudioRecordingService.BluetoothStopBehavior {
+        usesBluetoothInput && restoresSystemAudio ? .release : .keepPrepared
     }
 
     private func prepareRecordingStartCue(playsSound: Bool) {
@@ -998,8 +1397,13 @@ final class DictationViewModel: ObservableObject {
         emitRecordingStartCueIfReady()
     }
 
-    private func handleFirstRecordingAudioBuffer() {
+    private func handleFirstRecordingAudioBuffer(at uptimeNanoseconds: UInt64) {
         firstRecordingAudioBufferSeen = true
+        updateLatencyTrace(sessionID: activeDictationSessionID) { trace in
+            if trace.firstAudioBufferUptimeNanoseconds == nil {
+                trace.firstAudioBufferUptimeNanoseconds = uptimeNanoseconds
+            }
+        }
         emitRecordingStartCueIfReady()
     }
 
@@ -1063,6 +1467,7 @@ final class DictationViewModel: ObservableObject {
         metadataCaptureTask = nil
         urlResolutionTask?.cancel()
         urlResolutionTask = nil
+        cancelIncrementalWorkflowPostProcessing()
         lastStreamingParams = nil
         pendingLiveFieldCapture = nil
         pinnedInsertionTarget = nil
@@ -1084,7 +1489,10 @@ final class DictationViewModel: ObservableObject {
         recordingCleanupTask = Task {
             await previousCleanup?.value
             await pendingStartTask?.value
-            _ = await audioRecordingService.stopRecording(policy: .immediate)
+            _ = await audioRecordingService.stopRecording(
+                policy: .immediate,
+                bluetoothBehavior: bluetoothStopBehavior
+            )
             restoreRecordingSideEffects()
             if preserveRecoveryAudio {
                 audioRecordingService.preserveActiveRecoveryRecording()
@@ -1104,6 +1512,49 @@ final class DictationViewModel: ObservableObject {
         while dictationSessionOrder.count > maxTrackedDictationSessions {
             let removedID = dictationSessionOrder.removeFirst()
             dictationSessions.removeValue(forKey: removedID)
+            dictationLatencyTraces.removeValue(forKey: removedID)
+        }
+    }
+
+    private func updateLatencyTrace(
+        sessionID: UUID?,
+        _ update: (inout DictationLatencyTrace) -> Void
+    ) {
+        guard let sessionID, var trace = dictationLatencyTraces[sessionID], !trace.isComplete else { return }
+        update(&trace)
+        dictationLatencyTraces[sessionID] = trace
+    }
+
+    private func finishLatencyTrace(sessionID: UUID) {
+        guard var trace = dictationLatencyTraces[sessionID], !trace.isComplete else { return }
+        trace.isComplete = true
+        dictationLatencyTraces[sessionID] = trace
+        logger.notice("Dictation latency: \(trace.logDescription, privacy: .public)")
+    }
+
+    /// Completes the latency trace once a paste's verification and clipboard restore, which
+    /// run after `insertText` returned, have resolved. Must run right after the insertion so
+    /// the pending restore still belongs to it.
+    private func finishLatencyTraceAfterInsertion(sessionID: UUID?) {
+        guard let sessionID, let trace = dictationLatencyTraces[sessionID] else { return }
+        guard trace.insertion == .paste,
+              let pending = textInsertionService.pendingClipboardRestoreTasks() else {
+            finishLatencyTrace(sessionID: sessionID)
+            return
+        }
+        Task { @MainActor [weak self] in
+            let verification = await pending.verification.value
+            self?.updateLatencyTrace(sessionID: sessionID) { trace in
+                if trace.pasteVerification == .notChecked {
+                    trace.recordPasteVerification(verification, at: DispatchTime.now().uptimeNanoseconds)
+                }
+            }
+            if await pending.restore.value.restored {
+                self?.updateLatencyTrace(sessionID: sessionID) { trace in
+                    trace.clipboardRestoredUptimeNanoseconds = DispatchTime.now().uptimeNanoseconds
+                }
+            }
+            self?.finishLatencyTrace(sessionID: sessionID)
         }
     }
 
@@ -1117,6 +1568,13 @@ final class DictationViewModel: ObservableObject {
             self?.refreshRecordingInputConfiguration()
         }
         .store(in: &cancellables)
+
+        modelManager.$isDictationModelLoading
+            .removeDuplicates()
+            .sink { [weak self] isLoading in
+                self?.isModelLoading = isLoading
+            }
+            .store(in: &cancellables)
 
         indicatorFeedbackLifetime.$remainingFraction
             .removeDuplicates()
@@ -1256,6 +1714,8 @@ final class DictationViewModel: ObservableObject {
         logger.info(
             "Cancel hotkey received: state=\(String(describing: self.state), privacy: .public), inputReady=\(self.isRecordingInputReady, privacy: .public), startPending=\(self.recordingStartTask != nil, privacy: .public)"
         )
+        // Disabled mode: Escape never cancels, whatever path delivered the press.
+        guard cancellationBehavior != .disabled else { return }
         guard let target = cancelWarningTargetForCurrentState() else { return }
 
         if cancellationBehavior != .doubleEscape {
@@ -1288,6 +1748,13 @@ final class DictationViewModel: ObservableObject {
             guard self?.cancelWarningTarget == target else { return }
             self?.clearCancelWarning()
         }
+    }
+
+    private func refreshCancellationAvailability() {
+        // Disabled mode leaves Escape entirely alone: the hotkey layer must
+        // not suppress it, so it passes through to the foreground app.
+        hotkeyService.isCancellationAvailable =
+            cancellationBehavior != .disabled && cancelWarningTargetForCurrentState() != nil
     }
 
     private func cancelWarningTargetForCurrentState() -> CancelWarningTarget? {
@@ -1350,6 +1817,7 @@ final class DictationViewModel: ObservableObject {
             stopFinalizationTask = nil
             streamingHandler.stop()
             lastStreamingParams = nil
+            cancelIncrementalWorkflowPostProcessing()
             transcriptionTask?.cancel()
             transcriptionTask = nil
             endTargetAppAccessibilityObservation()
@@ -1381,6 +1849,9 @@ final class DictationViewModel: ObservableObject {
 
         let startTimestamp = CFAbsoluteTimeGetCurrent()
         clearRecordingStartCueState()
+        // The previous dictation's completion must reach subscribers before this recording's
+        // `.recordingStarted`, even while its persistence still waits for the browser URL.
+        emitPendingTranscriptionCompletedEvents()
 
         // Cancel any pending transcription from a previous recording
         if transcriptionTask != nil {
@@ -1388,6 +1859,7 @@ final class DictationViewModel: ObservableObject {
         }
         transcriptionTask?.cancel()
         transcriptionTask = nil
+        cancelIncrementalWorkflowPostProcessing()
         cancelTargetAppCorrectionLearning()
         clearActionFeedbackAction()
         insertingResetTask?.cancel()
@@ -1405,12 +1877,19 @@ final class DictationViewModel: ObservableObject {
 
         self.forcedWorkflowId = forcedWorkflowId
         beginDictationSession(id: sessionID)
+        dictationLatencyTraces[sessionID] = DictationLatencyTrace(requestUptimeNanoseconds: requestUptimeNanoseconds)
 
         guard canDictate else {
-            let errorMessage = TranscriptionEngineError.modelNotLoaded.localizedDescription
+            let readinessError = modelManager.transcriptionReadinessError(providerId: modelManager.selectedProviderId)
+                ?? .noEngineSelected
+            let errorMessage = readinessError.localizedDescription
             logger.warning("startRecording rejected: canDictate=false; resetting hotkey state")
             failDictationSession(id: sessionID, error: errorMessage)
-            showError(errorMessage, category: "recording")
+            showError(
+                errorMessage,
+                category: "recording",
+                settingsTab: Self.settingsTab(forTranscriptionError: readinessError)
+            )
             // Resync the hotkey toggle: HotkeyService already flipped isActive=true
             // before invoking onDictationStart. Without this, a rejected start leaves
             // the toggle stuck "active", so the next press is consumed as a phantom
@@ -1431,6 +1910,8 @@ final class DictationViewModel: ObservableObject {
         captureLiveFieldTargetAtRecordingRequestIfEligible()
 
         let resolvedInputSelection = audioDeviceService.resolvedRecordingInputSelection()
+        dictationLatencyTraces[sessionID]?.inputTransport = audioDeviceService
+            .recordingInputTransportName(for: resolvedInputSelection)
         let initialForcedWorkflow = forcedWorkflow(for: forcedWorkflowId)
         audioRecordingService.microphoneBoostEnabled = microphoneBoostEnabled(for: initialForcedWorkflow)
         let selectedInputUsesBluetooth = resolvedInputSelection.usesBluetoothTransport
@@ -1445,8 +1926,9 @@ final class DictationViewModel: ObservableObject {
 
         // Only the physical-submit mode needs context before microphone startup.
         // Preserve audio-first startup for existing workflows.
-        let needsEarlyWorkflowMatch = initialForcedWorkflow.map { $0.output.autoEnterMode == .duringDictation }
-            ?? workflowService.workflows.contains { $0.isEnabled && $0.output.autoEnterMode == .duringDictation }
+        let needsEarlyWorkflowMatch = WorkflowAutoEnterMode.duringDictation.isAvailable
+            && (initialForcedWorkflow.map { $0.output.autoEnterMode == .duringDictation }
+                ?? workflowService.workflows.contains { $0.isEnabled && $0.output.autoEnterMode == .duringDictation })
         let initialActiveApp: (name: String?, bundleId: String?, url: String?) = needsEarlyWorkflowMatch
             ? (pendingLiveFieldCapture?.activeApp ?? textInsertionService.captureActiveApp())
             : (nil, nil, nil)
@@ -1456,7 +1938,8 @@ final class DictationViewModel: ObservableObject {
             applyWorkflowMatch(initialWorkflowMatch, activeApp: initialActiveApp)
         }
 
-        let resolveWebsiteBeforeRecording = initialForcedWorkflow == nil && workflowService.workflows.contains { workflow in
+        let resolveWebsiteBeforeRecording = WorkflowAutoEnterMode.duringDictation.isAvailable
+            && initialForcedWorkflow == nil && workflowService.workflows.contains { workflow in
             guard workflow.isEnabled,
                   workflow.output.autoEnterMode == .duringDictation || effectiveAutoEnterMode == .duringDictation,
                   let trigger = workflow.trigger, !trigger.websitePatterns.isEmpty else { return false }
@@ -1491,6 +1974,8 @@ final class DictationViewModel: ObservableObject {
                 await previousCleanup?.value
                 try Task.checkCancellation()
                 guard self.activeDictationSessionID == sessionID else { return }
+                self.recordingUsesBluetoothInput = selectedInputUsesBluetooth
+                self.recordingRestoresSystemAudio = false
                 var resolvedStartupApp: (name: String?, bundleId: String?, url: String?)? = needsEarlyWorkflowMatch
                     ? initialActiveApp : nil
                 if resolveWebsiteBeforeRecording {
@@ -1520,9 +2005,13 @@ final class DictationViewModel: ObservableObject {
                     return
                 }
                 if selectedInputUsesBluetooth, self.mediaPauseEnabled {
-                    await self.mediaPlaybackService.pauseImmediatelyIfPlaying()
+                    self.recordingRestoresSystemAudio = await self.mediaPlaybackService.pauseImmediatelyIfPlaying()
                     try Task.checkCancellation()
                     guard self.activeDictationSessionID == sessionID else { return }
+                }
+                if self.audioDuckingEnabled {
+                    self.audioDuckingService.prepareDucking()
+                    self.recordingRestoresSystemAudio = true
                 }
                 try await self.audioRecordingService.startRecordingAsync(
                     requestUptimeNanoseconds: requestUptimeNanoseconds
@@ -1558,6 +2047,9 @@ final class DictationViewModel: ObservableObject {
                     websiteResolvedBeforeRecording: resolveWebsiteBeforeRecording
                 )
             } catch is CancellationError {
+                if self.activeDictationSessionID == sessionID {
+                    self.restoreRecordingSideEffects()
+                }
                 logger.info("Recording preparation cancelled")
             } catch {
                 guard self.activeDictationSessionID == sessionID else { return }
@@ -1595,7 +2087,9 @@ final class DictationViewModel: ObservableObject {
         }
 
         if state == .inserting {
-            if actionFeedbackMessage != nil {
+            if isInsertingUndeliveredTranscript {
+                // insertUndeliveredTranscript starts the queued dictation once its paste is done.
+            } else if actionFeedbackMessage != nil {
                 indicatorFeedbackLifetime.finishImmediately()
             } else {
                 scheduleInsertingReset(after: .seconds(actionDisplayDuration))
@@ -1636,6 +2130,8 @@ final class DictationViewModel: ObservableObject {
             from: requestUptimeNanoseconds,
             to: audioStartCompletedTimestamp
         )
+        let prerollMs = audioRecordingService.lastPrerollMilliseconds
+        updateLatencyTrace(sessionID: sessionID) { $0.prerollMs = prerollMs }
         promptPaletteHandler.hide()
         recentTranscriptionPaletteHandler.hide()
         modelManager.cancelAutoUnloadTimer()
@@ -1643,9 +2139,11 @@ final class DictationViewModel: ObservableObject {
             logger.info("Skipping recording start sound for Bluetooth input device")
         }
         if mediaPauseEnabled, !selectedInputUsesBluetooth {
+            recordingRestoresSystemAudio = true
             mediaPlaybackService.pauseIfPlaying()
         }
         if audioDuckingEnabled {
+            recordingRestoresSystemAudio = true
             pendingRecordingAudioDuckingLevel = max(0, min(1, Float(audioDuckingLevel)))
         } else {
             pendingRecordingAudioDuckingLevel = nil
@@ -1700,6 +2198,11 @@ final class DictationViewModel: ObservableObject {
             // The asynchronous Bluetooth start only returns after the current
             // engine generation has produced a confirmed ready stream.
             firstRecordingAudioBufferSeen = true
+            updateLatencyTrace(sessionID: sessionID) { trace in
+                if trace.firstAudioBufferUptimeNanoseconds == nil {
+                    trace.firstAudioBufferUptimeNanoseconds = audioStartCompletedTimestamp
+                }
+            }
         }
         updateRecordingStartCuePayload(activeApp: activeApp)
         let contextMs = (CFAbsoluteTimeGetCurrent() - contextStartTimestamp) * 1000
@@ -1709,12 +2212,29 @@ final class DictationViewModel: ObservableObject {
             activeApp: activeApp,
             preCapturedTarget: liveFieldCapture?.liveFieldTarget
         )
+        hiddenLiveSessionAwaitsWebsiteWorkflow = !websiteResolvedBeforeRecording
+            && forcedWorkflowId == nil
+            && activeApp.bundleId != nil
+            && hasApplicableWebsiteWorkflow(bundleIdentifier: activeApp.bundleId)
         startLiveStreaming(
             allowLiveTranscription: indicatorTranscriptPreviewEnabled
                 || liveFieldTranscriptEnabled
                 || externalStreamingDisplayCount > 0
         )
+        refreshIncrementalWorkflowPostProcessing(forceRestart: true)
+        // Cold and warm starts are reported separately, so read readiness before the prewarm.
+        let engineReadyAtStart = modelManager.isTranscriptionEngineReady(engineOverrideId: effectiveEngineOverrideId)
+        let readinessEngine = effectiveEngineOverrideId ?? modelManager.selectedProviderId
+        updateLatencyTrace(sessionID: sessionID) {
+            $0.recordEngineReadiness(engineReadyAtStart, engine: readinessEngine)
+        }
+        // A pending website workflow can still switch the engine; the URL resolution
+        // prewarms once the workflow is settled.
+        if !hiddenLiveSessionAwaitsWebsiteWorkflow {
+            prewarmDictationModel()
+        }
         scheduleDeferredRecordingMetadataCapture(
+            sessionID: sessionID,
             activeApp: activeApp,
             forcedWorkflowId: forcedWorkflowId,
             resolveURL: !websiteResolvedBeforeRecording
@@ -1722,7 +2242,7 @@ final class DictationViewModel: ObservableObject {
 
         let totalStartMs = (CFAbsoluteTimeGetCurrent() - startTimestamp) * 1000
         logger.info(
-            "Recording started: requestToAudioStartMs=\(Self.formatMilliseconds(requestToAudioStartMs), privacy: .public), audioStartMs=\(Self.formatMilliseconds(audioStartMs), privacy: .public), contextMs=\(String(format: "%.1f", contextMs), privacy: .public), totalStartMs=\(String(format: "%.1f", totalStartMs), privacy: .public)"
+            "Recording started: requestToAudioStartMs=\(Self.formatMilliseconds(requestToAudioStartMs), privacy: .public), audioStartMs=\(Self.formatMilliseconds(audioStartMs), privacy: .public), contextMs=\(String(format: "%.1f", contextMs), privacy: .public), totalStartMs=\(String(format: "%.1f", totalStartMs), privacy: .public), prerollMs=\(String(format: "%.0f", prerollMs), privacy: .public)"
         )
     }
 
@@ -1756,6 +2276,7 @@ final class DictationViewModel: ObservableObject {
     }
 
     private func scheduleDeferredRecordingMetadataCapture(
+        sessionID: UUID,
         activeApp: (name: String?, bundleId: String?, url: String?),
         forcedWorkflowId: UUID?,
         resolveURL: Bool = true
@@ -1792,36 +2313,56 @@ final class DictationViewModel: ObservableObject {
         let resolvesForcedURL = forcedWorkflow(for: forcedWorkflowId)?.template == .speakToWindow
         guard resolveURL, (forcedWorkflowId == nil || resolvesForcedURL), let bundleId = activeApp.bundleId else { return }
         urlResolutionTask = Task { [weak self] in
-            guard let self else { return }
+            guard let self else { return nil }
             logger.info("URL resolution: starting for bundleId=\(bundleId)")
             let resolvedURL = await textInsertionService.resolveBrowserURL(bundleId: bundleId)
             logger.info("URL resolution: resolvedURL=\(resolvedURL ?? "nil"), state=\(String(describing: self.state))")
             guard state == .recording || state == .processing else {
                 logger.info("URL resolution: skipped - state is \(String(describing: self.state))")
-                return
+                return resolvedURL
+            }
+            // Insertion may no longer wait for this lookup, so it can finish after a newer
+            // session started. Only the session that requested it may use the result.
+            guard activeDictationSessionID == sessionID else {
+                logger.info("URL resolution: skipped - session changed")
+                return resolvedURL
             }
             guard let currentApp = capturedActiveApp, currentApp.bundleId == bundleId else {
                 logger.info("URL resolution: skipped - bundleId mismatch")
-                return
+                return nil
             }
 
             capturedActiveApp = (name: currentApp.name, bundleId: currentApp.bundleId, url: resolvedURL)
+            let hiddenLiveSessionWasDeferred = hiddenLiveSessionAwaitsWebsiteWorkflow
+            hiddenLiveSessionAwaitsWebsiteWorkflow = false
 
-            guard forcedWorkflowId == nil else { return }
+            guard forcedWorkflowId == nil else { return resolvedURL }
 
             guard let resolvedURL else {
                 logger.info("URL resolution: no URL resolved")
-                return
+                prewarmDictationModel()
+                if hiddenLiveSessionWasDeferred, refreshLiveStreamingIfParamsChanged() {
+                    refreshIncrementalWorkflowPostProcessing(forceRestart: true)
+                }
+                return nil
             }
 
             if let workflowMatch = workflowService.matchWorkflow(bundleIdentifier: bundleId, url: resolvedURL) {
                 logger.info("URL resolution: matched workflow '\(workflowMatch.workflow.name)'")
                 applyWorkflowMatch(workflowMatch, activeApp: capturedActiveApp)
-                refreshLiveStreamingIfParamsChanged()
-                return
+                prewarmDictationModel()
+                let restartedLiveStreaming = refreshLiveStreamingIfParamsChanged()
+                refreshIncrementalWorkflowPostProcessing(forceRestart: restartedLiveStreaming)
+                return resolvedURL
             }
 
+            prewarmDictationModel()
+            // The URL can change the resolved output format of the current workflow.
+            let startedDeferredLiveSession = hiddenLiveSessionWasDeferred
+                && refreshLiveStreamingIfParamsChanged()
+            refreshIncrementalWorkflowPostProcessing(forceRestart: startedDeferredLiveSession)
             logger.info("URL resolution: no workflow matched for URL \(resolvedURL)")
+            return resolvedURL
         }
     }
 
@@ -1884,6 +2425,88 @@ final class DictationViewModel: ObservableObject {
         return resolvedFormat
     }
 
+    /// Whether anything before insertion can depend on the browser URL: website triggers can
+    /// change the matched workflow (language, engine, prompt, output, auto-enter, action),
+    /// automatic output formats resolve by URL, and action and post-processor plugins receive it.
+    /// Waits for the website workflow, then sends the finished recording through the
+    /// resolved engine's live session if that engine streams dictation. Returns nil when
+    /// batch transcription should handle the recording instead.
+    private func transcribeRecordingThroughDeferredLiveSession(_ samples: [Float]) async -> TranscriptionResult? {
+        if let pendingURLResolution = urlResolutionTask {
+            _ = await pendingURLResolution.value
+        }
+        guard !Task.isCancelled else { return nil }
+        let previewRequested = indicatorTranscriptPreviewEnabled
+            || liveFieldTranscriptEnabled
+            || externalStreamingDisplayCount > 0
+        let engineOverrideId = effectiveEngineOverrideId
+        let providerId = modelManager.selectedProviderId
+        guard !previewRequested,
+              modelManager.prefersLiveSessionForDictation(
+                engineOverrideId: engineOverrideId,
+                selectedProviderId: providerId
+              ) else {
+            return nil
+        }
+        let dictionaryProviderId = engineOverrideId ?? providerId
+        let streamPrompt = dictionaryService.getTermsForPrompt(providerId: dictionaryProviderId) ?? ""
+        let dictionaryTermHints = dictionaryService.getTermHints(providerId: dictionaryProviderId)
+        let languageSelection = effectiveLanguageSelection
+        let task = effectiveTask
+        let cloudModelOverride = effectiveCloudModelOverride
+        let normalizeNumbers = effectiveNumberNormalizationOverride
+        let replay: @MainActor () async throws -> TranscriptionResult? = { [streamingHandler] in
+            await streamingHandler.transcribeRecordingThroughLiveSession(
+                samples,
+                streamPrompt: streamPrompt,
+                dictionaryTermHints: dictionaryTermHints,
+                engineOverrideId: engineOverrideId,
+                languageSelection: languageSelection,
+                task: task,
+                cloudModelOverride: cloudModelOverride,
+                normalizeNumbers: normalizeNumbers
+            )
+        }
+        // A stalled provider must not hold the stop path; on expiry the replay is
+        // cancelled and batch transcription takes over with its own deadline.
+        let audioDuration = Double(samples.count) / AudioRecordingService.targetSampleRate
+        guard let deadline = transcriptionDeadlineProvider(audioDuration), deadline > 0 else {
+            return try? await replay()
+        }
+        do {
+            return try await runWithDeadline(deadline, operationName: "Live replay", replay)
+        } catch {
+            logger.warning("Live replay did not finish, using batch transcription: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+    }
+
+    private func prewarmDictationModel() {
+        modelManager.beginDictationModelPrewarm(
+            engineOverrideId: effectiveEngineOverrideId,
+            cloudModelOverride: effectiveCloudModelOverride
+        )
+    }
+
+    private func hasApplicableWebsiteWorkflow(bundleIdentifier: String?) -> Bool {
+        workflowService.workflows.contains { workflow in
+            guard workflow.isEnabled,
+                  let trigger = workflow.trigger,
+                  !trigger.websitePatterns.isEmpty else {
+                return false
+            }
+            return trigger.appBundleIdentifiers.isEmpty
+                || trigger.appBundleIdentifiers.contains(bundleIdentifier ?? "")
+        }
+    }
+
+    private func browserURLRequiredBeforeInsertion(bundleIdentifier: String?) -> Bool {
+        hasApplicableWebsiteWorkflow(bundleIdentifier: bundleIdentifier)
+            || WorkflowOutputFormatResolver.isAutomaticFormat(effectiveOutputFormat)
+            || effectiveActionPluginId != nil
+            || PluginManager.shared?.postProcessors.isEmpty == false
+    }
+
     private var shouldTrackTargetAppCorrectionLearning: Bool {
         (licenseService?.hasCommercialLicense ?? false) &&
             UserDefaults.standard.bool(forKey: UserDefaultsKeys.targetAppCorrectionLearningEnabled)
@@ -1898,7 +2521,8 @@ final class DictationViewModel: ObservableObject {
     }
 
     private var effectiveAutoEnterMode: WorkflowAutoEnterMode {
-        matchedWorkflow?.output.autoEnterMode ?? .never
+        let mode = matchedWorkflow?.output.autoEnterMode ?? .never
+        return mode.isAvailable ? mode : .never
     }
 
     private var requiresVisiblePostProcessingPhase: Bool {
@@ -1932,9 +2556,17 @@ final class DictationViewModel: ObservableObject {
 
     private func ensureSubmitKeySuppressionAvailable() -> Bool {
         guard effectiveAutoEnterMode == .duringDictation, !hotkeyService.canSuppressExternalKeyEvents else { return true }
-        let message = localizedAppText(
-            "Enter submission is unavailable. Check Accessibility access and restart TypeWhisper, or choose another Enter option.",
-            de: "Absenden mit Enter ist nicht verfügbar. Prüfe die Bedienungshilfen und starte TypeWhisper neu oder wähle eine andere Enter-Option."
+        let message = AccessibilityPermissionPane.text(
+            legacy: localizedAppText(
+                "Enter submission is unavailable. Check Accessibility access and restart TypeWhisper, or choose another Enter option.",
+                de: "Absenden mit Enter ist nicht verfügbar. Prüfe die Bedienungshilfen und starte TypeWhisper neu oder wähle eine andere Enter-Option."
+            ),
+            deviceControl: localizedAppText(
+                "Enter submission is unavailable. Check the Device Control and Data Access permission and restart TypeWhisper, or choose another Enter option.",
+                de: "Absenden mit Enter ist nicht verfügbar. Prüfe die Berechtigung „Gerätesteuerung und Datenzugriff“ und starte TypeWhisper neu oder wähle eine andere Enter-Option.",
+                ja: "Enter キーで送信できません。「デバイスの制御とデータへのアクセス」の権限を確認して TypeWhisper を再起動するか、別の Enter オプションを選択してください。",
+                zh: "无法使用 Enter 发送。请检查“设备控制和数据访问”权限并重启 TypeWhisper，或选择其他 Enter 选项。"
+            )
         )
         abortActiveRecordingImmediately(sessionMessage: message)
         showError(message, category: "recording")
@@ -1955,8 +2587,13 @@ final class DictationViewModel: ObservableObject {
             return
         }
         isStopInFlight = true
+        let stopUptimeNanoseconds = DispatchTime.now().uptimeNanoseconds
+        updateLatencyTrace(sessionID: activeDictationSessionID) { $0.stopUptimeNanoseconds = stopUptimeNanoseconds }
         let canKeepFinalLiveInsertionQuiet = streamingHandler.hasActiveLiveTranscriptionSession
             && !requiresVisiblePostProcessingPhase
+        // Stopped before the browser URL resolved: the hidden live session never started.
+        // Captured here because the URL task may clear the marker before finalization runs.
+        let hiddenLiveSessionWasDeferred = hiddenLiveSessionAwaitsWebsiteWorkflow && lastStreamingParams == nil
         state = .processing
         processingPhase = canKeepFinalLiveInsertionQuiet
             ? nil
@@ -1964,11 +2601,14 @@ final class DictationViewModel: ObservableObject {
         markActiveDictationSessionProcessingIfNeeded()
         stopFinalizationTask = Task { [weak self] in
             guard let self else { return }
-            await finalizeStopDictation(submitRequested: submitRequested)
+            await finalizeStopDictation(
+                submitRequested: submitRequested,
+                hiddenLiveSessionWasDeferred: hiddenLiveSessionWasDeferred
+            )
         }
     }
 
-    private func finalizeStopDictation(submitRequested: Bool) async {
+    private func finalizeStopDictation(submitRequested: Bool, hiddenLiveSessionWasDeferred: Bool) async {
         var didStartTranscriptionTask = false
         defer {
             if Task.isCancelled {
@@ -1976,6 +2616,7 @@ final class DictationViewModel: ObservableObject {
             }
             if !didStartTranscriptionTask {
                 endTargetAppAccessibilityObservation()
+                cancelIncrementalWorkflowPostProcessing()
             }
             stopFinalizationTask = nil
         }
@@ -1988,11 +2629,16 @@ final class DictationViewModel: ObservableObject {
             streamingHandler.stop()
             lastStreamingParams = nil
             stopRecordingTimer()
-            _ = await audioRecordingService.stopRecording(policy: .immediate)
+            let discardedSamples = await audioRecordingService.stopRecording(
+                policy: .immediate,
+                bluetoothBehavior: bluetoothStopBehavior
+            )
             restoreRecordingSideEffects()
             audioRecordingService.discardActiveRecoveryRecording()
             guard !Task.isCancelled else { return }
             if let sessionID {
+                let discardedDuration = Double(discardedSamples.count) / AudioRecordingService.targetSampleRate
+                updateLatencyTrace(sessionID: sessionID) { $0.recordingSeconds = discardedDuration }
                 failDictationSession(id: sessionID, error: discardMessage)
             }
             showNotchFeedback(
@@ -2010,15 +2656,23 @@ final class DictationViewModel: ObservableObject {
         lastStreamingParams = nil
         let previewFollowedDictationEngine = lastPreviewFollowsDictationEngine
         lastPreviewFollowsDictationEngine = true
+        let streamingPreviewWasHidden = lastStreamingPreviewHidden || hiddenLiveSessionWasDeferred
+        lastStreamingPreviewHidden = false
         stopRecordingTimer()
         let previewText = partialText.trimmingCharacters(in: .whitespacesAndNewlines)
         let stopPolicy = AudioRecordingService.StopPolicy.finalizeShortSpeech()
-        var samples = await audioRecordingService.stopRecording(policy: stopPolicy)
+        var samples = await audioRecordingService.stopRecording(
+            policy: stopPolicy,
+            bluetoothBehavior: bluetoothStopBehavior
+        )
         restoreRecordingSideEffects()
         guard !Task.isCancelled else { return }
         logger.info("Stop timing: stopRecording done elapsedMs=\(stopElapsedMs(), privacy: .public), previewTextLength=\(previewText.count, privacy: .public)")
         let liveSessionResultBeforePreviewFallback: TranscriptionResult?
-        if previewFollowedDictationEngine {
+        if hiddenLiveSessionWasDeferred,
+           let replayedResult = await transcribeRecordingThroughDeferredLiveSession(samples) {
+            liveSessionResultBeforePreviewFallback = replayedResult
+        } else if previewFollowedDictationEngine {
             liveSessionResultBeforePreviewFallback = await streamingHandler.finish(finalSamples: samples)
         } else {
             // The live session ran on a preview-only engine; its text is display-only
@@ -2045,7 +2699,9 @@ final class DictationViewModel: ObservableObject {
 
         let peakLevel = audioRecordingService.peakRawAudioLevel
         let rawDuration = Double(samples.count) / AudioRecordingService.targetSampleRate
+        updateLatencyTrace(sessionID: sessionID) { $0.recordingSeconds = rawDuration }
         if previewFollowedDictationEngine,
+           !streamingPreviewWasHidden,
            !hasConfirmedTranscriptionResultText(liveSessionResult),
            let previewResult = stableLivePreviewFallbackResult(
             previewText: previewText,
@@ -2054,11 +2710,11 @@ final class DictationViewModel: ObservableObject {
            ) {
             liveSessionResult = previewResult
         }
-        // A distinct preview engine's text never becomes the final result, but its
-        // having recognized speech still counts for the discard-quiet-clip gating —
-        // otherwise valid quiet speech would be discarded before the dictation
-        // engine gets to transcribe it.
-        let previewEngineConfirmedSpeech = !previewFollowedDictationEngine
+        // Text from a distinct preview engine or a hidden live session never becomes
+        // the final result on its own, but its having recognized speech still counts
+        // for the discard-quiet-clip gating — otherwise valid quiet speech would be
+        // discarded before the dictation engine gets to transcribe it.
+        let previewEngineConfirmedSpeech = (!previewFollowedDictationEngine || streamingPreviewWasHidden)
             && StreamingHandler.isSubstantiveStablePreview(
                 previewText.trimmingCharacters(in: .whitespacesAndNewlines)
             )
@@ -2129,6 +2785,12 @@ final class DictationViewModel: ObservableObject {
         guard !Task.isCancelled else { return }
         let usedLiveSessionResult = liveSessionResult != nil
         let accessibilityObservationLease = targetAppAccessibilityObservationLease
+        // Incremental results are only valid for a final text from the same live session.
+        let incrementalPostProcessing = usedLiveSessionResult ? incrementalWorkflowPostProcessing : nil
+        if !usedLiveSessionResult {
+            incrementalWorkflowPostProcessing?.cancel()
+        }
+        incrementalWorkflowPostProcessing = nil
         transcriptionTask = Task {
             var didTransferAccessibilityObservationLease = false
             defer {
@@ -2137,11 +2799,20 @@ final class DictationViewModel: ObservableObject {
                         accessibilityObservationLease
                     )
                 }
+                incrementalPostProcessing?.cancel()
             }
             do {
-                // Wait for browser URL resolution so URL-based profile overrides apply
-                await urlResolutionTask?.value
-                logger.info("Stop timing: urlResolutionTask done elapsedMs=\(stopElapsedMs(), privacy: .public)")
+                // Only wait for browser URL resolution when something before insertion depends
+                // on the URL. Otherwise history metadata picks it up after insertion.
+                let pendingURLResolution = urlResolutionTask
+                if let pendingURLResolution {
+                    if browserURLRequiredBeforeInsertion(bundleIdentifier: capturedActiveApp?.bundleId) {
+                        _ = await pendingURLResolution.value
+                        logger.info("Stop timing: urlResolutionTask done elapsedMs=\(stopElapsedMs(), privacy: .public)")
+                    } else {
+                        logger.info("Stop timing: urlResolutionTask not needed before insertion elapsedMs=\(stopElapsedMs(), privacy: .public)")
+                    }
+                }
 
                 let activeApp = capturedActiveApp ?? textInsertionService.captureActiveApp()
                 let resolvedOutputFormat = self.resolvedEffectiveOutputFormat(for: activeApp)
@@ -2184,6 +2855,12 @@ final class DictationViewModel: ObservableObject {
                 }
                 let result = transcription.result
                 let diagnostics = result.diagnosticSummary(audioDuration: audioDuration)
+                updateLatencyTrace(sessionID: sessionID) { trace in
+                    trace.finalTranscriptUptimeNanoseconds = DispatchTime.now().uptimeNanoseconds
+                    trace.recordFinalEngine(result.engineUsed)
+                    trace.model = transcription.modelId
+                    trace.usedLiveResult = usedLiveSessionResult
+                }
                 logger.info("Stop timing: final transcription ready elapsedMs=\(stopElapsedMs(), privacy: .public), usedLiveResult=\(usedLiveSessionResult, privacy: .public), engine=\(result.engineUsed, privacy: .public), model=\(transcription.modelId ?? "unknown", privacy: .public), usedRecoveryFallback=\(transcription.usedRecoveryFallback, privacy: .public), primaryPromptChars=\(termsPrompt?.count ?? 0, privacy: .public), \(diagnostics, privacy: .public)")
 
                 // Bail out if a new recording started while we were transcribing
@@ -2222,11 +2899,17 @@ final class DictationViewModel: ObservableObject {
                     logger.info("Detected terminal spoken Enter command")
                 }
 
+                // A workflow can skip its model for short dictations, so the trace reports
+                // whether the model ran rather than whether a handler exists.
+                let modelPostProcessingRan = OSAllocatedUnfairLock(initialState: false)
                 let llmHandler = buildLLMHandler(
                     translationTarget: translationTarget,
                     detectedLanguage: result.detectedLanguage,
                     configuredLanguage: language,
-                    resolvedOutputFormat: resolvedOutputFormat
+                    resolvedOutputFormat: resolvedOutputFormat,
+                    incrementalPostProcessing: incrementalPostProcessing,
+                    stopTimingStart: stopStart,
+                    modelPostProcessingRan: modelPostProcessingRan
                 )
 
                 guard !Task.isCancelled else { return }
@@ -2265,7 +2948,9 @@ final class DictationViewModel: ObservableObject {
                     outputFormat: resolvedOutputFormat,
                     llmStepName: llmStepName,
                     normalizeNumbers: self.effectiveNumberNormalizationOverride,
-                    llmFailureFallbackText: actionPluginId == nil ? text : nil
+                    llmFailureFallbackText: actionPluginId == nil ? text : nil,
+                    // Snippet and correction usage counters are saved after insertion.
+                    deferUsageCountSaves: true
                 )
                 text = ppResult.text
                 let postProcessingFallback = ppResult.fallback
@@ -2279,10 +2964,17 @@ final class DictationViewModel: ObservableObject {
                     )
                 }
                 let shouldAutoEnterAfterInsertion = actionPluginId == nil
-                    && (autoEnterMode == .always
-                        || (autoEnterResolution.shouldPressEnter
-                            && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
+                    && WorkflowAutoEnterResolver.shouldPressEnterAfterInsertion(
+                        mode: autoEnterMode,
+                        resolution: autoEnterResolution,
+                        insertedText: text,
+                        usedRawTranscriptionFallback: postProcessingFallback != nil
+                    )
                 logger.info("Stop timing: post-processing done elapsedMs=\(stopElapsedMs(), privacy: .public)")
+                updateLatencyTrace(sessionID: sessionID) { trace in
+                    trace.postProcessingDoneUptimeNanoseconds = DispatchTime.now().uptimeNanoseconds
+                    trace.llmPostProcessing = modelPostProcessingRan.withLock { $0 }
+                }
                 let transcriptionID = sessionID ?? UUID()
                 let completionTimestamp = Date()
                 recentTranscriptionStore.recordTranscription(
@@ -2295,6 +2987,20 @@ final class DictationViewModel: ObservableObject {
 
                 partialText = ""
                 var insertedTextForCorrectionTracking: String?
+                var undeliveredTranscript: UndeliveredTranscript?
+                let makeUndeliveredTranscript = { (reason: UndeliveredTranscript.Reason, outputFormat: String?) in
+                    UndeliveredTranscript(
+                        text: text,
+                        rawTranscript: result.text,
+                        outputFormat: outputFormat,
+                        reason: reason,
+                        completion: DictationInsertionCompletion(
+                            id: transcriptionID,
+                            providerId: result.engineUsed,
+                            modelId: transcription.modelId
+                        )
+                    )
+                }
                 var targetAppCorrectionBaseline: TextInsertionService.FocusedTextObservation?
                 let modelDisplayName = transcription.modelDisplayName
                 var pipelineSteps = ppResult.appliedSteps
@@ -2314,6 +3020,10 @@ final class DictationViewModel: ObservableObject {
                         activeApp: activeApp, language: language, originalText: result.text
                     )
                     pinnedInsertionTarget = nil
+                    updateLatencyTrace(sessionID: sessionID) { trace in
+                        trace.insertion = .actionPlugin
+                        trace.insertionUptimeNanoseconds = DispatchTime.now().uptimeNanoseconds
+                    }
                 } else {
                     let contextualInsertionEnabled = DictationInsertionTextFormatter.contextualInsertionEnabled()
                     let insertionContext: TextInsertionService.InsertionContext? = if contextualInsertionEnabled {
@@ -2326,7 +3036,9 @@ final class DictationViewModel: ObservableObject {
                     let insertionText = DictationInsertionTextFormatter.textForInsertion(
                         text,
                         insertionContext: insertionContext,
-                        contextualInsertionEnabled: contextualInsertionEnabled
+                        contextualInsertionEnabled: contextualInsertionEnabled,
+                        standaloneValueFinalPeriodCleanupEnabled: DictationInsertionTextFormatter
+                            .standaloneValueFinalPeriodCleanupEnabled()
                     )
                     logger.info(
                         "Contextual insertion: enabled=\(contextualInsertionEnabled, privacy: .public), contextAvailable=\(insertionContext != nil, privacy: .public), valueLength=\(insertionContext?.value.utf16.count ?? -1, privacy: .public), selectionLocation=\(insertionContext?.selectedRange.location ?? -1, privacy: .public), leadingSpaceAdded=\(insertionText.hasPrefix(" ") && !text.hasPrefix(" "), privacy: .public), app=\(activeApp.bundleId ?? "nil", privacy: .public)"
@@ -2337,6 +3049,7 @@ final class DictationViewModel: ObservableObject {
                     ) && resolvedOutputFormat == nil
                     var didInsertText = false
                     var shouldUseNormalInsertion = true
+                    var insertionResult: TextInsertionService.InsertionResult?
 
                     if resolvedOutputFormat == nil,
                        liveFieldTranscriptSession != nil,
@@ -2345,7 +3058,7 @@ final class DictationViewModel: ObservableObject {
                         shouldUseNormalInsertion = await textInsertionService
                             .focusPinnedInsertionTarget(pinnedInsertionTarget)
                         if !shouldUseNormalInsertion {
-                            showLiveFieldRecoveryFeedback()
+                            undeliveredTranscript = makeUndeliveredTranscript(.textFieldChanged, nil)
                             cancelLiveFieldTranscriptSession()
                         }
                     }
@@ -2357,6 +3070,12 @@ final class DictationViewModel: ObservableObject {
                         case .applied(let finalObservation):
                             shouldUseNormalInsertion = false
                             didInsertText = true
+                            updateLatencyTrace(sessionID: sessionID) { trace in
+                                let now = DispatchTime.now().uptimeNanoseconds
+                                trace.insertion = .liveField
+                                trace.insertionUptimeNanoseconds = now
+                                trace.verifiedInsertionUptimeNanoseconds = now
+                            }
                             targetAppCorrectionBaseline = shouldObservePostInsertionEdits
                                 ? finalObservation
                                 : nil
@@ -2377,12 +3096,15 @@ final class DictationViewModel: ObservableObject {
                             shouldUseNormalInsertion = !hadAttemptedMutation
                                 && (allowsFocusedFallback || pinnedInsertionTarget != nil)
                             if !shouldUseNormalInsertion {
-                                showLiveFieldRecoveryFeedback()
+                                undeliveredTranscript = makeUndeliveredTranscript(.textFieldChanged, nil)
                             }
                         }
                         self.liveFieldTranscriptSession = nil
                     } else if liveFieldTranscriptSession != nil {
                         shouldUseNormalInsertion = prepareLiveFieldSessionForNormalInsertion()
+                        if !shouldUseNormalInsertion {
+                            undeliveredTranscript = makeUndeliveredTranscript(.textFieldChanged, resolvedOutputFormat)
+                        }
                     }
 
                     if shouldUseNormalInsertion,
@@ -2391,7 +3113,7 @@ final class DictationViewModel: ObservableObject {
                         shouldUseNormalInsertion = await textInsertionService
                             .focusPinnedInsertionTarget(pinnedInsertionTarget)
                         if !shouldUseNormalInsertion {
-                            showLiveFieldRecoveryFeedback()
+                            undeliveredTranscript = makeUndeliveredTranscript(.textFieldChanged, resolvedOutputFormat)
                         }
                     }
 
@@ -2399,34 +3121,98 @@ final class DictationViewModel: ObservableObject {
                         let learningPreInsertionObservation = shouldObservePostInsertionEdits
                             ? textInsertionService.captureFocusedTextObservation()
                             : nil
-                        let insertionResult = try await textInsertionService.insertText(
+                        // Correction learning recaptures the field after insertion, so it
+                        // needs the paste to have landed before insertText returns.
+                        insertionResult = try await textInsertionService.insertText(
                             insertionText,
                             preserveClipboard: preserveClipboard,
                             autoEnter: shouldAutoEnterAfterInsertion,
-                            outputFormat: resolvedOutputFormat
+                            outputFormat: resolvedOutputFormat,
+                            awaitPasteVerification: learningPreInsertionObservation != nil,
+                            detectMissedTextField: true
                         )
-                        if case .pasted(.unverified(let reason)) = insertionResult {
+                        if let insertionResult {
+                            let timing = textInsertionService.lastInsertionTiming
+                                ?? TextInsertionService.InsertionTiming(
+                                    insertedUptimeNanoseconds: DispatchTime.now().uptimeNanoseconds,
+                                    verifiedUptimeNanoseconds: nil
+                                )
+                            updateLatencyTrace(sessionID: sessionID) { trace in
+                                trace.recordInsertion(insertionResult, timing: timing)
+                            }
+                        }
+                        if case .pasted(.unverified(let reason))? = insertionResult {
                             logger.info(
                                 "Text insertion paste could not be verified; continuing with clipboard paste fallback. reason=\(reason.rawValue, privacy: .public), app=\(activeApp.bundleId ?? "nil", privacy: .public)"
                             )
                         }
-                        targetAppCorrectionBaseline = learningPreInsertionObservation.flatMap {
-                            textInsertionService.recaptureFocusedTextObservation(matching: $0)
+#if APPSTORE
+                        if insertionResult == .copiedToClipboard {
+                            showManualPasteFeedback()
                         }
-                        insertedTextForCorrectionTracking = insertionText
-                        didInsertText = true
+#endif
+                        if insertionResult?.missedTextField == true {
+                            undeliveredTranscript = makeUndeliveredTranscript(.noTextField, resolvedOutputFormat)
+                        } else {
+                            targetAppCorrectionBaseline = learningPreInsertionObservation.flatMap {
+                                textInsertionService.recaptureFocusedTextObservation(matching: $0)
+                            }
+                            insertedTextForCorrectionTracking = insertionText
+                            didInsertText = true
+                        }
                     }
                     self.pinnedInsertionTarget = nil
+                    if !didInsertText {
+                        updateLatencyTrace(sessionID: sessionID) { $0.insertion = .notInserted }
+                    }
 
                     if didInsertText {
+                        lastSuccessfulDictationInsertion = DictationInsertionCompletion(
+                            id: transcriptionID,
+                            providerId: result.engineUsed,
+                            modelId: transcription.modelId
+                        )
                         logger.info("Stop timing: text inserted elapsedMs=\(stopElapsedMs(), privacy: .public)")
                         EventBus.shared.emit(.textInserted(TextInsertedPayload(
                             text: insertionText,
                             appName: activeApp.name,
                             bundleIdentifier: activeApp.bundleId
                         )))
+                        // Action-plugin runs never insert text and are out of scope for
+                        // undo/restore (issue #999). A snapshot is only recorded when the
+                        // insertion is verifiable: formatted output may transform the
+                        // text, and unverified or unawaited pastes may not have landed
+                        // yet, so neither can back a safe snapshot. The live-field
+                        // finalize path produces no insertionResult and applies the text
+                        // directly, which is verifiable.
+                        let insertionIsVerifiable: Bool
+                        if actionPluginId != nil || resolvedOutputFormat != nil {
+                            insertionIsVerifiable = false
+                        } else if let insertionResult {
+                            switch insertionResult {
+                            case .insertedViaAccessibility, .pasted(.verified):
+                                insertionIsVerifiable = true
+                            case .pasted(.unverified), .pasted(.notAwaited):
+                                insertionIsVerifiable = false
+#if APPSTORE
+                            case .copiedToClipboard:
+                                insertionIsVerifiable = false
+#endif
+                            }
+                        } else {
+                            insertionIsVerifiable = true
+                        }
+                        if insertionIsVerifiable {
+                            dictationUndoService.recordSnapshot(
+                                rawTranscript: result.text,
+                                insertedText: insertionText,
+                                transcriptionID: transcriptionID
+                            )
+                        }
                     }
                 }
+
+                finishLatencyTraceAfterInsertion(sessionID: sessionID)
 
                 if let insertedTextForCorrectionTracking {
                     let contributionContext: CorrectionContributionContext? = improveTypeWhisperCaptureEnabled
@@ -2444,68 +3230,12 @@ final class DictationViewModel: ObservableObject {
                     )
                 }
 
-                if UserDefaults.standard.object(forKey: UserDefaultsKeys.historyEnabled) as? Bool ?? true {
-                    historyService.addRecord(
-                        id: transcriptionID,
-                        timestamp: completionTimestamp,
-                        rawText: result.text,
-                        finalText: text,
-                        appName: activeApp.name,
-                        appBundleIdentifier: activeApp.bundleId,
-                        appURL: activeApp.url,
-                        durationSeconds: audioDuration,
-                        language: language,
-                        engineUsed: result.engineUsed,
-                        modelUsed: modelDisplayName,
-                        audioSamples: audioSamplesForHistory,
-                        pipelineSteps: pipelineSteps.isEmpty ? nil : pipelineSteps
-                    )
-                }
-
-                EventBus.shared.emit(.transcriptionCompleted(TranscriptionCompletedPayload(
-                    timestamp: completionTimestamp,
-                    rawText: result.text,
-                    finalText: text,
-                    language: language,
-                    engineUsed: result.engineUsed,
-                    modelUsed: modelDisplayName,
-                    durationSeconds: audioDuration,
-                    appName: activeApp.name,
-                    bundleIdentifier: activeApp.bundleId,
-                    url: activeApp.url,
-                    ruleName: self.effectiveRuleName
-                )))
-
-                let recoveryPreservation = audioRecordingService.preserveActiveRecoveryRecordingResult(successful: true)
-                logger.info("Successful dictation recovery audio retained=\(recoveryPreservation.newlyPreservedURL != nil, privacy: .public)")
+                // Keep the finished recording recoverable. The store's serial queue orders this
+                // before the next recording replaces the active file, without blocking here.
+                audioRecordingService.preserveActiveRecoveryRecordingInBackground(successful: true)
                 soundService.play(.transcriptionSuccess, enabled: soundFeedbackEnabled)
                 let wordCount = text.split(separator: " ").count
-                usageStatisticsRecorder?.recordTranscription(
-                    timestamp: completionTimestamp,
-                    wordsCount: wordCount,
-                    durationSeconds: audioDuration,
-                    appBundleIdentifier: activeApp.bundleId,
-                    appName: activeApp.name,
-                    engineUsed: result.engineUsed,
-                    modelUsed: modelDisplayName
-                )
                 let detectedLang = result.detectedLanguage ?? language
-                let completedTranscription = DictationSessionTranscription(
-                    text: text,
-                    rawText: result.text,
-                    timestamp: completionTimestamp,
-                    appName: activeApp.name,
-                    appBundleIdentifier: activeApp.bundleId,
-                    appURL: activeApp.url,
-                    duration: audioDuration,
-                    language: detectedLang,
-                    engine: result.engineUsed,
-                    model: modelDisplayName,
-                    wordsCount: wordCount
-                )
-                if let sessionID {
-                    completeDictationSession(id: sessionID, transcription: completedTranscription)
-                }
                 accessibilityAnnouncementService.announceTranscriptionComplete(wordCount: wordCount)
                 speechFeedbackService.speakAutomaticTranscription(text: text, language: detectedLang)
                 lastTranscribedText = text
@@ -2522,6 +3252,35 @@ final class DictationViewModel: ObservableObject {
                         duration: 4.0
                     )
                 }
+                // Shown last so it is not replaced: the transcript still needs a text field.
+                if let undeliveredTranscript {
+                    showUndeliveredTranscriptFeedback(undeliveredTranscript)
+                }
+
+                schedulePostInsertionPersistence(
+                    CompletedDictation(
+                        sessionID: sessionID,
+                        transcriptionID: transcriptionID,
+                        timestamp: completionTimestamp,
+                        rawText: result.text,
+                        finalText: text,
+                        appName: activeApp.name,
+                        appBundleIdentifier: activeApp.bundleId,
+                        appURL: activeApp.url,
+                        durationSeconds: audioDuration,
+                        language: language,
+                        detectedLanguage: detectedLang,
+                        engineUsed: result.engineUsed,
+                        modelUsed: modelDisplayName,
+                        ruleName: self.effectiveRuleName,
+                        wordsCount: wordCount,
+                        historyEnabled: UserDefaults.standard.object(forKey: UserDefaultsKeys.historyEnabled) as? Bool ?? true,
+                        historyClearGeneration: historyService.clearGeneration,
+                        audioSamples: audioSamplesForHistory,
+                        pipelineSteps: pipelineSteps.isEmpty ? nil : pipelineSteps
+                    ),
+                    pendingURLResolution: activeApp.url == nil ? pendingURLResolution : nil
+                )
 
                 state = .inserting
                 if actionFeedbackMessage != nil {
@@ -2530,6 +3289,7 @@ final class DictationViewModel: ObservableObject {
                     scheduleInsertingReset(after: .seconds(1.5))
                 }
             } catch {
+                saveDeferredPostProcessingUsageCounts()
                 guard !Task.isCancelled else { return }
                 handleLiveFieldTranscriptionFailure(stablePreviewText: previewText)
                 let recoveryPreservation = audioRecordingService
@@ -2546,7 +3306,8 @@ final class DictationViewModel: ObservableObject {
                 showError(
                     error.localizedDescription,
                     category: "transcription",
-                    recoveryPreservation: recoveryPreservation
+                    recoveryPreservation: recoveryPreservation,
+                    settingsTab: Self.settingsTab(forTranscriptionError: error)
                 )
                 clearActiveRuleState()
                 capturedActiveApp = nil
@@ -2642,7 +3403,18 @@ final class DictationViewModel: ObservableObject {
                 normalizeNumbers: normalizeNumbers
             )
         }
-        let arbiter = DeadlineArbiter<FinalTranscriptionOutput>()
+        return try await runWithDeadline(deadline, operationName: "Final transcription", transcriptionOperation)
+    }
+
+    /// Runs `operation` as an unstructured task settled through a `DeadlineArbiter`:
+    /// returns its outcome, or throws `TranscriptionDeadlineExceeded` once `deadline`
+    /// passes. The work is cancelled but never awaited.
+    private func runWithDeadline<Value>(
+        _ deadline: TimeInterval,
+        operationName: String,
+        _ operation: @escaping @MainActor () async throws -> Value
+    ) async throws -> Value {
+        let arbiter = DeadlineArbiter<Value>()
         // The continuation only signals completion; the (non-Sendable) outcome
         // stays inside the main-actor arbiter and is read back here.
         await withTaskCancellationHandler {
@@ -2650,7 +3422,7 @@ final class DictationViewModel: ObservableObject {
                 arbiter.begin(continuation)
                 let work = Task { @MainActor in
                     do {
-                        arbiter.settle(.success(try await transcriptionOperation()))
+                        arbiter.settle(.success(try await operation()))
                     } catch {
                         arbiter.settle(.failure(error))
                     }
@@ -2661,7 +3433,7 @@ final class DictationViewModel: ObservableObject {
                     } catch {
                         return
                     }
-                    logger.error("Final transcription exceeded its deadline of \(deadline, format: .fixed(precision: 1))s; abandoning in-flight requests")
+                    logger.error("\(operationName, privacy: .public) exceeded its deadline of \(deadline, format: .fixed(precision: 1))s; abandoning in-flight requests")
                     arbiter.settle(.failure(TranscriptionDeadlineExceeded(seconds: deadline)))
                 }
                 arbiter.register(work: work, timer: timer)
@@ -2802,7 +3574,7 @@ final class DictationViewModel: ObservableObject {
                     "Recovery fallback transcription failed with engine \(configuration.engineId, privacy: .public): \(error.localizedDescription, privacy: .public)"
                 )
                 throw AutomaticRecoveryFallbackFailure(
-                    primaryDescription: primaryError.localizedDescription,
+                    primaryError: primaryError,
                     fallbackDescription: error.localizedDescription
                 )
             }
@@ -3032,7 +3804,7 @@ final class DictationViewModel: ObservableObject {
                 "Hedged transcription failed on both engines; primary: \(primary.localizedDescription, privacy: .public), fallback: \(fallback.localizedDescription, privacy: .public)"
             )
             throw AutomaticRecoveryFallbackFailure(
-                primaryDescription: primary.localizedDescription,
+                primaryError: primary,
                 fallbackDescription: fallback.localizedDescription
             )
         }
@@ -3100,6 +3872,7 @@ final class DictationViewModel: ObservableObject {
         urlResolutionTask = nil
         metadataCaptureTask?.cancel()
         metadataCaptureTask = nil
+        cancelIncrementalWorkflowPostProcessing()
         lastStreamingParams = nil
         liveFieldTranscriptSession = nil
         pendingLiveFieldCapture = nil
@@ -3160,6 +3933,18 @@ final class DictationViewModel: ObservableObject {
         activeRuleReasonLabel = match?.kind.label
         activeRuleExplanation = match.map { workflowExplanation(for: $0, activeApp: activeApp) }
         applyEffectiveMicrophoneBoostToAudioService()
+        prewarmWorkflowLLMIfNeeded()
+    }
+
+    /// Loads the matched workflow's on-device LLM while recording, so post-processing does
+    /// not wait for the model after the stop.
+    private func prewarmWorkflowLLMIfNeeded() {
+        guard let workflow = matchedWorkflow,
+              !workflow.usesAppleTranslate,
+              workflowTextProcessingService.canProcess(workflow: workflow) else {
+            return
+        }
+        promptProcessingService.prewarmWorkflowLLMProvider(providerOverride: workflow.behavior.providerId)
     }
 
     private func forcedWorkflow(for id: UUID?) -> Workflow? {
@@ -3197,7 +3982,7 @@ final class DictationViewModel: ObservableObject {
                 return self.canUseEngineForPreview(engine)
             }
         )
-        let previewEngineOverrideId: String?
+        var previewEngineOverrideId: String?
         let previewUsable: Bool
         switch resolution {
         case .followsDictationEngine:
@@ -3214,11 +3999,26 @@ final class DictationViewModel: ObservableObject {
             previewUsable = false
             logger.warning("Selected live preview engine is unavailable; preview disabled for this recording instead of falling back to the dictation engine")
         }
-        let effectiveAllowLiveTranscription = allowLiveTranscription && previewUsable
+        var effectiveAllowLiveTranscription = allowLiveTranscription && previewUsable
+        // Engines whose live session is the dictation path (e.g. Soniox realtime) keep
+        // streaming when the preview is hidden. Otherwise the final transcription would
+        // fall back to a much slower batch request after the user stops. An unavailable
+        // preview engine stays suppressed, since the preview would still be shown.
+        let streamsDictationWithoutPreview = !allowLiveTranscription
+            && !hiddenLiveSessionAwaitsWebsiteWorkflow
+            && modelManager.prefersLiveSessionForDictation(
+                engineOverrideId: params.engineOverrideId,
+                selectedProviderId: params.providerId
+            )
+        if streamsDictationWithoutPreview {
+            previewEngineOverrideId = params.engineOverrideId
+            effectiveAllowLiveTranscription = true
+        }
         lastStreamingParams = effectiveAllowLiveTranscription ? params : nil
         let previewFollowsDictationEngine =
             (previewEngineOverrideId ?? params.providerId) == (params.engineOverrideId ?? params.providerId)
         lastPreviewFollowsDictationEngine = previewFollowsDictationEngine
+        lastStreamingPreviewHidden = streamsDictationWithoutPreview
         let dictionaryProviderId = previewEngineOverrideId ?? params.providerId
         // A distinct preview engine that can't translate still previews the speech —
         // as a transcription. The final (translating) result comes from the dictation
@@ -3241,6 +4041,7 @@ final class DictationViewModel: ObservableObject {
             cloudModelOverride: previewFollowsDictationEngine ? params.cloudModelOverride : nil,
             normalizeNumbers: params.normalizeNumbers,
             allowLiveTranscription: effectiveAllowLiveTranscription,
+            previewHidden: streamsDictationWithoutPreview,
             stateCheck: { [weak self] in self?.state == .recording }
         )
     }
@@ -3302,7 +4103,6 @@ final class DictationViewModel: ObservableObject {
         case .detached(let hadAttemptedMutation, let allowsFocusedFallback):
             if hadAttemptedMutation
                 || (!allowsFocusedFallback && pinnedInsertionTarget == nil) {
-                showLiveFieldRecoveryFeedback()
                 return false
             }
             return true
@@ -3323,14 +4123,127 @@ final class DictationViewModel: ObservableObject {
         }
     }
 
-    private func showLiveFieldRecoveryFeedback() {
+    private func showUndeliveredTranscriptFeedback(_ transcript: UndeliveredTranscript) {
+        var message = switch transcript.reason {
+        case .noTextField:
+            String(localized: "No text field detected")
+        case .textFieldChanged:
+            String(localized: "The text field changed")
+        }
+        let hotkeyLabel = pasteLastTranscriptionHotkeyLabel
+        if !hotkeyLabel.isEmpty {
+            message += "\n" + String.localizedStringWithFormat(String(localized: "Or press %@"), hotkeyLabel)
+        }
         showNotchFeedback(
-            message: String(localized: "The text field changed. The final transcript is available in Recent Transcriptions."),
+            message: message,
             icon: "text.badge.xmark",
-            duration: 3.0,
+            duration: Self.undeliveredTranscriptFeedbackDuration,
             isError: true,
-            errorCategory: "insertion"
+            errorCategory: "insertion",
+            action: .insertUndeliveredTranscript(transcript)
         )
+    }
+
+    private func insertUndeliveredTranscript(_ transcript: UndeliveredTranscript) {
+        guard !isInsertingUndeliveredTranscript else { return }
+        isInsertingUndeliveredTranscript = true
+        // An offer expiring mid-paste would return to idle and let a new dictation start
+        // before this paste lands. The result feedback starts a new lifetime.
+        indicatorFeedbackLifetime.cancel()
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.isInsertingUndeliveredTranscript = false }
+            // Format for the field focused now, as a dictation into it would.
+            let contextualInsertionEnabled = DictationInsertionTextFormatter.contextualInsertionEnabled()
+            let insertionText = DictationInsertionTextFormatter.textForInsertion(
+                transcript.text,
+                insertionContext: contextualInsertionEnabled ? textInsertionService.captureInsertionContext() : nil,
+                contextualInsertionEnabled: contextualInsertionEnabled,
+                standaloneValueFinalPeriodCleanupEnabled: DictationInsertionTextFormatter
+                    .standaloneValueFinalPeriodCleanupEnabled()
+            )
+            let activeApp = textInsertionService.captureActiveApp()
+            let result: TextInsertionService.InsertionResult
+            do {
+                // No Auto Enter: the focused field may belong to another app than the dictation.
+                result = try await textInsertionService.insertText(
+                    insertionText,
+                    preserveClipboard: preserveClipboard,
+                    outputFormat: transcript.outputFormat,
+                    detectMissedTextField: true
+                )
+            } catch {
+                guard !startQueuedDictationAfterUndeliveredTranscriptInsertion(),
+                      state == .idle || state == .inserting else { return }
+                // Keep Insert so the user can try again.
+                showNotchFeedback(
+                    message: error.localizedDescription,
+                    icon: "xmark.circle.fill",
+                    duration: Self.undeliveredTranscriptFeedbackDuration,
+                    isError: true,
+                    errorCategory: "insertion",
+                    action: .insertUndeliveredTranscript(transcript)
+                )
+                return
+            }
+
+            if !result.missedTextField {
+                recordUndeliveredTranscriptInsertion(
+                    transcript,
+                    insertedText: insertionText,
+                    result: result,
+                    activeApp: activeApp
+                )
+            }
+
+            // A dictation started in the meantime owns the indicator.
+            guard !startQueuedDictationAfterUndeliveredTranscriptInsertion(),
+                  state == .idle || state == .inserting else { return }
+#if APPSTORE
+            if result == .copiedToClipboard {
+                showManualPasteFeedback()
+                return
+            }
+#endif
+            if result.missedTextField {
+                showUndeliveredTranscriptFeedback(transcript.with(reason: .noTextField))
+            } else {
+                showNotchFeedback(message: String(localized: "Text inserted"), icon: "checkmark.circle.fill")
+            }
+        }
+    }
+
+    /// The bookkeeping a dictation does after inserting its text.
+    private func recordUndeliveredTranscriptInsertion(
+        _ transcript: UndeliveredTranscript,
+        insertedText: String,
+        result: TextInsertionService.InsertionResult,
+        activeApp: (name: String?, bundleId: String?, url: String?)
+    ) {
+        lastSuccessfulDictationInsertion = transcript.completion
+        EventBus.shared.emit(.textInserted(TextInsertedPayload(
+            text: insertedText,
+            appName: activeApp.name,
+            bundleIdentifier: activeApp.bundleId
+        )))
+        // As after a dictation, Undo needs unformatted text whose insertion was verified.
+        let insertionIsVerifiable = result == .insertedViaAccessibility || result == .pasted(verification: .verified)
+        if transcript.outputFormat == nil, insertionIsVerifiable {
+            dictationUndoService.recordSnapshot(
+                rawTranscript: transcript.rawTranscript,
+                insertedText: insertedText,
+                transcriptionID: transcript.completion.id
+            )
+        }
+    }
+
+    /// Starts a dictation hotkey press that arrived while Insert was running. Returns whether
+    /// one was queued.
+    private func startQueuedDictationAfterUndeliveredTranscriptInsertion() -> Bool {
+        guard pendingHotkeyDictationStart != nil, state == .inserting else { return false }
+        resetDictationState()
+        return true
     }
 
     /// Whether an engine is usable as the live preview engine: auth-available and
@@ -3380,11 +4293,12 @@ final class DictationViewModel: ObservableObject {
     /// Restart live streaming if the currently effective params differ from the ones
     /// used when `streamingHandler.start(...)` was last called. Called after URL
     /// resolution refines the rule, to keep live preview consistent with the final
-    /// transcription. No-op when recording already stopped, when live streaming was
-    /// disabled, or when no meaningful param changed.
-    private func refreshLiveStreamingIfParamsChanged() {
-        guard state == .recording else { return }
-        guard let previous = lastStreamingParams else { return }
+    /// transcription. No-op when recording already stopped, when no meaningful param
+    /// changed, or when live streaming was disabled and the refined engine doesn't
+    /// stream dictation through a live session.
+    @discardableResult
+    private func refreshLiveStreamingIfParamsChanged() -> Bool {
+        guard state == .recording else { return false }
         let newParams = StreamingParamsSnapshot(
             engineOverrideId: effectiveEngineOverrideId,
             providerId: modelManager.selectedProviderId,
@@ -3393,12 +4307,23 @@ final class DictationViewModel: ObservableObject {
             cloudModelOverride: effectiveCloudModelOverride,
             normalizeNumbers: effectiveNumberNormalizationOverride
         )
-        guard newParams != previous else { return }
-        logger.info("Streaming params changed after URL resolution, restarting live session")
         let allowLive = indicatorTranscriptPreviewEnabled
             || liveFieldTranscriptEnabled
             || externalStreamingDisplayCount > 0
+        guard let previous = lastStreamingParams else {
+            // Nothing streams yet, but a workflow may have switched to an engine that
+            // streams dictation even with the preview hidden.
+            guard modelManager.prefersLiveSessionForDictation(
+                engineOverrideId: newParams.engineOverrideId,
+                selectedProviderId: newParams.providerId
+            ) else { return false }
+            startLiveStreaming(allowLiveTranscription: allowLive)
+            return lastStreamingParams != nil
+        }
+        guard newParams != previous else { return false }
+        logger.info("Streaming params changed after URL resolution, restarting live session")
         startLiveStreaming(allowLiveTranscription: allowLive)
+        return true
     }
 
     private func clearActiveRuleState() {
@@ -3483,13 +4408,19 @@ final class DictationViewModel: ObservableObject {
         translationTarget: String?,
         detectedLanguage: String?,
         configuredLanguage: String?,
-        resolvedOutputFormat: String?
+        resolvedOutputFormat: String?,
+        incrementalPostProcessing: WorkflowIncrementalPostProcessingSession? = nil,
+        stopTimingStart: CFAbsoluteTime? = nil,
+        modelPostProcessingRan: OSAllocatedUnfairLock<Bool>? = nil
     ) -> ((String) async throws -> String)? {
         if let workflowHandler = buildWorkflowTextProcessingHandler(
             translationTarget: translationTarget,
             detectedLanguage: detectedLanguage,
             configuredLanguage: configuredLanguage,
-            resolvedOutputFormat: resolvedOutputFormat
+            resolvedOutputFormat: resolvedOutputFormat,
+            incrementalPostProcessing: incrementalPostProcessing,
+            stopTimingStart: stopTimingStart,
+            modelPostProcessingRan: modelPostProcessingRan
         ) {
             return workflowHandler
         }
@@ -3514,6 +4445,7 @@ final class DictationViewModel: ObservableObject {
                         logger.error("Translation target language invalid: \(targetCode, privacy: .public)")
                         return text
                     }
+                    modelPostProcessingRan?.withLock { $0 = true }
                     if targetCode.caseInsensitiveCompare(targetNormalized) != .orderedSame {
                         logger.info("Translation target normalized \(targetCode, privacy: .public) -> \(targetNormalized, privacy: .public)")
                     }
@@ -3531,7 +4463,10 @@ final class DictationViewModel: ObservableObject {
         translationTarget: String?,
         detectedLanguage: String?,
         configuredLanguage: String?,
-        resolvedOutputFormat: String?
+        resolvedOutputFormat: String?,
+        incrementalPostProcessing: WorkflowIncrementalPostProcessingSession?,
+        stopTimingStart: CFAbsoluteTime?,
+        modelPostProcessingRan: OSAllocatedUnfairLock<Bool>?
     ) -> ((String) async throws -> String)? {
         guard let workflow = matchedWorkflow else { return nil }
 
@@ -3547,30 +4482,193 @@ final class DictationViewModel: ObservableObject {
             return nil
         }
 
-        return { text in
-            if workflowService.shouldSkipAIProcessingForShortDictation(
-                text: text,
-                template: workflow.template
-            ) {
-                logger.info("Skipping workflow AI processing for short dictation")
-                return text
-            }
-
-            return try await workflowProcessor.process(
+        let segmentedRequest = workflow.usesSegmentedPostProcessing
+            ? workflowProcessor.segmentedPromptRequest(
                 workflow: workflow,
-                text: text,
-                windowContext: WorkflowWindowContext(
-                    appName: self.capturedActiveApp?.name,
-                    url: self.capturedActiveApp?.url,
-                    windowText: self.capturedWindowText,
-                    selectedText: self.capturedSelectedText
-                ),
                 fallbackTranslationTarget: translationTarget,
                 detectedLanguage: detectedLanguage,
                 configuredLanguage: configuredLanguage,
                 resolvedOutputFormat: resolvedOutputFormat
             )
+            : nil
+        // Segments sent while recording could not know the detected language yet.
+        let incrementalRequest = segmentedRequest == nil
+            ? nil
+            : workflowProcessor.segmentedPromptRequest(
+                workflow: workflow,
+                fallbackTranslationTarget: translationTarget,
+                detectedLanguage: nil,
+                configuredLanguage: configuredLanguage,
+                resolvedOutputFormat: resolvedOutputFormat
+            )
+        let segmentationPolicy = segmentedRequest.map { workflowSegmentationPolicy(for: $0) } ?? .default
+
+        return { text in
+            if workflowService.shouldSkipAIProcessingForShortDictation(
+                text: text,
+                template: workflow.template
+            ) {
+                incrementalPostProcessing?.cancel()
+                logger.info("Skipping workflow AI processing for short dictation")
+                return text
+            }
+            modelPostProcessingRan?.withLock { $0 = true }
+
+            guard let segmentedRequest else {
+                incrementalPostProcessing?.cancel()
+                return try await workflowProcessor.process(
+                    workflow: workflow,
+                    text: text,
+                    windowContext: WorkflowWindowContext(
+                        appName: self.capturedActiveApp?.name,
+                        url: self.capturedActiveApp?.url,
+                        windowText: self.capturedWindowText,
+                        selectedText: self.capturedSelectedText
+                    ),
+                    fallbackTranslationTarget: translationTarget,
+                    detectedLanguage: detectedLanguage,
+                    configuredLanguage: configuredLanguage,
+                    resolvedOutputFormat: resolvedOutputFormat
+                )
+            }
+
+            let llmStart = CFAbsoluteTimeGetCurrent()
+            let outcome = try await WorkflowSegmentedPostProcessor(policy: segmentationPolicy).process(
+                text: text,
+                incrementalSession: incrementalPostProcessing,
+                incrementalRequest: incrementalRequest,
+                segmentProcessor: { segment in
+                    try await workflowProcessor.process(request: segmentedRequest, text: segment)
+                },
+                // Same request `process(workflow:)` builds for this workflow and text.
+                wholeTextProcessor: {
+                    try await workflowProcessor.process(request: segmentedRequest, text: text)
+                }
+            )
+            let llmMs = String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - llmStart) * 1000)
+            let elapsedMs = stopTimingStart.map { String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - $0) * 1000) } ?? "n/a"
+            logger.info("Stop timing: segmented workflow LLM done elapsedMs=\(elapsedMs, privacy: .public), llmMs=\(llmMs, privacy: .public), \(outcome.report.logDescription, privacy: .public)")
+            return outcome.text
         }
+    }
+
+    /// Arms incremental workflow post-processing for the current recording when the
+    /// matched workflow opted in and the live preview runs on the dictation engine,
+    /// so its confirmed text can become the final transcript.
+    private func refreshIncrementalWorkflowPostProcessing(forceRestart: Bool = false) {
+        guard state == .recording, !isStopInFlight else { return }
+
+        let configuration = incrementalWorkflowPostProcessingConfiguration()
+        if !forceRestart,
+           let current = incrementalWorkflowPostProcessing,
+           current.request == configuration?.request,
+           current.policy == configuration?.policy {
+            return
+        }
+
+        cancelIncrementalWorkflowPostProcessing()
+        guard let configuration else { return }
+
+        let workflowProcessor = workflowTextProcessingService
+        let request = configuration.request
+        incrementalWorkflowPostProcessing = WorkflowIncrementalPostProcessingSession(
+            request: request,
+            policy: configuration.policy,
+            prepareInput: configuration.prepareInput,
+            processor: { segment in
+                try await workflowProcessor.process(request: request, text: segment)
+            }
+        )
+        logger.info("Incremental workflow post-processing armed for this recording localProvider=\(configuration.policy.isLocalProvider, privacy: .public)")
+    }
+
+    /// Segmentation tuned for the provider `request` will actually use. Uses the
+    /// locality snapshotted into the request, so it matches the request identity.
+    private func workflowSegmentationPolicy(for request: WorkflowLLMRequest) -> WorkflowSegmentationPolicy {
+        WorkflowSegmentationPolicy.default.forLLMProvider(
+            isLocal: request.providerResolution?.isLocal
+                ?? promptProcessingService.workflowUsesLocalLLMProvider(providerOverride: request.providerId)
+        )
+    }
+
+    private func incrementalWorkflowPostProcessingConfiguration() -> (
+        request: WorkflowLLMRequest,
+        policy: WorkflowSegmentationPolicy,
+        prepareInput: @MainActor (String) -> String
+    )? {
+        guard let workflow = matchedWorkflow,
+              workflow.usesSegmentedPostProcessing,
+              let streamingParams = lastStreamingParams,
+              lastPreviewFollowsDictationEngine,
+              !postProcessingPipeline.hasPluginStepsBeforeLLMStep else {
+            return nil
+        }
+
+        let activeApp = capturedActiveApp ?? (name: nil, bundleId: nil, url: nil)
+        let outputFormat = WorkflowOutputFormatResolver.resolvedFormat(
+            storedFormat: effectiveOutputFormat,
+            bundleIdentifier: activeApp.bundleId,
+            url: activeApp.url
+        )
+        let languageSelection = streamingParams.languageSelection
+        let configuredLanguage = languageSelection.requestedLanguage
+        guard let request = workflowTextProcessingService.segmentedPromptRequest(
+            workflow: workflow,
+            fallbackTranslationTarget: effectiveTranslationTarget,
+            detectedLanguage: nil,
+            configuredLanguage: configuredLanguage,
+            resolvedOutputFormat: outputFormat
+        ) else {
+            return nil
+        }
+
+        // Mirror what the stop path does to the live result before the LLM step:
+        // number normalization at live-session finish, then the pipeline's built-in
+        // steps. A mismatch is caught by the prefix check at stop.
+        let pipeline = postProcessingPipeline
+        let normalizeNumbers = streamingParams.normalizeNumbers
+        let normalizationLanguages = TranscriptionNormalizationService.normalizationLanguages(
+            task: streamingParams.task,
+            detectedLanguage: nil,
+            configuredLanguage: configuredLanguage,
+            configuredLanguageCandidates: languageSelection.selectedCodes
+        )
+        let context = PostProcessingContext(
+            appName: activeApp.name,
+            bundleIdentifier: activeApp.bundleId,
+            url: activeApp.url,
+            language: configuredLanguage
+        )
+        let dictationContext = DictationRuntimeContext(
+            engineId: streamingParams.engineOverrideId ?? streamingParams.providerId,
+            modelId: modelManager.resolvedModelId(
+                engineOverrideId: streamingParams.engineOverrideId,
+                cloudModelOverride: streamingParams.cloudModelOverride
+            ),
+            configuredLanguage: configuredLanguage,
+            configuredLanguageCandidates: languageSelection.selectedCodes,
+            detectedLanguage: nil
+        )
+        let prepareInput: @MainActor (String) -> String = { text in
+            let normalized = TranscriptionNormalizationService.normalizeText(
+                text,
+                languages: normalizationLanguages,
+                normalizeNumbers: normalizeNumbers
+            )
+            return pipeline.textBeforeLLMStep(
+                normalized,
+                context: context,
+                dictationContext: dictationContext,
+                outputFormat: outputFormat,
+                normalizeNumbers: normalizeNumbers
+            )
+        }
+        return (request, workflowSegmentationPolicy(for: request), prepareInput)
+    }
+
+    private func cancelIncrementalWorkflowPostProcessing() {
+        incrementalWorkflowPostProcessing?.cancel()
+        incrementalWorkflowPostProcessing = nil
     }
 
     /// Executes an action plugin and handles its result (feedback, clipboard URL, events).
@@ -3628,12 +4726,93 @@ final class DictationViewModel: ObservableObject {
     func pasteLastTranscription() {
         promptPaletteHandler.hide()
         recentTranscriptionPaletteHandler.hide()
+        // The undelivered-transcript feedback keeps the state busy, so insert its transcript here.
+        if case .insertUndeliveredTranscript(let transcript)? = actionFeedbackAction {
+            insertUndeliveredTranscript(transcript)
+            return
+        }
         recentTranscriptionPaletteHandler.insertLatest(currentState: state)
     }
 
     func readBackLastTranscription() {
         guard let text = lastTranscribedText else { return }
         speechFeedbackService.readBack(text: text, language: lastTranscriptionLanguage)
+    }
+
+    // MARK: - Undo Last Dictation / Restore Raw Transcript (issue #999)
+
+    /// Deletes the text inserted by the most recent successful dictation.
+    /// Safe no-op with user feedback unless the exact inserted text is still
+    /// immediately before the caret in the same app and field.
+    func undoLastDictation() {
+        switch dictationUndoService.perform(.undo) {
+        case .success:
+            showNotchFeedback(
+                message: localizedAppText(
+                    "Last dictation undone.",
+                    de: "Letztes Diktat rückgängig gemacht."
+                ),
+                icon: "arrow.uturn.backward",
+                errorCategory: "insertion"
+            )
+        case .failed(let failure):
+            reportDictationUndoFailure(failure)
+        }
+    }
+
+    /// Replaces the most recent inserted post-processed text with its raw
+    /// transcript. Unavailable when raw and inserted text are identical.
+    func restoreRawTranscript() {
+        switch dictationUndoService.perform(.restore) {
+        case .success:
+            showNotchFeedback(
+                message: localizedAppText(
+                    "Raw transcript restored.",
+                    de: "Rohtext wiederhergestellt."
+                ),
+                icon: "text.badge.checkmark",
+                errorCategory: "insertion"
+            )
+        case .failed(let failure):
+            reportDictationUndoFailure(failure)
+        }
+    }
+
+    private func reportDictationUndoFailure(_ failure: DictationUndoService.Failure) {
+        switch state {
+        case .idle, .error:
+            showNotchFeedback(
+                message: failure.feedbackMessage,
+                icon: "exclamationmark.triangle",
+                isError: true,
+                errorCategory: "insertion"
+            )
+        case .recording, .processing, .inserting, .promptSelection, .promptProcessing:
+            // A rejected shortcut must not replace an active operation with an
+            // insertion-feedback timer that later cancels its recording/tasks.
+            errorLogService.addEntry(message: failure.feedbackMessage, category: "insertion")
+            accessibilityAnnouncementService.announceError(failure.feedbackMessage)
+            soundService.play(.error, enabled: soundFeedbackEnabled)
+        }
+    }
+
+    /// Keeps recent-transcription state and the history record consistent with
+    /// the text that remains in the document after a raw restore. The
+    /// historical transcription record itself is never erased by an undo.
+    private func reflectRawTranscriptRestore(id: UUID, rawText: String) {
+        recentTranscriptionStore.updateFinalText(id: id, finalText: rawText)
+        if let record = historyService.record(withID: id) {
+            historyService.updateRecord(record, finalText: rawText)
+        }
+        if let session = dictationSessions[id], session.status == .completed,
+           var transcription = session.transcription {
+            transcription.text = rawText
+            transcription.wordsCount = rawText.split(whereSeparator: \.isWhitespace).count
+            storeDictationSession(DictationSessionSnapshot(
+                id: session.id, status: session.status, transcription: transcription, error: session.error
+            ))
+        }
+        lastTranscribedText = rawText
     }
 
     var canRecoverLastRecording: Bool {
@@ -3825,6 +5004,13 @@ final class DictationViewModel: ObservableObject {
             )
         case .openDictationRecovery:
             recoverLastRecording(openSettingsWindow: openRecoverySettingsWindow)
+        case .openSettings(let tab):
+            SettingsNavigationCoordinator.shared?.navigate(to: tab)
+            if openRecoverySettingsWindow {
+                ManagedAppWindowOpener.shared.open(id: "settings")
+            }
+        case .insertUndeliveredTranscript(let transcript):
+            insertUndeliveredTranscript(transcript)
         }
     }
 
@@ -3896,7 +5082,8 @@ final class DictationViewModel: ObservableObject {
         duration: TimeInterval,
         isError: Bool = false,
         errorCategory: String = "general",
-        recoveryPreservation: DictationRecoveryPreservationResult
+        recoveryPreservation: DictationRecoveryPreservationResult,
+        fallbackAction: ActionFeedbackAction? = nil
     ) {
         guard recoveryPreservation.newlyPreservedURL != nil else {
             showNotchFeedback(
@@ -3904,7 +5091,8 @@ final class DictationViewModel: ObservableObject {
                 icon: icon,
                 duration: duration,
                 isError: isError,
-                errorCategory: errorCategory
+                errorCategory: errorCategory,
+                action: fallbackAction
             )
             return
         }
@@ -3920,30 +5108,75 @@ final class DictationViewModel: ObservableObject {
         )
     }
 
+    nonisolated static func errorFeedbackDuration(message: String, baseDuration: TimeInterval) -> TimeInterval {
+        max(baseDuration, min(12.0, Double(message.count) / 25.0))
+    }
+
     private func showError(
         _ message: String,
         category: String = "general",
-        recoveryPreservation: DictationRecoveryPreservationResult? = nil
+        recoveryPreservation: DictationRecoveryPreservationResult? = nil,
+        settingsTab: SettingsTab? = nil
     ) {
         soundService.play(.error, enabled: soundFeedbackEnabled)
+        let settingsAction = settingsTab.map(ActionFeedbackAction.openSettings)
+        // Setup errors need time to read and reach the button; transient errors stay brief.
+        // Long messages, such as a provider's own error text, get reading time on top.
+        let duration = Self.errorFeedbackDuration(
+            message: message,
+            baseDuration: settingsAction == nil ? 3.0 : 8.0
+        )
         if let recoveryPreservation {
             showRecoveryAwareFeedback(
                 message: message,
                 icon: "xmark.circle.fill",
-                duration: 3.0,
+                duration: duration,
                 isError: true,
                 errorCategory: category,
-                recoveryPreservation: recoveryPreservation
+                recoveryPreservation: recoveryPreservation,
+                fallbackAction: settingsAction
             )
         } else {
             showNotchFeedback(
                 message: message,
                 icon: "xmark.circle.fill",
-                duration: 3.0,
+                duration: duration,
                 isError: true,
-                errorCategory: category
+                errorCategory: category,
+                action: settingsAction
             )
         }
+    }
+
+    /// Settings page where the user can fix a transcription setup error, or nil for transient failures.
+    static func settingsTab(forTranscriptionError error: Error) -> SettingsTab? {
+        if let failure = error as? AutomaticRecoveryFallbackFailure {
+            return settingsTab(forTranscriptionError: failure.primaryError)
+        }
+
+        if let transcriptionError = error as? TranscriptionEngineError {
+            switch transcriptionError {
+            case .noEngineSelected, .modelNotLoaded, .modelLoadFailed(_):
+                return .dictation
+            case .engineUnavailable(_, _), .appleSpeechModelNotLoaded:
+                return .integrations
+            case .transcriptionFailed(_), .modelDownloadFailed(_):
+                return nil
+            }
+        }
+
+        if let pluginError = error as? PluginTranscriptionError {
+            switch pluginError {
+            case .notConfigured, .invalidApiKey:
+                return .integrations
+            case .noModelSelected:
+                return .dictation
+            case .rateLimited, .fileTooLarge, .apiError(_), .networkError(_):
+                return nil
+            }
+        }
+
+        return nil
     }
 
     private func startRecordingTimer() {
@@ -3990,10 +5223,15 @@ enum DictationInsertionTextFormatter {
         defaults.bool(forKey: UserDefaultsKeys.appFormattingEnabled)
     }
 
+    static func standaloneValueFinalPeriodCleanupEnabled(defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: UserDefaultsKeys.stripFinalPeriodFromStandaloneValuesEnabled)
+    }
+
     static func textForInsertion(
         _ text: String,
         insertionContext: TextInsertionService.InsertionContext? = nil,
-        contextualInsertionEnabled: Bool = true
+        contextualInsertionEnabled: Bool = true,
+        standaloneValueFinalPeriodCleanupEnabled: Bool = true
     ) -> String {
         guard contextualInsertionEnabled, let insertionContext else {
             return text
@@ -4005,6 +5243,13 @@ enum DictationInsertionTextFormatter {
             result = lowercasingFirstWordIfSafe(result)
         }
         if shouldStripFinalPeriod(boundaries) {
+            result = strippingSingleFinalPeriod(result)
+        }
+        if shouldStripStandaloneValueFinalPeriod(
+            result,
+            boundaries: boundaries,
+            enabled: standaloneValueFinalPeriodCleanupEnabled
+        ) {
             result = strippingSingleFinalPeriod(result)
         }
 
@@ -4113,6 +5358,129 @@ enum DictationInsertionTextFormatter {
             return false
         }
         return isWordLike(next) || closingPunctuation.contains(next)
+    }
+
+    /// Strips a model-added final period when the whole transcript is a
+    /// standalone value (email address, URL, number, version string) dropped
+    /// into an empty field. Mutually exclusive with the mid-sentence rule
+    /// above — that one needs surrounding text, this one needs none — so a
+    /// period can only ever be stripped once.
+    private static func shouldStripStandaloneValueFinalPeriod(
+        _ text: String,
+        boundaries: InsertionBoundaries,
+        enabled: Bool
+    ) -> Bool {
+        guard enabled,
+              boundaries.previousNonWhitespaceCharacter == nil,
+              boundaries.nextNonWhitespaceCharacter == nil
+        else {
+            return false
+        }
+        return StandaloneValueFinalPeriodCleanup.shouldStripFinalPeriod(from: text)
+    }
+
+    /// Decides whether a transcript standing on its own is a value whose final
+    /// period was added by the model rather than dictated, as in
+    /// `name@example.com.` typed into an empty field.
+    ///
+    /// Conservative on purpose: only whole-text matches for email addresses,
+    /// bare-domain URLs, decimal numbers, phone numbers, and version strings
+    /// qualify. Abbreviations (`Dr.`, `U.S.`), prose, ambiguous numeric forms
+    /// such as dates, and URLs carrying a path, query, or fragment keep
+    /// their period — a dot is a legal part of those (RFC 3986 section 2.3).
+    private enum StandaloneValueFinalPeriodCleanup {
+        static func shouldStripFinalPeriod(from text: String) -> Bool {
+            guard text.hasSuffix("."), !text.hasSuffix("..") else { return false }
+            let candidate = String(text.dropLast())
+            guard !candidate.isEmpty else { return false }
+            if isAbbreviation(text) { return false }
+            if isDateLike(candidate) { return false }
+            return isEmailAddress(candidate)
+                || isWebAddress(candidate)
+                || isDecimalNumber(candidate)
+                || isVersionString(candidate)
+                || isPhoneNumber(candidate)
+        }
+
+        /// `Dr.`, `U.S.`, `e.g.`, `Dr.med.`, `Ph.D.` — never values. Each
+        /// dot-separated group is either a single letter or a known
+        /// abbreviation word, so `file.txt.` still counts as a value.
+        private static let abbreviationExpression = try? NSRegularExpression(
+            pattern: #"^(?:(?:[A-Za-z]|Dr|Mr|Mrs|Ms|No|St|Jr|Sr|Prof|Inc|Ltd|Co|etc|vs|bzw|ca|ggf|evtl|Nr|Tel|med|rer|nat|ing|dipl|phil|Ph)\.)+$"#,
+            options: [.caseInsensitive]
+        )
+
+        private static let emailExpression = try? NSRegularExpression(
+            pattern: #"^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$"#
+        )
+
+        /// Bare-domain URLs only: `example.com`, `www.example.com`,
+        /// `https://example.com`. A terminal dot directly after the host is
+        /// the classic model-added sentence period. Once a path, query, or
+        /// fragment is present the dot may belong to the resource
+        /// (`https://example.com/search?q=Dr.`), so it stays untouched.
+        private static let urlExpression = try? NSRegularExpression(
+            pattern: #"^(?:https?://|ftp://|www\.)?(?:[A-Za-z0-9](?:[A-Za-z0-9\-]*[A-Za-z0-9])?\.)+[A-Za-z]{2,}(?::\d+)?$"#,
+            options: [.caseInsensitive]
+        )
+
+        /// `3.14`, `1,5`, `1,000.50`, `1.000,50` — both English and German forms.
+        private static let decimalExpression = try? NSRegularExpression(
+            pattern: #"^\d{1,3}(?:[.,]\d{3})+(?:[.,]\d+)?$|^\d+[.,]\d+$"#
+        )
+
+        /// `19.04.2026`, `2026-09-27`, `27. 09. 2026` — ambiguous with
+        /// versions, so untouched. Whitespace around the separators is
+        /// accepted because dictation often inserts it (`27 / 09 / 2026`);
+        /// without it such dates would fall through to the phone-number
+        /// check and wrongly lose their period.
+        private static let dateExpression = try? NSRegularExpression(
+            pattern: #"^\d{1,2}\s*[./\-]\s*\d{1,2}\s*[./\-]\s*\d{2,4}$|^\d{4}\s*[./\-]\s*\d{1,2}\s*[./\-]\s*\d{1,2}$"#
+        )
+
+        private static let versionExpression = try? NSRegularExpression(
+            pattern: #"^v?\d+(?:\.\d+){2,}$"#,
+            options: [.caseInsensitive]
+        )
+
+        private static let phoneExpression = try? NSRegularExpression(
+            pattern: #"^[+\d(][\d\s\-/.()]*$"#
+        )
+
+        private static func isAbbreviation(_ text: String) -> Bool {
+            matches(abbreviationExpression, text)
+        }
+
+        private static func isEmailAddress(_ candidate: String) -> Bool {
+            matches(emailExpression, candidate)
+        }
+
+        private static func isWebAddress(_ candidate: String) -> Bool {
+            matches(urlExpression, candidate)
+        }
+
+        private static func isDecimalNumber(_ candidate: String) -> Bool {
+            matches(decimalExpression, candidate)
+        }
+
+        private static func isDateLike(_ candidate: String) -> Bool {
+            matches(dateExpression, candidate)
+        }
+
+        private static func isVersionString(_ candidate: String) -> Bool {
+            matches(versionExpression, candidate)
+        }
+
+        private static func isPhoneNumber(_ candidate: String) -> Bool {
+            guard matches(phoneExpression, candidate) else { return false }
+            return candidate.filter(\.isWholeNumber).count >= 6
+        }
+
+        private static func matches(_ expression: NSRegularExpression?, _ text: String) -> Bool {
+            guard let expression else { return false }
+            let range = NSRange(text.startIndex..<text.endIndex, in: text)
+            return expression.firstMatch(in: text, options: [], range: range) != nil
+        }
     }
 
     private static func lowercasingFirstWordIfSafe(_ text: String) -> String {
@@ -4234,6 +5602,17 @@ enum DictationInsertionTextFormatter {
     }
 }
 
+// Upper bound of the "short dictation" window for the aggressive quiet-clip
+// policy. Issue #732: dictations of a few seconds were discarded as "no speech"
+// even with aggressive transcription enabled, because the aggressive path only
+// covered sub-second clips.
+private let aggressiveShortDictationMaxDuration: TimeInterval = 8.0
+
+// Peak level below which a clip counts as near-silence even in aggressive mode.
+// Matches the sub-second aggressive floor: the microphone boost path can still
+// make speech at this level transcribable, but anything quieter is noise.
+private let aggressiveQuietClipPeakFloor: Float = 0.003
+
 func classifyShortSpeech(
     rawDuration: TimeInterval,
     peakLevel: Float,
@@ -4246,13 +5625,26 @@ func classifyShortSpeech(
     if rawDuration < 1.0 {
         // Bias toward transcribing short clips. False negatives here are worse than
         // letting the recognizer return empty text for actual silence.
-        if peakLevel < 0.003 {
+        if peakLevel < aggressiveQuietClipPeakFloor {
             return transcribeShortQuietClipsAggressively ? .transcribe : .discardNoSpeech
         }
         return .transcribe
     }
 
-    if peakLevel < 0.006 { return .discardNoSpeech }
+    if peakLevel < 0.006 {
+        // Aggressive mode extends the short-clip bias past the sub-second window:
+        // a quiet peak on a short dictation is more likely quiet speech than
+        // silence, and the recognizer returning empty text is a cheaper failure
+        // than discarding real speech. Near-silence is still discarded, and long
+        // recordings keep the strict threshold so extended silence isn't
+        // needlessly transcribed.
+        if transcribeShortQuietClipsAggressively,
+           rawDuration < aggressiveShortDictationMaxDuration,
+           peakLevel >= aggressiveQuietClipPeakFloor {
+            return .transcribe
+        }
+        return .discardNoSpeech
+    }
     return .transcribe
 }
 

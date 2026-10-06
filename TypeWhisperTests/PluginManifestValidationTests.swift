@@ -38,11 +38,14 @@ final class PluginManifestValidationTests: XCTestCase {
                 .orderedAscending,
                 "\(manifestURL.lastPathComponent) must require TypeWhisper 1.7.0 or newer"
             )
-            XCTAssertEqual(
-                manifest.sdkCompatibilityVersion,
-                PluginSDKCompatibility.currentVersion,
+            XCTAssertTrue(
+                PluginSDKCompatibility.isCompatible(manifestVersion: manifest.sdkCompatibilityVersion, isBundled: false),
                 manifestURL.lastPathComponent
             )
+            let importPlugins = ["com.typewhisper.canary", "com.typewhisper.qwen3", "com.typewhisper.granite", "com.typewhisper.voxtral"]
+            if importPlugins.contains(manifest.id) {
+                XCTAssertEqual(manifest.sdkCompatibilityVersion, PluginSDKCompatibility.modelImportVersion)
+            }
 
             let range = NSRange(location: 0, length: manifest.version.utf16.count)
             XCTAssertEqual(versionPattern.firstMatch(in: manifest.version, range: range)?.range, range, manifest.version)
@@ -87,7 +90,7 @@ final class PluginManifestValidationTests: XCTestCase {
             "TypeWhisperPluginSDK/Plugins/WhisperKitPlugin/manifest.json",
             "TypeWhisperPluginSDK/Plugins/ParakeetPlugin/manifest.json",
             "TypeWhisperPluginSDK/Plugins/GranitePlugin/manifest.json",
-            "TypeWhisperPluginSDK/Plugins/Gemma4Plugin/manifest.json",
+            "TypeWhisperPluginSDK/Plugins/LocalLLMPlugin/manifest.json",
             "TypeWhisperPluginSDK/Plugins/Qwen3Plugin/manifest.json",
             "TypeWhisperPluginSDK/Plugins/VoxtralPlugin/manifest.json",
         ]
@@ -103,7 +106,7 @@ final class PluginManifestValidationTests: XCTestCase {
     func testSourceFootageProgressPluginsDeclareCapability() throws {
         let manifestExpectations = [
             ("TypeWhisperPluginSDK/Plugins/WhisperKitPlugin/manifest.json", "1.7.0"),
-            ("TypeWhisperPluginSDK/Plugins/ParakeetPlugin/manifest.json", "1.7.0"),
+            ("TypeWhisperPluginSDK/Plugins/ParakeetPlugin/manifest.json", "1.8.0"),
             ("TypeWhisperPluginSDK/Plugins/SonioxPlugin/manifest.json", "1.7.0"),
         ]
 
@@ -116,6 +119,15 @@ final class PluginManifestValidationTests: XCTestCase {
         }
     }
 
+    func testSonioxDeclaresLiveDictationCapability() throws {
+        let manifestURL = TestSupport.repoRoot.appendingPathComponent(
+            "TypeWhisperPluginSDK/Plugins/SonioxPlugin/manifest.json"
+        )
+        let manifest = try JSONDecoder().decode(PluginManifest.self, from: Data(contentsOf: manifestURL))
+
+        XCTAssertTrue(manifest.supportsCapability(.liveDictation))
+    }
+
     func testWhisperKitPlugin12RequiresCompatibleHost17() throws {
         let manifestURL = TestSupport.repoRoot.appendingPathComponent(
             "TypeWhisperPluginSDK/Plugins/WhisperKitPlugin/manifest.json"
@@ -123,7 +135,7 @@ final class PluginManifestValidationTests: XCTestCase {
         let data = try Data(contentsOf: manifestURL)
         let manifest = try JSONDecoder().decode(PluginManifest.self, from: data)
 
-        XCTAssertEqual(manifest.version, "1.2.0")
+        XCTAssertEqual(manifest.version, "1.2.1")
         XCTAssertEqual(manifest.minHostVersion, "1.7.0")
         XCTAssertEqual(manifest.sdkCompatibilityVersion, PluginSDKCompatibility.currentVersion)
         XCTAssertEqual(manifest.supportedArchitectures, ["arm64"])
@@ -131,10 +143,10 @@ final class PluginManifestValidationTests: XCTestCase {
 
     func testMLXStoragePluginReleasesRequireHost17() throws {
         let manifestExpectations = [
-            ("TypeWhisperPluginSDK/Plugins/Qwen3Plugin/manifest.json", "1.1.8"),
-            ("TypeWhisperPluginSDK/Plugins/VoxtralPlugin/manifest.json", "1.0.14"),
-            ("TypeWhisperPluginSDK/Plugins/GranitePlugin/manifest.json", "1.0.10"),
-            ("TypeWhisperPluginSDK/Plugins/Gemma4Plugin/manifest.json", "1.1.6"),
+            ("TypeWhisperPluginSDK/Plugins/Qwen3Plugin/manifest.json", "1.1.10"),
+            ("TypeWhisperPluginSDK/Plugins/VoxtralPlugin/manifest.json", "1.0.16"),
+            ("TypeWhisperPluginSDK/Plugins/GranitePlugin/manifest.json", "1.0.12"),
+            ("TypeWhisperPluginSDK/Plugins/LocalLLMPlugin/manifest.json", "1.0.0"),
         ]
 
         for (relativePath, expectedVersion) in manifestExpectations {
@@ -146,25 +158,25 @@ final class PluginManifestValidationTests: XCTestCase {
         }
     }
 
-    func testCohereLocalPlugin101RequiresCompatibleHost17() throws {
+    func testCohereLocalPlugin103RequiresCompatibleHost17() throws {
         let manifestURL = TestSupport.repoRoot.appendingPathComponent(
             "TypeWhisperPluginSDK/Plugins/CohereLocalPlugin/manifest.json"
         )
         let data = try Data(contentsOf: manifestURL)
         let manifest = try JSONDecoder().decode(PluginManifest.self, from: data)
 
-        XCTAssertEqual(manifest.version, "1.0.1")
+        XCTAssertEqual(manifest.version, "1.0.3")
         XCTAssertEqual(manifest.minHostVersion, "1.7.0")
         XCTAssertEqual(manifest.sdkCompatibilityVersion, PluginSDKCompatibility.currentVersion)
         XCTAssertEqual(manifest.supportedArchitectures, ["arm64"])
     }
 
-    func testOpenAIPlugin133RequiresCompatibleHost17AndDeclaresCloudHosting() throws {
+    func testOpenAIPlugin134RequiresCompatibleHost17AndDeclaresCloudHosting() throws {
         let manifestURL = TestSupport.repoRoot.appendingPathComponent("TypeWhisperPluginSDK/Plugins/OpenAIPlugin/manifest.json")
         let data = try Data(contentsOf: manifestURL)
         let manifest = try JSONDecoder().decode(PluginManifest.self, from: data)
 
-        XCTAssertEqual(manifest.version, "1.3.3")
+        XCTAssertEqual(manifest.version, "1.3.4")
         XCTAssertEqual(manifest.minHostVersion, "1.7.0")
         XCTAssertEqual(manifest.sdkCompatibilityVersion, PluginSDKCompatibility.currentVersion)
         XCTAssertEqual(manifest.hosting, .cloud)
@@ -173,14 +185,14 @@ final class PluginManifestValidationTests: XCTestCase {
         XCTAssertEqual(manifest.resolvedCategoryIdentifiers, ["transcription", "llm", "tts"])
     }
 
-    func testSonioxPlugin127RequiresCompatibleHost17() throws {
+    func testSonioxPlugin129RequiresCompatibleHost17() throws {
         let manifestURL = TestSupport.repoRoot.appendingPathComponent(
             "TypeWhisperPluginSDK/Plugins/SonioxPlugin/manifest.json"
         )
         let data = try Data(contentsOf: manifestURL)
         let manifest = try JSONDecoder().decode(PluginManifest.self, from: data)
 
-        XCTAssertEqual(manifest.version, "1.2.7")
+        XCTAssertEqual(manifest.version, "1.2.9")
         XCTAssertEqual(manifest.minHostVersion, "1.7.0")
         XCTAssertEqual(manifest.sdkCompatibilityVersion, PluginSDKCompatibility.currentVersion)
     }
@@ -197,14 +209,14 @@ final class PluginManifestValidationTests: XCTestCase {
         XCTAssertEqual(manifest.sdkCompatibilityVersion, PluginSDKCompatibility.currentVersion)
     }
 
-    func testVercelAIGatewayPlugin100RequiresCompatibleHost17() throws {
+    func testVercelAIGatewayPlugin102RequiresCompatibleHost17() throws {
         let manifestURL = TestSupport.repoRoot.appendingPathComponent(
             "TypeWhisperPluginSDK/Plugins/VercelAIGatewayPlugin/manifest.json"
         )
         let data = try Data(contentsOf: manifestURL)
         let manifest = try JSONDecoder().decode(PluginManifest.self, from: data)
 
-        XCTAssertEqual(manifest.version, "1.0.0")
+        XCTAssertEqual(manifest.version, "1.0.2")
         XCTAssertEqual(manifest.minHostVersion, "1.7.0")
         XCTAssertEqual(manifest.sdkCompatibilityVersion, PluginSDKCompatibility.currentVersion)
         XCTAssertEqual(manifest.hosting, .cloud)
@@ -619,7 +631,7 @@ final class PluginDownloadedModelManagementTests: XCTestCase {
 }
 
 @MainActor
-final class Gemma4PluginModelPolicyTests: XCTestCase {
+final class LocalLLMPluginModelPolicyTests: XCTestCase {
     private struct LocalizedOnlyError: LocalizedError, CustomStringConvertible {
         let message: String
 
@@ -680,19 +692,59 @@ final class Gemma4PluginModelPolicyTests: XCTestCase {
 
     func testGemma4SupportedModelsRemainTheRecommendedDenseVariants() {
         XCTAssertEqual(
-            Gemma4Plugin.supportedModelDefinitions.map(\.id),
+            LocalLLMPlugin.supportedModelDefinitions.map(\.id),
             ["gemma-4-e2b-it-4bit", "gemma-4-e4b-it-4bit"]
         )
     }
 
     func testGemma4ExperimentalModelsExposeWarnings() {
-        let experimentalModels = Gemma4Plugin.availableModels.filter { !$0.isSupported }
+        let experimentalModels = LocalLLMPlugin.availableModels.filter { !$0.isSupported }
 
         XCTAssertEqual(
             experimentalModels.map(\.id),
-            ["gemma-4-e4b-it-8bit", "gemma-4-26b-a4b-it-4bit"]
+            ["gemma-4-e4b-it-8bit", "gemma-4-26b-a4b-it-4bit", "qwen3.5-2b-4bit", "lfm2.5-2.6b-4bit"]
         )
         XCTAssertTrue(experimentalModels.allSatisfy { ($0.experimentalWarning ?? "").isEmpty == false })
+    }
+
+    func testOnlyGemmaModelsStopAtGemmaTurnToken() {
+        for model in LocalLLMPlugin.availableModels {
+            XCTAssertEqual(
+                model.extraEOSTokens,
+                model.id.hasPrefix("gemma-4-") ? ["<turn|>"] : [],
+                model.id
+            )
+        }
+    }
+
+    func testProviderKeepsStableIdAfterRename() {
+        let plugin = LocalLLMPlugin()
+
+        XCTAssertEqual(plugin.llmProviderId, "Local LLM (MLX)")
+        XCTAssertEqual(plugin.providerName, "Local LLM (MLX)")
+        XCTAssertEqual(plugin.llmProviderLegacyAliases, ["Gemma 4 (MLX)"])
+        XCTAssertEqual(plugin.llmProviderDisplayName, "Local LLM (MLX)")
+    }
+
+    func testPromptDisablesHybridReasoning() {
+        XCTAssertEqual(LocalLLMPlugin.promptChatTemplateContext["enable_thinking"] as? Bool, false)
+    }
+
+    func testPromptOutputDropsReasoning() {
+        XCTAssertEqual(LocalLLMPlugin.finalPromptOutput("  Hallo Welt.  "), "Hallo Welt.")
+        XCTAssertEqual(
+            LocalLLMPlugin.finalPromptOutput("<think>\nThe user wants a cleanup.\n</think>\n\nHallo Welt."),
+            "Hallo Welt."
+        )
+        XCTAssertEqual(
+            LocalLLMPlugin.finalPromptOutput("The user wants a cleanup. Keep German.</think>Hallo Welt."),
+            "Hallo Welt."
+        )
+        XCTAssertEqual(LocalLLMPlugin.finalPromptOutput("<think>Still reasoning when the budget ran out"), "")
+        XCTAssertEqual(
+            LocalLLMPlugin.finalPromptOutput("Use <b>bold</b> for emphasis."),
+            "Use <b>bold</b> for emphasis."
+        )
     }
 
     func testGemma4ActivationPreservesExperimentalSelectedModel() throws {
@@ -703,7 +755,7 @@ final class Gemma4PluginModelPolicyTests: XCTestCase {
             pluginDataDirectory: appSupportDirectory,
             defaults: ["selectedLLMModel": "gemma-4-26b-a4b-it-4bit"]
         )
-        let plugin = Gemma4Plugin()
+        let plugin = LocalLLMPlugin()
 
         plugin.activate(host: host)
 
@@ -722,7 +774,7 @@ final class Gemma4PluginModelPolicyTests: XCTestCase {
                 "loadedModel": "gemma-4-26b-a4b-it-4bit"
             ]
         )
-        let plugin = Gemma4Plugin()
+        let plugin = LocalLLMPlugin()
 
         plugin.activate(host: host)
 
@@ -742,7 +794,7 @@ final class Gemma4PluginModelPolicyTests: XCTestCase {
             ],
             shouldRestoreLoadedModelsPassively: false
         )
-        let plugin = Gemma4Plugin()
+        let plugin = LocalLLMPlugin()
 
         plugin.activate(host: host)
 
@@ -757,14 +809,14 @@ final class Gemma4PluginModelPolicyTests: XCTestCase {
         let appSupportDirectory = try TestSupport.makeTemporaryDirectory()
         defer { TestSupport.remove(appSupportDirectory) }
 
-        let model = try XCTUnwrap(Gemma4Plugin.modelDefinition(for: "gemma-4-e2b-it-4bit"))
+        let model = try XCTUnwrap(LocalLLMPlugin.modelDefinition(for: "gemma-4-e2b-it-4bit"))
         let modelDirectory = gemmaModelDirectory(appSupportDirectory: appSupportDirectory, model: model)
         try writePartialGemmaCache(at: modelDirectory)
         let host = MockHostServices(
             pluginDataDirectory: appSupportDirectory,
             defaults: ["loadedModel": model.id]
         )
-        let plugin = Gemma4Plugin()
+        let plugin = LocalLLMPlugin()
         plugin.activate(host: host)
 
         await plugin.restoreLoadedModel(allowDownloads: false)
@@ -774,8 +826,8 @@ final class Gemma4PluginModelPolicyTests: XCTestCase {
     }
 
     func testGemma4CancelModelLoadResetsProgressAndState() throws {
-        let plugin = Gemma4Plugin()
-        let model = try XCTUnwrap(Gemma4Plugin.modelDefinition(for: "gemma-4-e2b-it-4bit"))
+        let plugin = LocalLLMPlugin()
+        let model = try XCTUnwrap(LocalLLMPlugin.modelDefinition(for: "gemma-4-e2b-it-4bit"))
 
         plugin.beginModelLoad(for: model, isAlreadyDownloaded: false)
         plugin.cancelModelLoad()
@@ -786,8 +838,8 @@ final class Gemma4PluginModelPolicyTests: XCTestCase {
     }
 
     func testGemma4DownloadActivityIsIndeterminateUntilVisibleProgress() throws {
-        let plugin = Gemma4Plugin()
-        let model = try XCTUnwrap(Gemma4Plugin.modelDefinition(for: "gemma-4-e2b-it-4bit"))
+        let plugin = LocalLLMPlugin()
+        let model = try XCTUnwrap(LocalLLMPlugin.modelDefinition(for: "gemma-4-e2b-it-4bit"))
 
         plugin.beginModelLoad(for: model, isAlreadyDownloaded: false)
 
@@ -798,7 +850,7 @@ final class Gemma4PluginModelPolicyTests: XCTestCase {
     }
 
     func testGemma4DownloadActivityReportsVisibleProgress() throws {
-        let plugin = Gemma4Plugin()
+        let plugin = LocalLLMPlugin()
         let generation = plugin.startModelLoadTimeoutForTesting(modelName: "Gemma 4 E2B")
 
         plugin.recordModelLoadProgressForTesting(
@@ -818,8 +870,8 @@ final class Gemma4PluginModelPolicyTests: XCTestCase {
         defer { TestSupport.remove(appSupportDirectory) }
 
         let host = MockHostServices(pluginDataDirectory: appSupportDirectory)
-        let plugin = Gemma4Plugin()
-        let model = try XCTUnwrap(Gemma4Plugin.modelDefinition(for: "gemma-4-e2b-it-4bit"))
+        let plugin = LocalLLMPlugin()
+        let model = try XCTUnwrap(LocalLLMPlugin.modelDefinition(for: "gemma-4-e2b-it-4bit"))
         let modelDirectory = gemmaModelDirectory(appSupportDirectory: appSupportDirectory, model: model)
         try writePartialGemmaCache(at: modelDirectory)
 
@@ -835,8 +887,8 @@ final class Gemma4PluginModelPolicyTests: XCTestCase {
         defer { TestSupport.remove(appSupportDirectory) }
 
         let host = MockHostServices(pluginDataDirectory: appSupportDirectory)
-        let plugin = Gemma4Plugin()
-        let model = try XCTUnwrap(Gemma4Plugin.modelDefinition(for: "gemma-4-e2b-it-4bit"))
+        let plugin = LocalLLMPlugin()
+        let model = try XCTUnwrap(LocalLLMPlugin.modelDefinition(for: "gemma-4-e2b-it-4bit"))
         let hubCacheDirectory = gemmaHubCacheDirectory(appSupportDirectory: appSupportDirectory, model: model)
         try writeHubGemmaCache(at: hubCacheDirectory)
 
@@ -857,8 +909,8 @@ final class Gemma4PluginModelPolicyTests: XCTestCase {
         defer { TestSupport.remove(appSupportDirectory) }
 
         let host = MockHostServices(pluginDataDirectory: appSupportDirectory)
-        let plugin = Gemma4Plugin()
-        let model = try XCTUnwrap(Gemma4Plugin.modelDefinition(for: "gemma-4-e4b-it-4bit"))
+        let plugin = LocalLLMPlugin()
+        let model = try XCTUnwrap(LocalLLMPlugin.modelDefinition(for: "gemma-4-e4b-it-4bit"))
         let modelDirectory = gemmaModelDirectory(appSupportDirectory: appSupportDirectory, model: model)
         try writeUsableGemmaCache(at: modelDirectory)
 
@@ -874,7 +926,7 @@ final class Gemma4PluginModelPolicyTests: XCTestCase {
         defer { TestSupport.remove(appSupportDirectory) }
 
         let host = MockHostServices(pluginDataDirectory: appSupportDirectory)
-        let plugin = Gemma4Plugin()
+        let plugin = LocalLLMPlugin()
         plugin.activate(host: host)
         plugin.setModelLoadTimeoutForTesting(.milliseconds(500))
         let generation = plugin.startModelLoadTimeoutForTesting(modelName: "Gemma 4 E2B")
@@ -896,7 +948,7 @@ final class Gemma4PluginModelPolicyTests: XCTestCase {
     }
 
     func testGemma4SnapshotChildProgressProducesEffectiveCompletedBytes() {
-        let completedUnitCount = Gemma4Plugin.effectiveCompletedUnitCountForTesting(
+        let completedUnitCount = LocalLLMPlugin.effectiveCompletedUnitCountForTesting(
             completedUnitCount: 0,
             totalUnitCount: 3_550_000_000,
             fraction: 0.0005
@@ -906,7 +958,7 @@ final class Gemma4PluginModelPolicyTests: XCTestCase {
     }
 
     func testGemma4NetworkTaskBytesDriveProgressWhenSnapshotParentIsStatic() throws {
-        let report = try XCTUnwrap(Gemma4Plugin.sampledDownloadProgressForTesting(
+        let report = try XCTUnwrap(LocalLLMPlugin.sampledDownloadProgressForTesting(
             snapshotCompletedUnitCount: 0,
             snapshotTotalUnitCount: 3_550_000_000,
             snapshotFraction: 0,
@@ -922,13 +974,13 @@ final class Gemma4PluginModelPolicyTests: XCTestCase {
     }
 
     func testGemma4NetworkTaskBytesCannotFinishBeforeSnapshotCompletes() throws {
-        let inFlightReport = try XCTUnwrap(Gemma4Plugin.sampledDownloadProgressForTesting(
+        let inFlightReport = try XCTUnwrap(LocalLLMPlugin.sampledDownloadProgressForTesting(
             snapshotCompletedUnitCount: 0,
             snapshotTotalUnitCount: 1_000,
             snapshotFraction: 0,
             receivedBytesByTask: [7: 1_000]
         ))
-        let completedReport = try XCTUnwrap(Gemma4Plugin.sampledDownloadProgressForTesting(
+        let completedReport = try XCTUnwrap(LocalLLMPlugin.sampledDownloadProgressForTesting(
             snapshotCompletedUnitCount: 1_000,
             snapshotTotalUnitCount: 1_000,
             snapshotFraction: 1,
@@ -946,7 +998,7 @@ final class Gemma4PluginModelPolicyTests: XCTestCase {
         defer { TestSupport.remove(appSupportDirectory) }
 
         let host = MockHostServices(pluginDataDirectory: appSupportDirectory)
-        let plugin = Gemma4Plugin()
+        let plugin = LocalLLMPlugin()
         plugin.activate(host: host)
         plugin.setModelLoadTimeoutForTesting(.milliseconds(40))
 
@@ -985,7 +1037,7 @@ final class Gemma4PluginModelPolicyTests: XCTestCase {
         defer { TestSupport.remove(appSupportDirectory) }
 
         let host = MockHostServices(pluginDataDirectory: appSupportDirectory)
-        let plugin = Gemma4Plugin()
+        let plugin = LocalLLMPlugin()
         plugin.activate(host: host)
         plugin.setLoadedModelIdForTesting("gemma-4-e2b-it-4bit")
         plugin.setModelLoadTimeoutForTesting(.milliseconds(40))
@@ -1006,7 +1058,7 @@ final class Gemma4PluginModelPolicyTests: XCTestCase {
     }
 
     func testGemma4CompletedDownloadUsesLongerPreparationTimeout() {
-        let plugin = Gemma4Plugin()
+        let plugin = LocalLLMPlugin()
         plugin.setModelLoadTimeoutsForTesting(
             downloadInactivity: .milliseconds(40),
             preparation: .milliseconds(180)
@@ -1046,7 +1098,7 @@ final class Gemma4PluginModelPolicyTests: XCTestCase {
     }
 
     func testGemma4LateProgressFromInvalidatedLoadIsIgnored() throws {
-        let plugin = Gemma4Plugin()
+        let plugin = LocalLLMPlugin()
         let generation = plugin.startModelLoadTimeoutForTesting(modelName: "Gemma 4 E4B")
 
         plugin.invalidateModelLoadForTesting()
@@ -1062,8 +1114,8 @@ final class Gemma4PluginModelPolicyTests: XCTestCase {
     }
 
     func testGemma4CancelInvalidatesPendingTimeout() async throws {
-        let plugin = Gemma4Plugin()
-        let model = try XCTUnwrap(Gemma4Plugin.modelDefinition(for: "gemma-4-e2b-it-4bit"))
+        let plugin = LocalLLMPlugin()
+        let model = try XCTUnwrap(LocalLLMPlugin.modelDefinition(for: "gemma-4-e2b-it-4bit"))
 
         plugin.setModelLoadTimeoutForTesting(.milliseconds(40))
         let generation = plugin.startModelLoadTimeoutForTesting(modelName: model.displayName)
@@ -1082,10 +1134,10 @@ final class Gemma4PluginModelPolicyTests: XCTestCase {
     }
 
     func testGemma4UnsupportedModelTypeErrorsUseFriendlyMessage() throws {
-        let model = try XCTUnwrap(Gemma4Plugin.modelDefinition(for: "gemma-4-26b-a4b-it-4bit"))
+        let model = try XCTUnwrap(LocalLLMPlugin.modelDefinition(for: "gemma-4-26b-a4b-it-4bit"))
         let error = NSError(domain: "Test", code: 1, userInfo: [NSLocalizedDescriptionKey: "Model type gemma4 not supported"])
 
-        let message = Gemma4Plugin.userFacingLoadErrorMessage(for: error, modelDef: model)
+        let message = LocalLLMPlugin.userFacingLoadErrorMessage(for: error, modelDef: model)
 
         XCTAssertEqual(
             message,
@@ -1094,19 +1146,19 @@ final class Gemma4PluginModelPolicyTests: XCTestCase {
     }
 
     func testGemma4TimeoutErrorsSuggestRetryAndOptionalHuggingFaceToken() throws {
-        let model = try XCTUnwrap(Gemma4Plugin.modelDefinition(for: "gemma-4-e2b-it-4bit"))
+        let model = try XCTUnwrap(LocalLLMPlugin.modelDefinition(for: "gemma-4-e2b-it-4bit"))
         let error = URLError(.timedOut)
 
-        let message = Gemma4Plugin.userFacingLoadErrorMessage(for: error, modelDef: model)
+        let message = LocalLLMPlugin.userFacingLoadErrorMessage(for: error, modelDef: model)
 
         XCTAssertEqual(
             message,
-            "Download timed out while fetching Gemma 4 from Hugging Face. Please retry. Adding an optional HuggingFace token in this plugin can also increase download rate limits."
+            "Download timed out while fetching the model from Hugging Face. Please retry. Adding an optional HuggingFace token in this plugin can also increase download rate limits."
         )
     }
 
     func testGemma4MissingWeightErrorsUseCacheRecoveryMessage() throws {
-        let model = try XCTUnwrap(Gemma4Plugin.modelDefinition(for: "gemma-4-e2b-it-4bit"))
+        let model = try XCTUnwrap(LocalLLMPlugin.modelDefinition(for: "gemma-4-e2b-it-4bit"))
         let error = NSError(
             domain: "Test",
             code: 1,
@@ -1115,16 +1167,16 @@ final class Gemma4PluginModelPolicyTests: XCTestCase {
             ]
         )
 
-        let message = Gemma4Plugin.userFacingLoadErrorMessage(for: error, modelDef: model)
+        let message = LocalLLMPlugin.userFacingLoadErrorMessage(for: error, modelDef: model)
 
         XCTAssertEqual(
             message,
-            "The downloaded Gemma model cache appears incomplete or incompatible. Delete the cached model and download it again."
+            "The downloaded model cache appears incomplete or incompatible. Delete the cached model and download it again."
         )
     }
 
     func testGemma4CheckpointShapeErrorsUseCacheRecoveryMessage() throws {
-        let model = try XCTUnwrap(Gemma4Plugin.modelDefinition(for: "gemma-4-e4b-it-4bit"))
+        let model = try XCTUnwrap(LocalLLMPlugin.modelDefinition(for: "gemma-4-e4b-it-4bit"))
         let error = NSError(
             domain: "Test",
             code: 1,
@@ -1133,16 +1185,16 @@ final class Gemma4PluginModelPolicyTests: XCTestCase {
             ]
         )
 
-        let message = Gemma4Plugin.userFacingLoadErrorMessage(for: error, modelDef: model)
+        let message = LocalLLMPlugin.userFacingLoadErrorMessage(for: error, modelDef: model)
 
         XCTAssertEqual(
             message,
-            "The downloaded Gemma model cache appears incomplete or incompatible. Delete the cached model and download it again."
+            "The downloaded model cache appears incomplete or incompatible. Delete the cached model and download it again."
         )
     }
 
     func testGemma4MismatchedParameterShapeErrorsUseCacheRecoveryMessage() throws {
-        let model = try XCTUnwrap(Gemma4Plugin.modelDefinition(for: "gemma-4-e4b-it-4bit"))
+        let model = try XCTUnwrap(LocalLLMPlugin.modelDefinition(for: "gemma-4-e4b-it-4bit"))
         let error = NSError(
             domain: "Test",
             code: 1,
@@ -1151,25 +1203,25 @@ final class Gemma4PluginModelPolicyTests: XCTestCase {
             ]
         )
 
-        let message = Gemma4Plugin.userFacingLoadErrorMessage(for: error, modelDef: model)
+        let message = LocalLLMPlugin.userFacingLoadErrorMessage(for: error, modelDef: model)
 
         XCTAssertEqual(
             message,
-            "The downloaded Gemma model cache appears incomplete or incompatible. Delete the cached model and download it again."
+            "The downloaded model cache appears incomplete or incompatible. Delete the cached model and download it again."
         )
     }
 
     func testGemma4LocalizedOnlyMismatchedParameterShapeErrorsUseCacheRecoveryMessage() throws {
-        let model = try XCTUnwrap(Gemma4Plugin.modelDefinition(for: "gemma-4-e2b-it-4bit"))
+        let model = try XCTUnwrap(LocalLLMPlugin.modelDefinition(for: "gemma-4-e2b-it-4bit"))
         let error = LocalizedOnlyError(
             message: "Mismatched parameter language_model.model.per_layer_model_projection.weight in Gemma4Model.Gemma4TextModel.Gemma4TextModelInner.ScaledLinear shape. Actual [8960, 192], expected [8960, 1536]"
         )
 
-        let message = Gemma4Plugin.userFacingLoadErrorMessage(for: error, modelDef: model)
+        let message = LocalLLMPlugin.userFacingLoadErrorMessage(for: error, modelDef: model)
 
         XCTAssertEqual(
             message,
-            "The downloaded Gemma model cache appears incomplete or incompatible. Delete the cached model and download it again."
+            "The downloaded model cache appears incomplete or incompatible. Delete the cached model and download it again."
         )
     }
 
@@ -1178,8 +1230,8 @@ final class Gemma4PluginModelPolicyTests: XCTestCase {
         defer { TestSupport.remove(appSupportDirectory) }
 
         let host = MockHostServices(pluginDataDirectory: appSupportDirectory)
-        let plugin = Gemma4Plugin()
-        let model = try XCTUnwrap(Gemma4Plugin.modelDefinition(for: "gemma-4-e2b-it-4bit"))
+        let plugin = LocalLLMPlugin()
+        let model = try XCTUnwrap(LocalLLMPlugin.modelDefinition(for: "gemma-4-e2b-it-4bit"))
         let modelDirectory = appSupportDirectory
             .appendingPathComponent("models", isDirectory: true)
             .appendingPathComponent(model.repoId, isDirectory: true)
@@ -1209,8 +1261,8 @@ final class Gemma4PluginModelPolicyTests: XCTestCase {
         defer { TestSupport.remove(appSupportDirectory) }
 
         let host = MockHostServices(pluginDataDirectory: appSupportDirectory)
-        let plugin = Gemma4Plugin()
-        let model = try XCTUnwrap(Gemma4Plugin.modelDefinition(for: "gemma-4-e2b-it-4bit"))
+        let plugin = LocalLLMPlugin()
+        let model = try XCTUnwrap(LocalLLMPlugin.modelDefinition(for: "gemma-4-e2b-it-4bit"))
         let modelDirectory = gemmaModelDirectory(appSupportDirectory: appSupportDirectory, model: model)
         try writeUsableGemmaCache(at: modelDirectory)
 
@@ -1232,12 +1284,12 @@ final class Gemma4PluginModelPolicyTests: XCTestCase {
         let appSupportDirectory = try TestSupport.makeTemporaryDirectory()
         defer { TestSupport.remove(appSupportDirectory) }
 
-        let model = try XCTUnwrap(Gemma4Plugin.modelDefinition(for: "gemma-4-e2b-it-4bit"))
+        let model = try XCTUnwrap(LocalLLMPlugin.modelDefinition(for: "gemma-4-e2b-it-4bit"))
         let host = MockHostServices(
             pluginDataDirectory: appSupportDirectory,
             defaults: ["selectedLLMModel": model.id]
         )
-        let plugin = Gemma4Plugin()
+        let plugin = LocalLLMPlugin()
         let modelDirectory = gemmaModelDirectory(appSupportDirectory: appSupportDirectory, model: model)
         let hubCacheDirectory = gemmaHubCacheDirectory(appSupportDirectory: appSupportDirectory, model: model)
         let hubLockDirectory = gemmaHubLockDirectory(appSupportDirectory: appSupportDirectory, model: model)
@@ -1282,19 +1334,19 @@ final class Gemma4PluginModelPolicyTests: XCTestCase {
         }
     }
 
-    private func gemmaModelDirectory(appSupportDirectory: URL, model: Gemma4ModelDef) -> URL {
+    private func gemmaModelDirectory(appSupportDirectory: URL, model: LocalLLMModelDef) -> URL {
         appSupportDirectory
             .appendingPathComponent("models", isDirectory: true)
             .appendingPathComponent(model.repoId, isDirectory: true)
     }
 
-    private func gemmaHubCacheDirectory(appSupportDirectory: URL, model: Gemma4ModelDef) -> URL {
+    private func gemmaHubCacheDirectory(appSupportDirectory: URL, model: LocalLLMModelDef) -> URL {
         appSupportDirectory
             .appendingPathComponent("models", isDirectory: true)
             .appendingPathComponent("models--" + model.repoId.replacingOccurrences(of: "/", with: "--"), isDirectory: true)
     }
 
-    private func gemmaHubLockDirectory(appSupportDirectory: URL, model: Gemma4ModelDef) -> URL {
+    private func gemmaHubLockDirectory(appSupportDirectory: URL, model: LocalLLMModelDef) -> URL {
         appSupportDirectory
             .appendingPathComponent("models", isDirectory: true)
             .appendingPathComponent(".locks", isDirectory: true)
@@ -1322,7 +1374,7 @@ final class Gemma4PluginModelPolicyTests: XCTestCase {
     }
 
     func testGemma4ValidatesHuggingFaceTokenAgainstWhoAmIEndpoint() async throws {
-        let plugin = Gemma4Plugin()
+        let plugin = LocalLLMPlugin()
         let requestRecorder = RequestRecorder()
 
         let isValid = await plugin.validateHuggingFaceToken("hf_test_123") { request in
@@ -1346,7 +1398,7 @@ final class Gemma4PluginModelPolicyTests: XCTestCase {
     }
 
     func testGemma4RejectsInvalidHuggingFaceTokenResponses() async {
-        let plugin = Gemma4Plugin()
+        let plugin = LocalLLMPlugin()
 
         let isValid = await plugin.validateHuggingFaceToken("hf_invalid") { request in
             let response = HTTPURLResponse(
@@ -1362,17 +1414,17 @@ final class Gemma4PluginModelPolicyTests: XCTestCase {
     }
 
     func testGemma4UsesTemperatureControllableProviderPath() {
-        let plugin: any LLMProviderPlugin = Gemma4Plugin()
+        let plugin: any LLMProviderPlugin = LocalLLMPlugin()
 
         XCTAssertTrue(plugin is any LLMTemperatureControllableProvider)
     }
 
     func testGemma4PromptPrefillStepSizeIsReducedForLargerModels() {
-        XCTAssertEqual(Gemma4Plugin.promptPrefillStepSize(for: "gemma-4-e2b-it-4bit"), 256)
-        XCTAssertEqual(Gemma4Plugin.promptPrefillStepSize(for: "gemma-4-e4b-it-4bit"), 128)
-        XCTAssertEqual(Gemma4Plugin.promptPrefillStepSize(for: "gemma-4-e4b-it-8bit"), 128)
-        XCTAssertEqual(Gemma4Plugin.promptPrefillStepSize(for: "gemma-4-26b-a4b-it-4bit"), 64)
-        XCTAssertEqual(Gemma4Plugin.promptPrefillStepSize(for: nil), 128)
+        XCTAssertEqual(LocalLLMPlugin.promptPrefillStepSize(for: "gemma-4-e2b-it-4bit"), 256)
+        XCTAssertEqual(LocalLLMPlugin.promptPrefillStepSize(for: "gemma-4-e4b-it-4bit"), 128)
+        XCTAssertEqual(LocalLLMPlugin.promptPrefillStepSize(for: "gemma-4-e4b-it-8bit"), 128)
+        XCTAssertEqual(LocalLLMPlugin.promptPrefillStepSize(for: "gemma-4-26b-a4b-it-4bit"), 64)
+        XCTAssertEqual(LocalLLMPlugin.promptPrefillStepSize(for: nil), 128)
     }
 
     func testQwen3ValidatesHuggingFaceTokenAgainstWhoAmIEndpoint() async throws {
@@ -1582,6 +1634,102 @@ final class PluginDictionaryGuardTests: XCTestCase {
 
     func testDeepgramSupportedLanguagesIncludeMultilingualCodeSwitchingMode() {
         XCTAssertTrue(DeepgramPlugin().supportedLanguages.contains("multi"))
+        XCTAssertTrue(DeepgramPlugin.nova2SupportedLanguages.contains("multi"))
+    }
+
+    func testDeepgramSupportedLanguagesFollowSelectedModel() {
+        let plugin = DeepgramPlugin()
+
+        plugin.selectModel("nova-3")
+        let nova3 = Set(plugin.supportedLanguages)
+        for code in ["ar", "kk", "en", "de", "en-GB", "zh-TW"] {
+            XCTAssertTrue(nova3.contains(code), "Nova-3 should support \(code)")
+        }
+
+        plugin.selectModel("nova-2")
+        let nova2 = Set(plugin.supportedLanguages)
+        for code in ["en", "de", "en-GB", "de-CH", "nl-BE", "zh-TW"] {
+            XCTAssertTrue(nova2.contains(code), "Nova-2 should support \(code)")
+        }
+        XCTAssertFalse(nova2.contains("ar"))
+        XCTAssertFalse(nova2.contains("kk"))
+        XCTAssertTrue(nova2.isSubset(of: nova3))
+    }
+
+    func testDeepgramModelSwitchDoesNotNotifyHost() {
+        // The host switches models temporarily for per-flow overrides. Those switches must not
+        // make observers re-normalize and persist their language selections.
+        let host = TestHostServices()
+        let plugin = DeepgramPlugin()
+        plugin.activate(host: host)
+
+        plugin.selectModel("nova-2")
+        plugin.selectModel("nova-3")
+
+        XCTAssertEqual(host.capabilityChangeCount, 0)
+    }
+
+    func testHostResolvesDeepgramLanguagesForModelOverride() {
+        let plugin = DeepgramPlugin()
+        plugin.selectModel("nova-2")
+        let engine: any TranscriptionEnginePlugin = plugin
+
+        XCTAssertTrue(engine.supportedLanguages(forModel: "nova-3").contains("ar"))
+        XCTAssertFalse(engine.supportedLanguages(forModel: "nova-2").contains("ar"))
+        XCTAssertEqual(engine.supportedLanguages(forModel: nil), DeepgramPlugin.nova2SupportedLanguages)
+    }
+
+    func testDeepgramRestoredModelSelectionDeterminesSupportedLanguages() {
+        let nova2Plugin = DeepgramPlugin()
+        nova2Plugin.activate(host: TestHostServices(userDefaults: ["selectedModel": "nova-2"]))
+        XCTAssertEqual(nova2Plugin.supportedLanguages, DeepgramPlugin.nova2SupportedLanguages)
+
+        let defaultPlugin = DeepgramPlugin()
+        defaultPlugin.activate(host: TestHostServices())
+        XCTAssertEqual(defaultPlugin.selectedModelId, "nova-3")
+        XCTAssertEqual(defaultPlugin.supportedLanguages, DeepgramPlugin.nova3SupportedLanguages)
+    }
+
+    func testDeepgramExplicitNova3LanguagesSurviveNormalization() throws {
+        let plugin = DeepgramPlugin()
+
+        plugin.selectModel("nova-3")
+        for code in ["ar", "kk", "en", "de"] {
+            XCTAssertEqual(
+                LanguageSelection.exact(code).normalizedForSupportedLanguages(plugin.supportedLanguages),
+                .exact(code)
+            )
+        }
+
+        plugin.selectModel("nova-2")
+        XCTAssertEqual(
+            LanguageSelection.exact("ar").normalizedForSupportedLanguages(plugin.supportedLanguages),
+            .auto
+        )
+        XCTAssertEqual(
+            LanguageSelection.exact("de").normalizedForSupportedLanguages(plugin.supportedLanguages),
+            .exact("de")
+        )
+
+        let restURL = try DeepgramPlugin.restRequestURL(
+            baseURL: "https://api.deepgram.com",
+            modelId: "nova-3",
+            language: "ar",
+            prompt: nil
+        )
+        let streamingURL = try DeepgramPlugin.streamingRequestURL(
+            baseURL: "https://api.deepgram.com",
+            modelId: "nova-3",
+            language: "kk",
+            prompt: nil
+        )
+        func languageValues(in url: URL) -> [String] {
+            (URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? [])
+                .filter { $0.name == "language" }
+                .compactMap(\.value)
+        }
+        XCTAssertEqual(languageValues(in: restURL), ["ar"])
+        XCTAssertEqual(languageValues(in: streamingURL), ["kk"])
     }
 
     func testDeepgramAdvertisesLiveDictationTranscription() {
@@ -1973,7 +2121,11 @@ private final class TestHostServices: HostServices, @unchecked Sendable {
         userDefaults[key] = value
     }
 
-    func notifyCapabilitiesChanged() {}
+    private(set) var capabilityChangeCount = 0
+
+    func notifyCapabilitiesChanged() {
+        capabilityChangeCount += 1
+    }
     func setStreamingDisplayActive(_ active: Bool) {}
 }
 
@@ -2057,11 +2209,11 @@ final class PluginManagerLoadOrderTests: XCTestCase {
             pluginId: "com.typewhisper.voxtral",
             pluginName: "Voxtral"
         )
-        let enabledGemma = try makePluginBundle(
+        let enabledLocalLLM = try makePluginBundle(
             at: pluginsDirectory,
-            bundleName: "Gemma4Plugin.bundle",
-            pluginId: "com.typewhisper.gemma4",
-            pluginName: "Gemma 4"
+            bundleName: "LocalLLMPlugin.bundle",
+            pluginId: "com.typewhisper.local-llm-mlx",
+            pluginName: "Local LLM (MLX)"
         )
         let enabledParakeet = try makePluginBundle(
             at: pluginsDirectory,
@@ -2071,41 +2223,41 @@ final class PluginManagerLoadOrderTests: XCTestCase {
         )
 
         let voxtralKey = "plugin.com.typewhisper.voxtral.enabled"
-        let gemmaKey = "plugin.com.typewhisper.gemma4.enabled"
+        let localLLMKey = "plugin.com.typewhisper.local-llm-mlx.enabled"
         let parakeetKey = "plugin.com.typewhisper.parakeet.enabled"
 
         let defaults = UserDefaults.standard
         let originalVoxtral = defaults.object(forKey: voxtralKey)
-        let originalGemma = defaults.object(forKey: gemmaKey)
+        let originalLocalLLM = defaults.object(forKey: localLLMKey)
         let originalParakeet = defaults.object(forKey: parakeetKey)
         defer {
             restore(defaults, key: voxtralKey, value: originalVoxtral)
-            restore(defaults, key: gemmaKey, value: originalGemma)
+            restore(defaults, key: localLLMKey, value: originalLocalLLM)
             restore(defaults, key: parakeetKey, value: originalParakeet)
         }
 
         defaults.set(false, forKey: voxtralKey)
-        defaults.set(true, forKey: gemmaKey)
+        defaults.set(true, forKey: localLLMKey)
         defaults.set(true, forKey: parakeetKey)
 
         let sorted = manager.sortedPluginBundleURLs(
-            [disabledVoxtral, enabledParakeet, enabledGemma],
+            [disabledVoxtral, enabledParakeet, enabledLocalLLM],
             isBundledSource: false
         )
 
         XCTAssertEqual(
             sorted.map(\.lastPathComponent),
-            ["Gemma4Plugin.bundle", "ParakeetPlugin.bundle", "VoxtralPlugin.bundle"]
+            ["LocalLLMPlugin.bundle", "ParakeetPlugin.bundle", "VoxtralPlugin.bundle"]
         )
 
         // Metadata is a per-sort snapshot, not a persistent cache of enablement.
         defaults.set(true, forKey: voxtralKey)
-        defaults.set(false, forKey: gemmaKey)
+        defaults.set(false, forKey: localLLMKey)
         defaults.set(false, forKey: parakeetKey)
         XCTAssertEqual(
-            manager.sortedPluginBundleURLs([enabledGemma, disabledVoxtral, enabledParakeet], isBundledSource: false)
+            manager.sortedPluginBundleURLs([enabledLocalLLM, disabledVoxtral, enabledParakeet], isBundledSource: false)
                 .map(\.lastPathComponent),
-            ["VoxtralPlugin.bundle", "Gemma4Plugin.bundle", "ParakeetPlugin.bundle"]
+            ["VoxtralPlugin.bundle", "LocalLLMPlugin.bundle", "ParakeetPlugin.bundle"]
         )
     }
 
@@ -2981,5 +3133,323 @@ private actor DeepgramOutboundTestEvents {
 
     func snapshot() -> [String] {
         events
+    }
+}
+
+// MARK: - Launch scan: registry change publication
+
+/// Records what the launch-scan fakes observed. The fakes are created through
+/// `TypeWhisperPlugin.init()`, so they report through static state.
+@MainActor
+private enum LaunchScanJournal {
+    static var activations: [String] = []
+    static var registryAtActivation: [String: [String]] = [:]
+    static var passiveRestoreRequests: [String] = []
+    static var registrySnapshot: @MainActor () -> [String] = { [] }
+
+    static func reset() {
+        activations = []
+        registryAtActivation = [:]
+        passiveRestoreRequests = []
+        registrySnapshot = { [] }
+    }
+
+    static func recordActivation(_ id: String) {
+        activations.append(id)
+        registryAtActivation[id] = registrySnapshot()
+    }
+}
+
+/// A local-model engine reduced to the launch behaviour under test: it requests a
+/// passive restore from activation exactly like the shipped local-model plugins.
+private class LaunchScanEngine: TranscriptionEnginePlugin, PassiveModelRestoreProviding, @unchecked Sendable {
+    class var pluginId: String { "test.launch-scan.engine" }
+    class var pluginName: String { "Launch Scan Engine" }
+    class var engineId: String { "launch-scan-engine" }
+
+    private var host: (any HostServices)?
+
+    required init() {}
+
+    func activate(host: any HostServices) {
+        self.host = host
+        let id = providerId
+        MainActor.assumeIsolated { LaunchScanJournal.recordActivation(id) }
+        if host.shouldRestoreLoadedModelsPassively {
+            requestPassiveModelRestore()
+        }
+    }
+
+    func deactivate() { host = nil }
+
+    func requestPassiveModelRestore() {
+        guard host?.shouldRestoreLoadedModelsPassively == true else { return }
+        let id = providerId
+        MainActor.assumeIsolated { LaunchScanJournal.passiveRestoreRequests.append(id) }
+    }
+
+    var providerId: String { type(of: self).engineId }
+    var providerDisplayName: String { providerId }
+    var isConfigured: Bool { false }
+    var transcriptionModels: [PluginModelInfo] { [] }
+    var selectedModelId: String? { nil }
+    func selectModel(_ modelId: String) {}
+    var supportsTranslation: Bool { false }
+
+    func transcribe(audio: AudioData, language: String?, translate: Bool, prompt: String?) async throws -> PluginTranscriptionResult {
+        PluginTranscriptionResult(text: "")
+    }
+}
+
+private final class LaunchScanAlphaEngine: LaunchScanEngine, @unchecked Sendable {
+    override class var pluginId: String { "test.launch-scan.alpha" }
+    override class var engineId: String { "launch-scan-alpha" }
+}
+
+private final class LaunchScanBetaEngine: LaunchScanEngine, @unchecked Sendable {
+    override class var pluginId: String { "test.launch-scan.beta" }
+    override class var engineId: String { "launch-scan-beta" }
+}
+
+private final class LaunchScanUtilityPlugin: TypeWhisperPlugin, @unchecked Sendable {
+    static let pluginId = "test.launch-scan.utility"
+    static let pluginName = "Launch Scan Utility"
+
+    init() {}
+
+    func activate(host: any HostServices) {
+        MainActor.assumeIsolated { LaunchScanJournal.recordActivation("utility") }
+    }
+
+    func deactivate() {}
+}
+
+@MainActor
+final class PluginManagerLaunchScanTests: XCTestCase {
+    private enum FakeLoadError: Error {
+        case unknownPrincipalClass(String)
+    }
+
+    private static let pluginIds = [
+        "test.launch-scan.alpha",
+        "test.launch-scan.beta",
+        "test.launch-scan.utility",
+        "test.launch-scan.disabled",
+        "test.launch-scan.legacy",
+    ]
+
+    private var appSupportDirectory: URL!
+    private var savedDefaults: [String: Any?] = [:]
+    private var savedAppSupportOverride: URL?
+    private var savedManager: PluginManager?
+    private var savedBus: EventBus?
+    private var cancellables = Set<AnyCancellable>()
+
+    override func setUp() async throws {
+        try await super.setUp()
+        appSupportDirectory = try TestSupport.makeTemporaryDirectory()
+        savedAppSupportOverride = AppConstants.testAppSupportDirectoryOverride
+        // Activation creates plugin data directories; keep them out of real app data.
+        AppConstants.testAppSupportDirectoryOverride = appSupportDirectory
+        savedManager = PluginManager.shared
+        savedBus = EventBus.shared
+        EventBus.shared = EventBus()
+
+        let keys = [UserDefaultsKeys.selectedEngine, UserDefaultsKeys.modelAutoUnloadSeconds]
+            + Self.pluginIds.map { "plugin.\($0).enabled" }
+        for key in keys {
+            savedDefaults[key] = UserDefaults.standard.object(forKey: key)
+        }
+        LaunchScanJournal.reset()
+    }
+
+    override func tearDown() async throws {
+        cancellables.removeAll()
+        LaunchScanJournal.reset()
+        for (key, value) in savedDefaults {
+            if let value {
+                UserDefaults.standard.set(value, forKey: key)
+            } else {
+                UserDefaults.standard.removeObject(forKey: key)
+            }
+        }
+        PluginManager.shared = savedManager
+        EventBus.shared = savedBus
+        AppConstants.testAppSupportDirectoryOverride = savedAppSupportOverride
+        TestSupport.remove(appSupportDirectory)
+        try await super.tearDown()
+    }
+
+    func testLaunchScanPublishesOneRegistryChangeAfterTheRegistryIsComplete() throws {
+        let manager = try makeManagerWithLaunchBundles(selectedEngine: nil)
+        var registryAtEachNotification: [[String]] = []
+        manager.objectWillChange
+            .sink { [unowned manager] _ in
+                registryAtEachNotification.append(Self.scanIds(in: manager))
+            }
+            .store(in: &cancellables)
+        let revisionBeforeScan = manager.registryRevision
+
+        manager.scanAndLoadPlugins()
+
+        // One registry mutation per bundle used to publish separately, each queueing a
+        // reconcile pass in every observing service. The scan now publishes once,
+        // after every bundle is registered.
+        XCTAssertEqual(registryAtEachNotification.count, 1)
+        XCTAssertEqual(manager.registryRevision, revisionBeforeScan + 1)
+        XCTAssertEqual(registryAtEachNotification.first, [
+            "test.launch-scan.alpha",
+            "test.launch-scan.beta",
+            "test.launch-scan.utility",
+            "test.launch-scan.disabled",
+        ])
+        XCTAssertNotNil(manager.incompatibleExternalBundle(for: "test.launch-scan.legacy"))
+    }
+
+    func testLaunchScanKeepsLoadOrderAndUpdatesRegistryInPlaceDuringActivation() throws {
+        let manager = try makeManagerWithLaunchBundles(selectedEngine: nil)
+        LaunchScanJournal.registrySnapshot = { [unowned manager] in Self.scanIds(in: manager) }
+
+        manager.scanAndLoadPlugins()
+
+        XCTAssertEqual(LaunchScanJournal.activations, ["launch-scan-alpha", "launch-scan-beta", "utility"])
+        // Coalescing defers only the notification. Each plugin is already registered
+        // when it activates, exactly as before.
+        XCTAssertEqual(LaunchScanJournal.registryAtActivation["launch-scan-alpha"], ["test.launch-scan.alpha"])
+        XCTAssertEqual(
+            LaunchScanJournal.registryAtActivation["launch-scan-beta"],
+            ["test.launch-scan.alpha", "test.launch-scan.beta"]
+        )
+        XCTAssertEqual(
+            LaunchScanJournal.registryAtActivation["utility"],
+            ["test.launch-scan.alpha", "test.launch-scan.beta", "test.launch-scan.utility"]
+        )
+
+        let disabled = try XCTUnwrap(manager.loadedPlugins.first { $0.id == "test.launch-scan.disabled" })
+        XCTAssertFalse(disabled.isEnabled)
+        XCTAssertFalse(disabled.isRuntimeLoaded)
+        XCTAssertEqual(
+            manager.transcriptionEngines.map(\.providerId).filter { $0.hasPrefix("launch-scan-") },
+            ["launch-scan-alpha", "launch-scan-beta"]
+        )
+    }
+
+    func testCoalescedLaunchScanOnlyRestoresTheSelectedEngineAndKeepsTheSelection() async throws {
+        let manager = try makeManagerWithLaunchBundles(selectedEngine: "launch-scan-beta")
+        PluginManager.shared = manager
+        let modelManager = ModelManagerService()
+        modelManager.observePluginManager()
+
+        // Shaped like the production observers: one main-queue pass per notification.
+        var observerPasses = 0
+        manager.objectWillChange
+            .receive(on: DispatchQueue.main)
+            .sink { _ in observerPasses += 1 }
+            .store(in: &cancellables)
+
+        manager.scanAndLoadPlugins()
+        modelManager.restoreProviderSelection()
+        await drainMainQueue()
+        await drainMainQueue()
+
+        XCTAssertEqual(observerPasses, 1)
+        XCTAssertEqual(modelManager.selectedProviderId, "launch-scan-beta")
+        // Activation and the post-scan reconciliation may each ask the selected
+        // engine for a passive restore (plugins coalesce these); the coalesced
+        // notification must not add another. The unselected engine never restores,
+        // so no model is loaded or downloaded on its behalf.
+        XCTAssertEqual(LaunchScanJournal.passiveRestoreRequests, ["launch-scan-beta", "launch-scan-beta"])
+        XCTAssertEqual(UserDefaults.standard.string(forKey: UserDefaultsKeys.selectedEngine), "launch-scan-beta")
+    }
+
+    func testRegistryChangesOutsideABatchStillPublishImmediately() throws {
+        let manager = PluginManager(appSupportDirectory: appSupportDirectory)
+        var notifications = 0
+        manager.objectWillChange
+            .sink { _ in notifications += 1 }
+            .store(in: &cancellables)
+
+        manager.loadedPlugins = []
+        XCTAssertEqual(notifications, 1)
+
+        manager.coalescingRegistryChangeNotifications {
+            manager.loadedPlugins = []
+            manager.coalescingRegistryChangeNotifications {
+                manager.loadedPlugins = []
+            }
+            XCTAssertEqual(notifications, 1, "nested batches publish only when the outermost ends")
+        }
+        XCTAssertEqual(notifications, 2)
+
+        XCTAssertThrowsError(try manager.coalescingRegistryChangeNotifications {
+            manager.loadedPlugins = []
+            throw FakeLoadError.unknownPrincipalClass("thrown")
+        })
+        XCTAssertEqual(notifications, 3, "a throwing batch still publishes its changes")
+
+        manager.coalescingRegistryChangeNotifications {}
+        XCTAssertEqual(notifications, 3, "a batch without changes publishes nothing")
+
+        manager.loadedPlugins = []
+        XCTAssertEqual(notifications, 4, "publication resumes after a batch")
+    }
+
+    // MARK: - Helpers
+
+    private static func scanIds(in manager: PluginManager) -> [String] {
+        manager.loadedPlugins.map(\.id).filter { $0.hasPrefix("test.launch-scan.") }
+    }
+
+    private func makeManagerWithLaunchBundles(selectedEngine: String?) throws -> PluginManager {
+        let defaults = UserDefaults.standard
+        defaults.set(selectedEngine, forKey: UserDefaultsKeys.selectedEngine)
+        // "Never" is the only auto-unload policy under which passive restore runs.
+        defaults.set(0, forKey: UserDefaultsKeys.modelAutoUnloadSeconds)
+
+        let classes: [String: TypeWhisperPlugin.Type] = [
+            "LaunchScanAlphaEngine": LaunchScanAlphaEngine.self,
+            "LaunchScanBetaEngine": LaunchScanBetaEngine.self,
+            "LaunchScanUtilityPlugin": LaunchScanUtilityPlugin.self,
+        ]
+        let manager = PluginManager(
+            appSupportDirectory: appSupportDirectory,
+            runtimeLoader: PluginRuntimeLoader { _, manifest in
+                guard let pluginClass = classes[manifest.principalClass] else {
+                    // Keeps built-in bundles of the test host out of the scan.
+                    throw FakeLoadError.unknownPrincipalClass(manifest.principalClass)
+                }
+                return pluginClass
+            }
+        )
+
+        let bundles: [(bundle: String, id: String, principalClass: String, enabled: Bool, sdk: String?)] = [
+            ("UtilityPlugin.bundle", "test.launch-scan.utility", "LaunchScanUtilityPlugin", true, PluginSDKCompatibility.currentVersion),
+            ("DisabledPlugin.bundle", "test.launch-scan.disabled", "MissingPluginClass", false, PluginSDKCompatibility.currentVersion),
+            ("BetaEngine.bundle", "test.launch-scan.beta", "LaunchScanBetaEngine", true, PluginSDKCompatibility.currentVersion),
+            ("LegacyPlugin.bundle", "test.launch-scan.legacy", "LaunchScanAlphaEngine", true, nil),
+            ("AlphaEngine.bundle", "test.launch-scan.alpha", "LaunchScanAlphaEngine", true, PluginSDKCompatibility.currentVersion),
+        ]
+        for entry in bundles {
+            let resourcesURL = manager.pluginsDirectory
+                .appendingPathComponent(entry.bundle, isDirectory: true)
+                .appendingPathComponent("Contents/Resources", isDirectory: true)
+            try FileManager.default.createDirectory(at: resourcesURL, withIntermediateDirectories: true)
+            let manifest = PluginManifest(
+                id: entry.id,
+                name: entry.id,
+                version: "1.0.0",
+                sdkCompatibilityVersion: entry.sdk,
+                principalClass: entry.principalClass
+            )
+            try JSONEncoder().encode(manifest).write(to: resourcesURL.appendingPathComponent("manifest.json"))
+            defaults.set(entry.enabled, forKey: "plugin.\(entry.id).enabled")
+        }
+        return manager
+    }
+
+    private func drainMainQueue() async {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
+        }
     }
 }

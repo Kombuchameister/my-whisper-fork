@@ -21,6 +21,34 @@ struct WorkflowWindowContext: Equatable, Sendable {
     }
 }
 
+/// The provider route a workflow LLM request resolved to when it was built.
+struct WorkflowLLMProviderResolution: Equatable, Sendable {
+    struct Attempt: Equatable, Sendable {
+        let providerId: String
+        let modelId: String?
+        let effortId: String?
+    }
+
+    /// The workflow's provider override, or the inherited global fallback list, in order.
+    let attempts: [Attempt]
+    /// Whether any attempt runs on an on-device model.
+    let isLocal: Bool
+}
+
+/// A fully resolved workflow LLM request. Segmented post-processing sends every
+/// segment with the same request, and compares requests to decide whether results
+/// computed during recording still match the configuration at stop.
+struct WorkflowLLMRequest: Equatable, Sendable {
+    let systemPrompt: String
+    let providerId: String?
+    let cloudModel: String?
+    let temperatureDirective: PluginLLMTemperatureDirective
+    let effortId: String?
+    /// Snapshot of the provider settings the request inherits, so a change to the
+    /// global LLM fallback list also changes the request identity.
+    var providerResolution: WorkflowLLMProviderResolution? = nil
+}
+
 @MainActor
 struct WorkflowTextProcessingService {
     typealias PromptProcessor = (
@@ -45,20 +73,42 @@ struct WorkflowTextProcessingService {
         _ targetLanguageCode: String,
         _ sourceLanguageCode: String?
     ) async throws -> String
+
+    typealias ProviderResolver = (
+        _ providerId: String?,
+        _ cloudModel: String?,
+        _ effortId: String?
+    ) -> WorkflowLLMProviderResolution
+    /// Supplies the spellings (dictionary terms and correction targets) that every LLM
+    /// workflow prompt must protect. Called per run so dictionary edits apply immediately.
+    typealias VocabularyProvider = @MainActor () -> [String]
+
     private let promptProcessor: PromptProcessor
     private let effortPromptProcessor: EffortPromptProcessor?
     private let appleTranslator: AppleTranslator?
+    private let providerResolver: ProviderResolver?
+    private let vocabularyProvider: VocabularyProvider?
 
     init(
         promptProcessor: @escaping PromptProcessor,
-        appleTranslator: AppleTranslator?
+        appleTranslator: AppleTranslator?,
+        providerResolver: ProviderResolver? = nil,
+        vocabularyProvider: VocabularyProvider? = nil
     ) {
         self.promptProcessor = promptProcessor
         self.effortPromptProcessor = nil
         self.appleTranslator = appleTranslator
+        self.providerResolver = providerResolver
+        self.vocabularyProvider = vocabularyProvider
     }
 
-    init(promptProcessingService: PromptProcessingService, translationService: AnyObject?, workflowService _: WorkflowService? = nil) {
+    init(
+        promptProcessingService: PromptProcessingService,
+        translationService: AnyObject?,
+        workflowService _: WorkflowService? = nil,
+        vocabularyProvider: VocabularyProvider? = nil
+    ) {
+        self.vocabularyProvider = vocabularyProvider
         self.promptProcessor = { prompt, text, providerId, cloudModel, temperatureDirective in
             try await promptProcessingService.processWorkflow(
                 prompt: prompt,
@@ -75,6 +125,13 @@ struct WorkflowTextProcessingService {
                 providerOverride: providerId,
                 cloudModelOverride: cloudModel,
                 temperatureDirective: temperatureDirective,
+                effortOverride: effortId
+            )
+        }
+        self.providerResolver = { providerId, cloudModel, effortId in
+            promptProcessingService.workflowProviderResolution(
+                providerOverride: providerId,
+                cloudModelOverride: cloudModel,
                 effortOverride: effortId
             )
         }
@@ -112,7 +169,7 @@ struct WorkflowTextProcessingService {
             let prompt = Self.inlineCommandSystemPrompt(
                 fineTuning: behavior.fineTuning,
                 outputInstruction: workflow.outputInstruction(resolvedOutputFormat: resolvedOutputFormat)
-            )
+            ) + vocabularyInstruction()
             if let effortPromptProcessor {
                 return try await effortPromptProcessor(
                     prompt,
@@ -142,7 +199,8 @@ struct WorkflowTextProcessingService {
             )
         }
 
-        guard let systemPrompt = workflow.systemPrompt(
+        guard let request = promptRequest(
+            workflow: workflow,
             fallbackTranslationTarget: fallbackTranslationTarget,
             detectedLanguage: detectedLanguage,
             configuredLanguage: configuredLanguage,
@@ -151,26 +209,83 @@ struct WorkflowTextProcessingService {
             return text
         }
 
-        let behavior = workflow.behavior
         let processorInput = workflow.template == .speakToWindow
             ? Self.speakToWindowInput(request: text, context: windowContext)
             : text
+        return try await process(request: request, text: processorInput)
+    }
+
+    /// Sends `text` through the same provider path as whole-text workflow processing,
+    /// including per-workflow overrides and the global LLM fallback list.
+    func process(request: WorkflowLLMRequest, text: String) async throws -> String {
         if let effortPromptProcessor {
             return try await effortPromptProcessor(
-                systemPrompt,
-                processorInput,
-                Self.trimmedOrNil(behavior.providerId),
-                Self.trimmedOrNil(behavior.cloudModel),
-                behavior.temperatureDirective,
-                Self.trimmedOrNil(behavior.effortId)
+                request.systemPrompt,
+                text,
+                request.providerId,
+                request.cloudModel,
+                request.temperatureDirective,
+                request.effortId
             )
         }
         return try await promptProcessor(
-            systemPrompt,
-            processorInput,
-            Self.trimmedOrNil(behavior.providerId),
-            Self.trimmedOrNil(behavior.cloudModel),
-            behavior.temperatureDirective
+            request.systemPrompt,
+            text,
+            request.providerId,
+            request.cloudModel,
+            request.temperatureDirective
+        )
+    }
+
+    /// The prompt request used for segmented processing, or nil when the workflow
+    /// has no segmentable LLM step (see `Workflow.supportsSegmentedPostProcessing`)
+    /// or the resolved output format is not plain text.
+    /// The request includes the provider settings it currently resolves to.
+    func segmentedPromptRequest(
+        workflow: Workflow,
+        fallbackTranslationTarget: String? = nil,
+        detectedLanguage: String? = nil,
+        configuredLanguage: String? = nil,
+        resolvedOutputFormat: String? = nil
+    ) -> WorkflowLLMRequest? {
+        guard workflow.supportsSegmentedPostProcessing,
+              workflow.outputFormatAllowsSegmentation(resolvedOutputFormat: resolvedOutputFormat),
+              var request = promptRequest(
+                  workflow: workflow,
+                  fallbackTranslationTarget: fallbackTranslationTarget,
+                  detectedLanguage: detectedLanguage,
+                  configuredLanguage: configuredLanguage,
+                  resolvedOutputFormat: resolvedOutputFormat
+              ) else {
+            return nil
+        }
+        request.providerResolution = providerResolver?(request.providerId, request.cloudModel, request.effortId)
+        return request
+    }
+
+    private func promptRequest(
+        workflow: Workflow,
+        fallbackTranslationTarget: String?,
+        detectedLanguage: String?,
+        configuredLanguage: String?,
+        resolvedOutputFormat: String?
+    ) -> WorkflowLLMRequest? {
+        guard let systemPrompt = workflow.systemPrompt(
+            fallbackTranslationTarget: fallbackTranslationTarget,
+            detectedLanguage: detectedLanguage,
+            configuredLanguage: configuredLanguage,
+            resolvedOutputFormat: resolvedOutputFormat
+        ) else {
+            return nil
+        }
+
+        let behavior = workflow.behavior
+        return WorkflowLLMRequest(
+            systemPrompt: systemPrompt + vocabularyInstruction(),
+            providerId: Self.trimmedOrNil(behavior.providerId),
+            cloudModel: Self.trimmedOrNil(behavior.cloudModel),
+            temperatureDirective: behavior.temperatureDirective,
+            effortId: Self.trimmedOrNil(behavior.effortId)
         )
     }
 
@@ -219,6 +334,23 @@ struct WorkflowTextProcessingService {
         let sourceLanguageCode = WorkflowTranslationLanguageNormalizer.normalizedLanguageIdentifier(from: sourceRaw)
 
         return try await appleTranslator(text, targetLanguageCode, sourceLanguageCode)
+    }
+
+    /// Appends the user's protected vocabulary to an LLM prompt so the model keeps the
+    /// speaker's own spellings instead of "correcting" them or re-punctuating a
+    /// misrecognition that a dictionary correction would otherwise have caught.
+    private func vocabularyInstruction() -> String {
+        guard let vocabularyProvider else { return "" }
+        let vocabulary = vocabularyProvider()
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !vocabulary.isEmpty else { return "" }
+        return """
+
+        Protected vocabulary:
+        The following are the speaker's own names, products, and spellings. When the dictated text contains one of them, or an obvious speech-to-text misrecognition of one, write it exactly as listed: never respell, split, hyphenate, translate, or "correct" it.
+        \(vocabulary.joined(separator: ", "))
+        """
     }
 
     private static func trimmedOrNil(_ value: String?) -> String? {

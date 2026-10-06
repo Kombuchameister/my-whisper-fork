@@ -1,5 +1,6 @@
 import Foundation
 import os
+import TypeWhisperPluginSDK
 
 private let apiLogger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "typewhisper-mac", category: "APIHandlers")
 
@@ -58,6 +59,9 @@ final class APIHandlers: @unchecked Sendable {
         router.register("POST", "/v1/recorder/stop", handler: handleStopRecorder)
         router.register("GET", "/v1/recorder/status", handler: handleRecorderStatus)
         router.register("GET", "/v1/recorder/session", handler: handleRecorderSession)
+        router.register("GET", "/v1/recorder/recordings") { [audioRecorderViewModel] request in
+            await Self.recorderRecordingsResponse(for: request, recorder: audioRecorderViewModel)
+        }
         router.register("GET", "/v1/dictionary/terms", handler: handleGetDictionaryTerms)
         router.register("PUT", "/v1/dictionary/terms", handler: handlePutDictionaryTerms)
         router.register("DELETE", "/v1/dictionary/terms", handler: handleDeleteDictionaryTerms)
@@ -276,7 +280,7 @@ final class APIHandlers: @unchecked Sendable {
             return .error(status: 400, message: "Empty audio data")
         }
 
-        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".\(fileExtension)")
+        let tempURL = UserDataLocations.temporaryItemURL("API-Upload-\(UUID().uuidString).\(fileExtension)")
 
         do {
             try audioData.write(to: tempURL)
@@ -394,31 +398,36 @@ final class APIHandlers: @unchecked Sendable {
             )
 
             var finalText = result.text
+            var responseLanguage = result.detectedLanguage
+            var responseSegments = result.segments
             if let targetCode = options.targetLanguage {
                 #if canImport(Translation)
                 if #available(macOS 15, *), let ts = translationService as? TranslationService {
-                    if let targetNormalized = TranslationService.normalizedLanguageIdentifier(from: targetCode) {
-                        if targetCode.caseInsensitiveCompare(targetNormalized) != .orderedSame {
-                            apiLogger.info("API translation target normalized \(targetCode, privacy: .public) -> \(targetNormalized, privacy: .public)")
-                        }
-                        let target = Locale.Language(identifier: targetNormalized)
-                        let sourceRaw = result.detectedLanguage
-                        let sourceNormalized = TranslationService.normalizedLanguageIdentifier(from: sourceRaw)
-                        if let sourceRaw {
-                            if let sourceNormalized {
-                                if sourceRaw.caseInsensitiveCompare(sourceNormalized) != .orderedSame {
-                                    apiLogger.info("API translation source normalized \(sourceRaw, privacy: .public) -> \(sourceNormalized, privacy: .public)")
-                                }
-                            } else {
-                                apiLogger.warning("API translation source language \(sourceRaw, privacy: .public) invalid, using auto source")
-                            }
-                        }
-                        let sourceLanguage = sourceNormalized.map { Locale.Language(identifier: $0) }
+                    if let translation = APITranslation.resolve(
+                        targetCode: targetCode,
+                        detectedLanguage: result.detectedLanguage
+                    ) {
                         finalText = try await ts.translate(
                             text: finalText,
-                            to: target,
-                            source: sourceLanguage
+                            to: translation.target,
+                            source: translation.source,
+                            strict: true
                         )
+                        if options.responseFormat == "verbose_json" {
+                            responseSegments = try await APITranslation.translateSegments(
+                                result.segments,
+                                translation: translation,
+                                translateBatch: { texts, target, source in
+                                    try await ts.translateBatch(
+                                        texts: texts,
+                                        to: target,
+                                        source: source,
+                                        strict: true
+                                    )
+                                }
+                            )
+                        }
+                        responseLanguage = translation.targetIdentifier
                     } else {
                         apiLogger.error("API translation target language invalid: \(targetCode, privacy: .public)")
                     }
@@ -477,7 +486,7 @@ final class APIHandlers: @unchecked Sendable {
                     let segments: [SegmentEntry]
                 }
 
-                let segments = result.segments.map {
+                let segments = responseSegments.map {
                     SegmentEntry(
                         start: $0.start,
                         end: $0.end,
@@ -489,7 +498,7 @@ final class APIHandlers: @unchecked Sendable {
 
                 return .json(VerboseResponse(
                     text: finalText,
-                    language: result.detectedLanguage,
+                    language: responseLanguage,
                     duration: result.duration,
                     processing_time: result.processingTime,
                     engine: result.engineUsed,
@@ -508,7 +517,7 @@ final class APIHandlers: @unchecked Sendable {
 
                 return .json(TranscribeResponse(
                     text: finalText,
-                    language: result.detectedLanguage,
+                    language: responseLanguage,
                     duration: result.duration,
                     processing_time: result.processingTime,
                     engine: result.engineUsed,
@@ -516,6 +525,13 @@ final class APIHandlers: @unchecked Sendable {
                 ))
             }
         } catch {
+            // A strict translation preempted by a newer request is transient:
+            // report it as retryable instead of a generic server error.
+            #if canImport(Translation)
+            if case TranslationError.cancelled = error {
+                return .error(status: 503, message: "Translation superseded by a newer request; retry the request")
+            }
+            #endif
             return .error(status: 500, message: "Transcription failed: \(error.localizedDescription)")
         }
     }
@@ -1438,11 +1454,34 @@ final class APIHandlers: @unchecked Sendable {
                 let words_count: Int
             }
 
+            struct DictationLatencyPayload: Encodable {
+                let complete: Bool
+                let failed: Bool
+                let engine_ready_at_start: Bool?
+                let input_transport: String?
+                let request_to_first_audio_buffer_ms: Double?
+                let preroll_ms: Double
+                let recording_seconds: Double?
+                let stop_to_final_transcript_ms: Double?
+                let post_processing_ms: Double?
+                let llm_post_processing: Bool?
+                let stop_to_insertion_ms: Double?
+                let insertion: String?
+                let paste_verification: String?
+                let paste_verification_failure: String?
+                let stop_to_verified_insertion_ms: Double?
+                let stop_to_clipboard_restored_ms: Double?
+                let engine: String?
+                let model: String?
+                let used_live_result: Bool?
+            }
+
             struct DictationTranscriptionResponse: Encodable {
                 let id: String
                 let status: String
                 let transcription: DictationTranscriptionPayload?
                 let error: String?
+                let latency: DictationLatencyPayload?
             }
 
             let transcription = session.transcription.map {
@@ -1461,11 +1500,41 @@ final class APIHandlers: @unchecked Sendable {
                 )
             }
 
+            let latency = dictationViewModel.apiDictationLatency(id: uuid).map { trace in
+                let pasteVerificationFailure: String? = if case .unverified(let reason)? = trace.pasteVerification {
+                    reason
+                } else {
+                    nil
+                }
+                return DictationLatencyPayload(
+                    complete: trace.isComplete,
+                    failed: trace.failed,
+                    engine_ready_at_start: trace.engineReadyAtStart,
+                    input_transport: trace.inputTransport,
+                    request_to_first_audio_buffer_ms: trace.requestToFirstAudioBufferMs,
+                    preroll_ms: trace.prerollMs,
+                    recording_seconds: trace.recordingSeconds,
+                    stop_to_final_transcript_ms: trace.stopToFinalTranscriptMs,
+                    post_processing_ms: trace.postProcessingMs,
+                    llm_post_processing: trace.llmPostProcessing,
+                    stop_to_insertion_ms: trace.stopToInsertionMs,
+                    insertion: trace.insertion?.rawValue,
+                    paste_verification: trace.pasteVerification?.name,
+                    paste_verification_failure: pasteVerificationFailure,
+                    stop_to_verified_insertion_ms: trace.stopToVerifiedInsertionMs,
+                    stop_to_clipboard_restored_ms: trace.stopToClipboardRestoredMs,
+                    engine: trace.engine,
+                    model: trace.model,
+                    used_live_result: trace.usedLiveResult
+                )
+            }
+
             return .json(DictationTranscriptionResponse(
                 id: session.id.uuidString,
                 status: session.status.rawValue,
                 transcription: transcription,
-                error: session.error
+                error: session.error,
+                latency: latency
             ))
         }
     }
@@ -1556,6 +1625,41 @@ final class APIHandlers: @unchecked Sendable {
             output_file: session.outputFile,
             error: session.error
         ))
+    }
+
+    // MARK: - GET /v1/recorder/recordings
+
+    static func recorderRecordingsResponse(
+        for request: HTTPRequest, recorder: AudioRecorderViewModel
+    ) async -> HTTPResponse {
+        let since: Date?
+        if let value = request.queryParams["since"] {
+            if let seconds = Double(value), seconds.isFinite, seconds >= 0 {
+                since = Date(timeIntervalSince1970: seconds)
+            } else {
+                let formatter = ISO8601DateFormatter()
+                formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                let fractionalDate = formatter.date(from: value)
+                formatter.formatOptions = [.withInternetDateTime]
+                guard let date = fractionalDate ?? formatter.date(from: value) else {
+                    return .error(status: 400, message: "Invalid 'since': use Unix seconds or an ISO 8601 timestamp")
+                }
+                since = date
+            }
+        } else {
+            since = nil
+        }
+
+        struct RecordingsResponse: Encodable {
+            let recordings: [RecorderTranscriptReadyPayload]
+        }
+        do {
+            return .json(RecordingsResponse(recordings: try await recorder.apiRecorderRecordings(since: since)))
+        } catch {
+            apiLogger.error("Recorder completion lookup failed: \(error.localizedDescription, privacy: .public)")
+            // Do not silently skip unreadable receipts: consumers could advance their cursor past them.
+            return .error(status: 500, message: "Could not read completed Recorder transcripts")
+        }
     }
 
     // MARK: - Helpers

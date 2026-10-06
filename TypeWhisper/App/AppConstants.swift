@@ -150,7 +150,11 @@ enum AppConstants {
         if isScreenshotAutomation {
             return "com.typewhisper.mac.screenshots.apikey."
         }
-        #if DEBUG
+        #if APPSTORE && DEBUG
+        return "com.typewhisper.typewhisper-app.dev.apikey."
+        #elseif APPSTORE
+        return "com.typewhisper.typewhisper-app.apikey."
+        #elseif DEBUG
         return "\(Bundle.main.bundleIdentifier ?? "com.typewhisper.mac.dev").apikey."
         #else
         return "com.typewhisper.mac.apikey."
@@ -179,10 +183,17 @@ enum AppConstants {
         if isRunningTests {
             return "com.typewhisper.mac.tests.premium-account"
         }
+        #if APPSTORE
+        if isDevelopment {
+            return "com.typewhisper.typewhisper-app.dev.premium-account"
+        }
+        return "com.typewhisper.typewhisper-app.premium-account"
+        #else
         if isDevelopment {
             return "com.typewhisper.mac.dev.premium-account"
         }
         return "com.typewhisper.mac.premium-account"
+        #endif
     }
 
     static let loggerSubsystem: String = Bundle.main.bundleIdentifier ?? "com.typewhisper.mac"
@@ -194,8 +205,20 @@ enum AppConstants {
         if isScreenshotAutomation {
             return screenshotAppSupportDirectory
         }
+        if isRunningTests {
+            return testHostAppSupportDirectory
+        }
         return defaultAppSupportDirectory
     }
+
+    /// The test host app is a Debug build and would otherwise open the dev
+    /// app's stores. A test run from an older checkout then migrates them to
+    /// its schema while the dev app is running.
+    static let testHostAppSupportDirectory: URL = FileManager.default.temporaryDirectory
+        .appendingPathComponent(
+            "TypeWhisper-Tests-\(ProcessInfo.processInfo.processIdentifier)",
+            isDirectory: true
+        )
 
     private static let screenshotAppSupportDirectory: URL =
         resolveScreenshotAppSupportDirectory(
@@ -330,6 +353,9 @@ enum AppConstants {
     // MARK: - Polar.sh Licensing
     enum Polar {
         static let organizationId = "96de503c-3c8b-4d08-9ded-c7f6e20fdde4"
+        /// Pinned license API contract. Unversioned requests follow Polar's Current version.
+        static let apiVersion = "2026-04"
+        static let apiVersionHeader = "Polar-Version"
         static let checkoutURL = "https://polar.sh/typewhisper"
         static let customerPortalURL = "https://polar.sh/typewhisper/portal"
 

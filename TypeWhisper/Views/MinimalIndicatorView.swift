@@ -21,12 +21,17 @@ struct MinimalIndicatorFeedbackProgress: View {
 struct MinimalIndicatorView: View {
     @ObservedObject private var viewModel = DictationViewModel.shared
     @ObservedObject private var recorder = AudioRecorderViewModel.shared
+    @ObservedObject private var preview = IndicatorPreviewSession.shared
     @ObservedObject private var countdownModel: CalendarMeetingCountdownModel
+    @Environment(\.colorScheme) private var systemColorScheme
     @State private var dotPulse = false
+    @State private var revealScale: CGFloat = 1
 
     private let sizing: IndicatorSizing = .minimal
     private let idleWidth: CGFloat = 42
     private let processingWidth: CGFloat = 76
+    private let statusLabelWidth: CGFloat = 220
+    private let modelLoadingLabelWidth: CGFloat = 150
     private let insertingWidth: CGFloat = 44
     private let messageWidth = IndicatorFeedbackPanelLayout.minimalFeedbackWidth
 
@@ -35,7 +40,7 @@ struct MinimalIndicatorView: View {
     }
 
     private var presentation: IndicatorPresentationData {
-        IndicatorPresentationData.make(dictation: viewModel, recorder: recorder)
+        IndicatorPresentationData.make(dictation: viewModel, recorder: recorder, preview: preview)
     }
 
     private var countdownPresentation: CalendarMeetingCountdownPresentation? {
@@ -44,8 +49,16 @@ struct MinimalIndicatorView: View {
 
     private var recordingWidth: CGFloat {
         if presentation.isPreparingMicrophone {
-            return 220
+            return statusLabelWidth
         }
+        if presentation.isModelLoading {
+            // The recording content stays visible next to the label.
+            return max(statusLabelWidth, recordingContentWidth + modelLoadingLabelWidth)
+        }
+        return recordingContentWidth
+    }
+
+    private var recordingContentWidth: CGFloat {
         switch viewModel.notchIndicatorRightContent {
         case .none:
             return idleWidth
@@ -89,7 +102,28 @@ struct MinimalIndicatorView: View {
             || errorMessage != nil
     }
 
+    private var actionFeedbackBody: IndicatorFeedbackPanelLayout.FeedbackBody {
+        IndicatorFeedbackPanelLayout.feedbackBody(
+            for: .minimal,
+            message: actionFeedbackMessage,
+            actionTitle: presentation.actionFeedbackActionTitle
+        )
+    }
+
+    /// A capsule while the feedback is compact. Taller feedback keeps the same
+    /// corner radius so the corners do not cut into multi-line text.
+    private var surfaceShape: AnyShape {
+        guard countdownPresentation == nil,
+              actionFeedbackBody.height > IndicatorFeedbackPanelLayout.feedbackBodyHeight else {
+            return AnyShape(Capsule())
+        }
+        return AnyShape(RoundedRectangle(cornerRadius: IndicatorFeedbackPanelLayout.feedbackBodyHeight / 2))
+    }
+
     private var currentWidth: CGFloat {
+        if countdownPresentation == nil, actionFeedbackMessage != nil {
+            return actionFeedbackBody.width
+        }
         if showsExpandedMessage {
             return messageWidth
         }
@@ -98,7 +132,7 @@ struct MinimalIndicatorView: View {
         case .recording:
             return recordingWidth
         case .processing:
-            return processingWidth
+            return presentation.isModelLoading ? statusLabelWidth : processingWidth
         case .inserting:
             return insertingWidth
         case .idle, .promptSelection, .promptProcessing:
@@ -108,24 +142,22 @@ struct MinimalIndicatorView: View {
         }
     }
 
-    private var strokeColor: Color {
-        errorMessage == nil ? .white.opacity(0.14) : .red.opacity(0.55)
-    }
-
     private var shadowColor: Color {
-        errorMessage == nil ? .black.opacity(0.22) : .red.opacity(0.18)
+        errorMessage == nil ? .black.opacity(0.22 * viewModel.indicatorTheme.shadowOpacityScale) : .red.opacity(0.18)
     }
 
     var body: some View {
         content
             .frame(width: currentWidth)
+            .scaleEffect(revealScale, anchor: isTop ? .top : .bottom)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: isTop ? .top : .bottom)
-            .preferredColorScheme(.dark)
-            .animation(.easeInOut(duration: 0.2), value: currentWidth)
+            .environment(\.colorScheme, viewModel.indicatorTheme.preferredColorScheme ?? systemColorScheme)
+            .animation(IndicatorMotion.expand, value: currentWidth)
             .animation(.easeInOut(duration: 0.2), value: presentation.state)
             .animation(.easeInOut(duration: 1.0), value: dotPulse)
             .onChange(of: presentation.state) {
                 if presentation.state == .recording {
+                    IndicatorMotion.popIn($revealScale)
                     withAnimation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true)) {
                         dotPulse = true
                     }
@@ -158,7 +190,7 @@ struct MinimalIndicatorView: View {
         case .recording:
             return presentation.recordingStatusLabel
         case .processing:
-            return String(localized: "Processing transcription")
+            return presentation.modelLoadingLabel ?? String(localized: "Processing transcription")
         case .inserting:
             return String(localized: "Inserting text")
         case .error(let message):
@@ -168,12 +200,11 @@ struct MinimalIndicatorView: View {
 
     private var content: some View {
         contentBody
-            .background(.black.opacity(0.84), in: Capsule())
-            .overlay(
-                Capsule()
-                    .stroke(strokeColor, lineWidth: 1)
+            .indicatorSurface(
+                theme: viewModel.indicatorTheme,
+                shape: surfaceShape,
+                strokeColor: errorMessage == nil ? nil : .red.opacity(0.55)
             )
-            .clipShape(Capsule())
             .shadow(color: shadowColor, radius: 10, y: 4)
     }
 
@@ -198,12 +229,13 @@ struct MinimalIndicatorView: View {
                     actionTitle: presentation.actionFeedbackActionTitle,
                     onAction: presentation.actionFeedbackActionTitle == nil ? nil : {
                         viewModel.performActionFeedbackAction()
-                    }
+                    },
+                    lineLimit: actionFeedbackBody.lineLimit
                 )
                 .padding(.horizontal, 14)
                 .frame(maxHeight: .infinity)
             }
-            .frame(height: IndicatorFeedbackPanelLayout.feedbackBodyHeight)
+            .frame(height: actionFeedbackBody.height)
             .contentShape(Rectangle())
             .onHover { hovered in
                 viewModel.setActionFeedbackHovered(hovered)
@@ -235,7 +267,9 @@ struct MinimalIndicatorView: View {
     private var compactStatus: some View {
         switch presentation.state {
         case .recording:
-            HStack(spacing: presentation.isPreparingMicrophone || viewModel.notchIndicatorRightContent != .none ? 8 : 0) {
+            HStack(spacing: presentation.isPreparingMicrophone
+                || presentation.isModelLoading
+                || viewModel.notchIndicatorRightContent != .none ? 8 : 0) {
                 IndicatorLeftStatus(
                     presentation: presentation,
                     sizing: sizing,
@@ -243,9 +277,10 @@ struct MinimalIndicatorView: View {
                     hasActionFeedback: false
                 )
 
-                if presentation.isPreparingMicrophone {
+                if presentation.isPreparingMicrophone || presentation.isModelLoading {
                     IndicatorPreparingLabel(presentation: presentation, sizing: sizing)
-                } else if viewModel.notchIndicatorRightContent != .none {
+                }
+                if !presentation.isPreparingMicrophone && viewModel.notchIndicatorRightContent != .none {
                     IndicatorRecordingContent(
                         presentation: presentation,
                         content: viewModel.notchIndicatorRightContent,
@@ -261,7 +296,14 @@ struct MinimalIndicatorView: View {
                 }
                 ProgressView()
                     .controlSize(.mini)
-                    .tint(.white)
+                    .tint(.primary)
+                if let label = presentation.modelLoadingLabel {
+                    Text(label)
+                        .font(.system(size: sizing.profileFontSize, weight: .medium))
+                        .foregroundStyle(Color.primary.opacity(sizing.timerOpacity))
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                }
             }
         case .inserting:
             IndicatorLeftStatus(
@@ -283,7 +325,8 @@ struct MinimalIndicatorView: View {
         icon: String,
         iconColor: Color,
         actionTitle: String? = nil,
-        onAction: (() -> Void)? = nil
+        onAction: (() -> Void)? = nil,
+        lineLimit: Int = 2
     ) -> some View {
         HStack(spacing: 8) {
             Image(systemName: icon)
@@ -293,8 +336,8 @@ struct MinimalIndicatorView: View {
 
             Text(text)
                 .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(.white.opacity(0.92))
-                .lineLimit(2)
+                .foregroundStyle(Color.primary.opacity(0.92))
+                .lineLimit(lineLimit)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             if let actionTitle, let onAction {
@@ -302,10 +345,10 @@ struct MinimalIndicatorView: View {
                     .buttonStyle(.borderless)
                     .controlSize(.small)
                     .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.primary)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
-                    .background(Color.white.opacity(0.12), in: Capsule())
+                    .background(Color.primary.opacity(0.12), in: Capsule())
             }
         }
     }

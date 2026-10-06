@@ -23,7 +23,7 @@ on:
           - official
           - community
       allow_prerelease_host:
-        description: Allow SDK validation against the latest matching daily host release
+        description: Allow SDK validation against the latest matching daily or RC host release
         required: false
         default: false
         type: boolean
@@ -105,7 +105,7 @@ jobs:
             gemini) TARGET="GeminiPlugin" ;;
             whisperkit) TARGET="WhisperKitPlugin" ;;
             parakeet) TARGET="ParakeetPlugin" ;;
-            gemma4) TARGET="Gemma4Plugin" ;;
+            local-llm-mlx) TARGET="LocalLLMPlugin" ;;
             speechanalyzer) TARGET="SpeechAnalyzerPlugin" ;;
             openai-compatible) TARGET="OpenAICompatiblePlugin" ;;
             voxtral) TARGET="VoxtralPlugin" ;;
@@ -119,6 +119,7 @@ jobs:
             file-job-script) TARGET="FileJobScriptPlugin" ;;
             livetranscript) TARGET="LiveTranscriptPlugin" ;;
             granite) TARGET="GranitePlugin" ;;
+            canary) TARGET="CanaryPlugin" ;;
             cloudflare-asr) TARGET="CloudflareASRPlugin" ;;
             file-memory) TARGET="FileMemoryPlugin" ;;
             mempalace) TARGET="MemPalacePlugin" ;;
@@ -141,6 +142,7 @@ jobs:
             speechmatics) TARGET="SpeechmaticsPlugin" ;;
             system-tts) TARGET="SystemTTSPlugin" ;;
             supertonic) TARGET="SupertonicPlugin" ;;
+            r2t2) TARGET="R2T2Plugin" ;;
             filler-words) TARGET="FillerWordsPlugin" ;;
             xai) TARGET="XAIPlugin" ;;
             *) echo "Unknown plugin: $PLUGIN_NAME" && exit 1 ;;
@@ -149,13 +151,13 @@ jobs:
           # All plugins use Xcode 26.6 (mlx-swift 0.31.6 requires Swift 6.3+ for package resolution,
           # and workspace-state.json v7 from Xcode 26.x is incompatible with Xcode 16.2)
           # - SpeechAnalyzer: macOS 26 deployment target
-          # - Qwen3/Voxtral/Granite/Gemma4: macOS 14 + embed Swift compat libs (MLX uses Swift 6.2 features)
+          # - Qwen3/Voxtral/Granite/Canary/LocalLLM: macOS 14 + embed Swift compat libs (MLX uses Swift 6.2 features)
           # - All others: macOS 14, no compat libs needed (simple Foundation/SDK code)
           EMBED_SWIFT_LIBS="NO"
           XCODE_VERSION="26.6"
           if [ "$TARGET" = "SpeechAnalyzerPlugin" ]; then
             DEPLOY_TARGET="26.0"
-          elif [ "$TARGET" = "Qwen3Plugin" ] || [ "$TARGET" = "VoxtralPlugin" ] || [ "$TARGET" = "GranitePlugin" ] || [ "$TARGET" = "Gemma4Plugin" ]; then
+          elif [ "$TARGET" = "Qwen3Plugin" ] || [ "$TARGET" = "VoxtralPlugin" ] || [ "$TARGET" = "GranitePlugin" ] || [ "$TARGET" = "CanaryPlugin" ] || [ "$TARGET" = "LocalLLMPlugin" ]; then
             DEPLOY_TARGET="14.0"
             EMBED_SWIFT_LIBS="YES"
           else
@@ -178,6 +180,25 @@ jobs:
             exit 0
           fi
           python3 scripts/assemble_community_plugin_registry.py
+          # Check the bundled manifest against its registry entry before anything is built or released.
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          manifest_path = Path("TypeWhisperPluginSDK/Plugins") / os.environ["TARGET"] / "manifest.json"
+          if not manifest_path.is_file():
+              raise SystemExit(f"Missing manifest at {manifest_path}")
+          manifest = json.loads(manifest_path.read_text())
+          metadata_path = Path("PluginRegistry/community-v1") / f"{manifest.get('id')}.json"
+          if not metadata_path.is_file():
+              raise SystemExit(f"Missing community registry metadata at {metadata_path}")
+          metadata = json.loads(metadata_path.read_text())
+          if metadata.get("author") != manifest.get("author"):
+              raise SystemExit(
+                  f"community metadata author {metadata.get('author')} does not match manifest author {manifest.get('author')}"
+              )
+          PY
 
       - name: Validate release manifest
         run: |
@@ -301,6 +322,7 @@ jobs:
         run: |
           KEYCHAIN_PATH="$RUNNER_TEMP/plugin-signing.keychain-db"
           KEYCHAIN_PASSWORD="$(uuidgen)"
+          echo "::add-mask::$KEYCHAIN_PASSWORD"
 
           echo "$MACOS_SIGNING_P12" | base64 --decode > /tmp/cert.p12
 
@@ -312,10 +334,8 @@ jobs:
           security default-keychain -s "$KEYCHAIN_PATH"
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
-          {
-            echo "KEYCHAIN_PATH=$KEYCHAIN_PATH"
-            echo "KEYCHAIN_PASSWORD=$KEYCHAIN_PASSWORD"
-          } >> "$GITHUB_ENV"
+          # Later steps only need the path; the unlocked keychain stays usable for signing.
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
 
       - name: Sign Plugin
         env:
@@ -454,8 +474,10 @@ jobs:
               exit 1
             fi
 
-            TARGET_REGISTRY=$(python3 << PYEOF
-          import json, os
+            TARGET_REGISTRIES=$(python3 << PYEOF
+          import json, os, sys
+          sys.path.insert(0, os.path.join("$GITHUB_WORKSPACE", "scripts"))
+          from plugin_registry_metadata import official_registry_targets
 
           manifest_path = "$MANIFEST_PATH"
           src_manifest = os.path.join("$GITHUB_WORKSPACE", manifest_path) if manifest_path else ""
@@ -464,14 +486,9 @@ jobs:
           sdk_compat = manifest.get("sdkCompatibilityVersion")
           if not sdk_compat:
               raise SystemExit("manifest.json is missing sdkCompatibilityVersion")
-          print(f"plugins-{sdk_compat}.json")
+          print(" ".join(official_registry_targets(sdk_compat)))
           PYEOF
             )
-
-            TARGET_REGISTRIES="$TARGET_REGISTRY"
-            if [[ "$TARGET_REGISTRY" =~ ^plugins-(v[0-9]+)\.json$ ]]; then
-              TARGET_REGISTRIES="$TARGET_REGISTRIES plugins-community-${BASH_REMATCH[1]}.json"
-            fi
           fi
 
           export COMMUNITY_METADATA_PATH

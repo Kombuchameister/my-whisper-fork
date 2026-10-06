@@ -10,8 +10,8 @@ let package = Package(
         .library(name: "TypeWhisperPluginSDKTesting", targets: ["TypeWhisperPluginSDKTesting"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/FluidInference/FluidAudio.git", exact: "0.15.7"),
-        .package(url: "https://github.com/Blaizzy/mlx-audio-swift.git", revision: "2685c640d4079641a01ef3489cacb684c34109fd"),
+        .package(url: "https://github.com/FluidInference/FluidAudio.git", exact: "0.17.5"),
+        .package(url: "https://github.com/Blaizzy/mlx-audio-swift.git", revision: "01dec7c9bdce3088a6b6b7ab9f2e403458195efb"),
         .package(url: "https://github.com/huggingface/swift-huggingface.git", exact: "0.10.1"),
         .package(url: "https://github.com/huggingface/swift-jinja.git", exact: "2.5.0"),
         .package(url: "https://github.com/ml-explore/mlx-swift.git", exact: "0.31.6"),
@@ -167,6 +167,23 @@ let package = Package(
                 .product(name: "MLXAudioSTT", package: "mlx-audio-swift"),
             ],
             path: "Plugins/Qwen3Plugin",
+            exclude: ["Tests"],
+            resources: [
+                .process("Localizable.xcstrings"),
+                .process("manifest.json"),
+            ]
+        ),
+        .target(
+            name: "CanaryPlugin",
+            dependencies: [
+                "TypeWhisperPluginSDK",
+                .product(name: "MLXNN", package: "mlx-swift"),
+                .product(name: "HuggingFace", package: "swift-huggingface"),
+                .product(name: "MLX", package: "mlx-swift"),
+                .product(name: "MLXAudioCore", package: "mlx-audio-swift"),
+                .product(name: "MLXAudioSTT", package: "mlx-audio-swift"),
+            ],
+            path: "Plugins/CanaryPlugin",
             exclude: ["Tests"],
             resources: [
                 .process("Localizable.xcstrings"),
@@ -379,9 +396,29 @@ let package = Package(
             ]
         ),
         .target(
+            name: "R2T2Plugin",
+            dependencies: ["TypeWhisperPluginSDK"],
+            path: "Plugins/R2T2Plugin",
+            exclude: ["README.md", "Tests"],
+            resources: [
+                .process("Localizable.xcstrings"),
+                .process("manifest.json"),
+            ]
+        ),
+        .target(
             name: "CartesiaPlugin",
             dependencies: ["TypeWhisperPluginSDK"],
             path: "Plugins/CartesiaPlugin",
+            exclude: ["Tests"],
+            resources: [
+                .process("Localizable.xcstrings"),
+                .process("manifest.json"),
+            ]
+        ),
+        .target(
+            name: "ScriptPlugin",
+            dependencies: ["TypeWhisperPluginSDK"],
+            path: "Plugins/ScriptPlugin",
             exclude: ["Tests"],
             resources: [
                 .process("Localizable.xcstrings"),
@@ -537,6 +574,15 @@ let package = Package(
                 "Qwen3Plugin",
             ],
             path: "Plugins/Qwen3Plugin/Tests"
+        ),
+        .testTarget(
+            name: "CanaryPluginTests",
+            dependencies: [
+                "TypeWhisperPluginSDK",
+                "TypeWhisperPluginSDKTesting",
+                "CanaryPlugin",
+            ],
+            path: "Plugins/CanaryPlugin/Tests"
         ),
         .testTarget(
             name: "ParakeetPluginTests",
@@ -718,6 +764,15 @@ let package = Package(
             path: "Plugins/SaluteSpeechPlugin/Tests"
         ),
         .testTarget(
+            name: "R2T2PluginTests",
+            dependencies: [
+                "TypeWhisperPluginSDK",
+                "TypeWhisperPluginSDKTesting",
+                "R2T2Plugin",
+            ],
+            path: "Plugins/R2T2Plugin/Tests"
+        ),
+        .testTarget(
             name: "CartesiaPluginTests",
             dependencies: [
                 "TypeWhisperPluginSDK",
@@ -725,6 +780,11 @@ let package = Package(
                 "CartesiaPlugin",
             ],
             path: "Plugins/CartesiaPlugin/Tests"
+        ),
+        .testTarget(
+            name: "ScriptPluginTests",
+            dependencies: ["TypeWhisperPluginSDK", "TypeWhisperPluginSDKTesting", "ScriptPlugin"],
+            path: "Plugins/ScriptPlugin/Tests"
         ),
         .testTarget(
             name: "WebhookPluginTests",

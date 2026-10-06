@@ -24,6 +24,7 @@ echo 'DEVELOPMENT_TEAM = YOUR_TEAM_ID' > CodeSigning.local.xcconfig
 - **Contributor machine:** macOS 15.0+ recommended for the current Xcode toolchain
 - **Swift 6** with strict concurrency
 - Debug builds use a separate data directory (`TypeWhisper-Dev`) and keychain prefix, so they don't interfere with release builds
+- Debug builds produce `TypeWhisper Dev.app` (bundle ID `com.typewhisper.mac.dev`, Swift module still `TypeWhisper`), so macOS privacy lists show them separately from the release `TypeWhisper.app`
 
 ## Pull Requests
 
@@ -47,6 +48,17 @@ swift test --package-path TypeWhisperPluginSDK
 - Localization: use `String(localized:)` for all user-facing strings
 - SwiftData for persistence, Combine for reactive updates
 
+## Mac App Store Edition
+
+The Mac App Store edition builds the same sources from `appstore-project.yml`
+(XcodeGen) with the `APPSTORE` compilation condition, the App Sandbox and the
+first-party plugins listed there. CI compiles it for every pull request.
+Code that the sandbox cannot run (launching processes, Apple Events,
+Accessibility access to other apps, downloading code) needs an `#if APPSTORE`
+alternative; keep such blocks small and explain them in a comment. Details,
+build commands and the plugin list are in
+[docs/appstore/README.md](docs/appstore/README.md).
+
 ## Credentials and Test Fixtures
 
 Never commit real credentials, including revoked credentials copied from production.
@@ -66,4 +78,21 @@ Use the [issue templates](https://github.com/TypeWhisper/typewhisper-mac/issues/
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under GPLv3.
+Contributions to the open-source project are distributed under GPLv3.
+TypeWhisper also offers commercial licenses. Our shared
+[Contributor License Agreement](https://github.com/TypeWhisper/.github/blob/main/CLA.md)
+lets contributors retain ownership while granting the rights needed for both
+open-source and commercial distribution.
+
+Read the [organization-wide contribution rules](https://github.com/TypeWhisper/.github/blob/main/CONTRIBUTING.md)
+and the agreement at [app.typewhisper.com/cla](https://app.typewhisper.com/cla).
+You can open a pull request before signing. Before it can be merged, each
+contributor must be covered by the current agreement and the `TypeWhisper CLA`
+check must pass. Sign in with GitHub, read and explicitly accept the agreement,
+and select any already-open pull requests you want it to cover. The check runs
+again after acceptance. One acceptance covers future contributions across all
+participating TypeWhisper projects for that agreement version.
+
+A pull request submission does not itself record acceptance, and previously
+merged contributions are reviewed separately. Employer authorization and
+third-party licenses still apply.

@@ -142,6 +142,8 @@ struct IndicatorPresentationState: Equatable {
     enum Source: Equatable {
         case dictation
         case recorder
+        /// Synthetic recording shown while the Appearance settings page is open.
+        case preview
     }
 
     let source: Source
@@ -158,7 +160,8 @@ struct IndicatorPresentationState: Equatable {
 
     static func resolve(
         dictationState: DictationViewModel.State,
-        recorderState: AudioRecorderViewModel.RecorderState
+        recorderState: AudioRecorderViewModel.RecorderState,
+        previewActive: Bool = false
     ) -> IndicatorPresentationState {
         switch dictationState {
         case .recording, .processing, .inserting, .error:
@@ -166,6 +169,9 @@ struct IndicatorPresentationState: Equatable {
         case .idle, .promptSelection, .promptProcessing:
             if recorderState == .recording {
                 return IndicatorPresentationState(source: .recorder, state: .recording)
+            }
+            if previewActive, recorderState == .idle {
+                return IndicatorPresentationState(source: .preview, state: .recording)
             }
             return IndicatorPresentationState(source: .dictation, state: dictationState)
         }
@@ -175,6 +181,10 @@ struct IndicatorPresentationState: Equatable {
         visibility: NotchIndicatorVisibility,
         presentation: IndicatorPresentationState
     ) -> Bool {
+        // The preview exists to show the indicator, so it ignores the visibility setting.
+        if presentation.source == .preview {
+            return true
+        }
         switch visibility {
         case .always:
             return true
@@ -195,6 +205,7 @@ struct IndicatorPresentationData {
     let activeRuleName: String?
     let activeAppIcon: NSImage?
     let isRecordingInputReady: Bool
+    let isModelLoading: Bool
     let cancelWarningMessage: String?
     let processingPhase: String?
     let actionFeedbackMessage: String?
@@ -214,22 +225,55 @@ struct IndicatorPresentationData {
     }
 
     var recordingStatusLabel: String {
-        isPreparingMicrophone
-            ? String(localized: "Preparing microphone")
-            : String(localized: "Recording")
+        if isPreparingMicrophone {
+            return String(localized: "Preparing microphone")
+        }
+        return modelLoadingLabel ?? String(localized: "Recording")
+    }
+
+    /// Shown next to the live recording while the model loads in the background.
+    var modelLoadingLabel: String? {
+        isModelLoading ? Self.loadingModelText : nil
+    }
+
+    static var loadingModelText: String {
+        localizedAppText("Loading model…", de: "Modell wird geladen …")
     }
 
     @MainActor
     static func make(
         dictation: DictationViewModel,
-        recorder: AudioRecorderViewModel
+        recorder: AudioRecorderViewModel,
+        preview: IndicatorPreviewSession = .shared
     ) -> IndicatorPresentationData {
         let presentation = IndicatorPresentationState.resolve(
             dictationState: dictation.state,
-            recorderState: recorder.state
+            recorderState: recorder.state,
+            previewActive: preview.isActive
         )
 
         switch presentation.source {
+        case .preview:
+            return IndicatorPresentationData(
+                source: .preview,
+                state: .recording,
+                recordingDuration: preview.recordingDuration,
+                audioLevel: preview.audioLevel,
+                partialText: preview.partialText,
+                activeRuleName: preview.activeRuleName,
+                activeAppIcon: preview.appIcon,
+                isRecordingInputReady: true,
+                isModelLoading: false,
+                cancelWarningMessage: nil,
+                processingPhase: nil,
+                actionFeedbackMessage: nil,
+                actionFeedbackIcon: nil,
+                actionFeedbackIsError: false,
+                actionFeedbackActionTitle: nil,
+                actionFeedbackRemainingFraction: nil,
+                actionFeedbackIsPaused: false,
+                externalStreamingDisplayCount: 0
+            )
         case .dictation:
             return IndicatorPresentationData(
                 source: .dictation,
@@ -240,8 +284,15 @@ struct IndicatorPresentationData {
                 activeRuleName: dictation.activeRuleName,
                 activeAppIcon: dictation.activeAppIcon,
                 isRecordingInputReady: dictation.isRecordingInputReady,
+                isModelLoading: dictation.isModelLoading
+                    && (presentation.state == .recording || presentation.state == .processing),
                 cancelWarningMessage: dictation.cancelWarningMessage,
-                processingPhase: dictation.processingPhase,
+                // The transcription waits for the load, so say that instead of "Transcribing".
+                processingPhase: presentation.state == .processing
+                    && dictation.isModelLoading
+                    && dictation.processingPhase != nil
+                    ? Self.loadingModelText
+                    : dictation.processingPhase,
                 actionFeedbackMessage: dictation.actionFeedbackMessage,
                 actionFeedbackIcon: dictation.actionFeedbackIcon,
                 actionFeedbackIsError: dictation.actionFeedbackIsError,
@@ -263,6 +314,7 @@ struct IndicatorPresentationData {
                 activeRuleName: nil,
                 activeAppIcon: nil,
                 isRecordingInputReady: true,
+                isModelLoading: false,
                 cancelWarningMessage: nil,
                 processingPhase: nil,
                 actionFeedbackMessage: nil,
@@ -627,6 +679,11 @@ enum IndicatorWindowFrameLookup {
     }
 
     private nonisolated static func focusedWindowElement() -> AnyObject? {
+#if APPSTORE
+        // The App Sandbox blocks the Accessibility API of other apps; callers fall back to
+        // the window list.
+        return nil
+#else
         let systemWide = AXUIElementCreateSystemWide()
 
         var focusedApplication: AnyObject?
@@ -650,9 +707,13 @@ enum IndicatorWindowFrameLookup {
             return nil
         }
         return focusedWindow
+#endif
     }
 
     private static func accessibilityWindows(for processIdentifier: pid_t) -> [SafariWindowSnapshot] {
+#if APPSTORE
+        return []
+#else
         let applicationElement = AXUIElementCreateApplication(processIdentifier)
 
         var windowsValue: AnyObject?
@@ -675,6 +736,7 @@ enum IndicatorWindowFrameLookup {
                 isFullscreen: accessibilityWindowIsFullscreen(windowElement)
             )
         }
+#endif
     }
 
     private static func accessibilityWindowIsFullscreen(_ windowElement: AXUIElement) -> Bool? {

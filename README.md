@@ -9,13 +9,14 @@ on-device AI models or cloud APIs (Groq, OpenAI, xAI/Grok), then transform the
 result with reusable workflows. Your voice data stays on your Mac with local
 models - or use cloud APIs for faster processing.
 
-TypeWhisper `1.6` is the current stable release for macOS. It adds a redesigned
-Settings experience, privacy-friendly statistics and portable backups, faster
-and more resilient recording, calendar-aware meeting automation, expanded
-workflow integrations, Simplified Chinese localization, and reliability
-improvements across dictation, Recorder, local models, and cloud providers.
+TypeWhisper `1.7.0` is the current stable release for macOS. It adds iCloud sync
+for History and Inbox, a visual keyboard shortcut editor, Undo Last Dictation
+and Restore Raw Transcript, new indicator styles, expanded dictation recovery,
+Finder transcription, and compatible local model imports.
 
-See the [1.6.0 release notes](docs/release-notes/1.6.0.md),
+Development on `main` targets `1.8`; daily builds use the `v1.8.0-daily.*` line.
+
+See the [1.7.0 release notes](docs/release-notes/1.7.0.md),
 [release readiness guide](docs/release-readiness.md),
 [support matrix](docs/support-matrix.md), and
 [release validation process](docs/release-checklist.md) for the shipped feature
@@ -57,7 +58,7 @@ candidate with the
 <p align="center">
   <a href=".github/screenshots/dictionary-term-packs.png"><img src=".github/screenshots/dictionary-term-packs.png" width="270" alt="Dictionary Term Packs"></a>
   <a href=".github/screenshots/snippets.png"><img src=".github/screenshots/snippets.png" width="270" alt="Snippets"></a>
-  <a href=".github/screenshots/plugins.png"><img src=".github/screenshots/plugins.png" width="270" alt="Installed Integrations"></a>
+  <a href=".github/screenshots/plugins.png"><img src=".github/screenshots/plugins.png" width="270" alt="Plugin Settings"></a>
 </p>
 
 <p align="center">
@@ -88,45 +89,36 @@ candidate with the
 
 The localized macOS screenshot workflow is documented in [docs/screenshot-automation.md](docs/screenshot-automation.md).
 
-## What's New in 1.6
+## What's New in 1.7
 
-- **Redesigned Settings, statistics, and backups** - A consistent native
-  Settings experience now includes privacy-friendly usage insights plus portable
-  Backup & Restore for workflows, dictionary entries, snippets, profiles, prompt
-  actions, hotkeys, installed community plugins, history text, and supported
-  preferences
-- **Faster, more resilient recording** - Recording startup moved off the main
-  actor, eligible microphones are prewarmed, microphone priorities and route
-  recovery are more robust, and controlled tests measured lower
-  request-to-first-buffer times for built-in, USB, and AirPods inputs
-- **Calendar-aware meeting automation** - Optional reminders, countdown
-  controls, local meeting-activity checks, automatic Recorder sessions, sortable
-  filenames, transcript metadata, and Obsidian-ready Markdown sidecars support
-  Zoom, Microsoft Teams, Google Meet, and FaceTime meetings
-- **Improved dictation and indicators** - Live transcript updates can write
-  into active text fields, final insertion remains authoritative, contextual
-  insertion and target-app correction learning are more reliable, and Notch,
-  Overlay, and Minimal indicators gained better placement, visibility,
-  interaction, and screen-capture controls
-- **Expanded workflows and automation** - Ordered LLM provider fallbacks,
-  explicit API-driven dictation, the MCP Client action add-on, Obsidian live
-  sync and templates, bulk plugin updates, and clearer active-provider status
-  extend local automation
-- **Broader model and provider support** - Soniox live transcription, local
-  Cohere Transcribe, context-aware OpenAI transcription, dynamic ChatGPT model
-  discovery, richer OpenAI-compatible profiles, and reliability work across
-  Qwen3, Gemma 4, Granite, Voxtral, Parakeet, and WhisperKit expand the engine
-  ecosystem
-- **Localization and platform polish** - Simplified Chinese joins the existing
-  English, German, and Japanese UI, while macOS 27 Settings compatibility,
-  calendar permissions, distributed-build entitlements, and stable release
-  packaging received dedicated fixes
+- **iCloud sync and a redesigned History** - History and Inbox sync between
+  your Macs through TypeWhisper's private iCloud container, and History groups
+  entries by device with filters and search
+- **Undo and recovery** - Undo Last Dictation and Restore Raw Transcript are
+  available from the menu bar and as global hotkeys, and Dictation Recovery
+  keeps the last three successful dictations for up to 24 hours so an
+  incomplete provider response can be retried
+- **Shortcuts and cancellation** - Shortcuts are set on a visual Mac keyboard
+  that follows the active input source and shows conflicts, and cancellation
+  can use double Escape, single Escape, immediate cancellation, or be disabled
+- **Indicator themes** - Classic, Glass, and Light indicators with a live
+  preview on the new Appearance settings page
+- **Import and export** - Vocabulary import from Wispr Flow, Handy, and
+  compatible CSV files, export or deletion of all app data in Advanced
+  settings, and settings backups from the CLI with `typewhisper export` and
+  `typewhisper import`
+- **More ways to transcribe** - File transcription from Finder, web media
+  through the optional Web Link plugin, custom local speech models from
+  Hugging Face or a local folder, the Canary ASR plugin, and Parakeet Ultra
+- **Text handling** - A minimum threshold for number formatting, dictionary
+  corrections before workflow LLM processing, and segmented processing for
+  long dictations
 
 ## Features
 
 ### Transcription
 
-- **Local and cloud engines** - Choose from WhisperKit, Parakeet TDT v3, Apple
+- **Local and cloud engines** - Choose from WhisperKit, Parakeet (TDT v3 and Ultra), Apple
   SpeechAnalyzer, Granite Speech, Qwen3 ASR, Voxtral, Cohere Transcribe, Groq
   Whisper, OpenAI Whisper, Soniox, Smallest Pulse, xAI/Grok STT, OpenAI
   Compatible, and additional bundled or community providers
@@ -135,7 +127,8 @@ The localized macOS screenshot workflow is documented in [docs/screenshot-automa
   choices
 - **Streaming preview** - See partial transcription in real-time while speaking (WhisperKit)
 - **Short-clip handling** - Better retention of brief utterances and fewer false no-speech discards
-- **File transcription** - Batch-process multiple audio/video files with drag & drop
+- **File transcription** - Batch-process multiple audio/video files with drag & drop, or start from Finder
+- **Custom local models** - Import compatible speech models from a Hugging Face repository or a local folder in the settings of local plugins
 - **Subtitle export** - Export transcriptions as SRT or WebVTT with timestamps
 
 ### Dictation
@@ -143,7 +136,11 @@ The localized macOS screenshot workflow is documented in [docs/screenshot-automa
 - **System-wide** - Push-to-talk, toggle, or hybrid mode via global hotkey, auto-pastes into any app
 - **Modifier-key hotkeys** - Use a single modifier key (Command, Shift, Option, Control) as your hotkey
 - **Last-transcription actions** - Copy or paste your latest transcription with configurable global hotkeys
-- **Indicator styles** - Choose Notch, Overlay, or Minimal, with optional live transcript preview where supported
+- **Undo and raw restore** - Undo Last Dictation removes the last inserted dictation, and Restore Raw Transcript replaces it with the unprocessed text, without touching the clipboard
+- **Dictation Recovery** - Keeps failed recordings and the last three successful dictations for up to 24 hours so they can be retried
+- **Cancellation** - Cancel with double Escape, single Escape, or immediately, or turn cancellation off
+- **Visual shortcut editor** - Set shortcuts on a Mac keyboard that follows the active input source and shows conflicts and unavailable keys
+- **Indicator styles** - Choose Notch, Overlay, or Minimal in Classic, Glass, or Light, with optional live transcript preview where supported
 - **Sound feedback** - Audio cues for recording start, transcription success, and errors
 - **Microphone selection** - Choose a specific input device with live preview and improved recovery after route changes
 
@@ -152,16 +149,16 @@ The localized macOS screenshot workflow is documented in [docs/screenshot-automa
 - **Workflows** - Build reusable transformations for translation, rewriting, extraction, formatting, and app-specific automation. Workflows can run automatically by app, website, or app + website combinations, from a dedicated hotkey, as a global fallback, or manually from the Workflow Palette. Hotkey workflows can either start dictation or process the current selection/clipboard directly.
 - **LLM provider fallbacks** - Order Apple Intelligence (macOS 26+), Groq, OpenAI / ChatGPT, xAI/Grok, Gemini, OpenAI Compatible, and local providers in one global provider/model list. Prompts and workflows inherit that order by default; a workflow with an explicit provider stays on that single provider
 - **Speech providers** - System voices, xAI/Grok TTS, and experimental local Supertonic TTS can provide spoken feedback and readback
-- **Local prompt processing** - Gemma 4 via MLX runs on-device on Apple Silicon, with the current verified release path limited to the E2B/E4B 4-bit models
+- **Local prompt processing** - The Local LLM (MLX) plugin runs on-device on Apple Silicon. It recommends the Gemma 4 E2B/E4B 4-bit models and offers Qwen3.5 2B and LFM2.5 2.6B as experimental lighter models
 - **Translation** - Translate transcriptions on-device using Apple Translate
 
 ### Personalization
 
 - **Workflow triggers** - Per-app, per-website, combined app + website, hotkey, global fallback, and manual palette-only triggers for language, task, engine, prompt, and auto-submit behavior. Website matching supports subdomains
-- **Dictionary** - Terms improve cloud recognition accuracy. Corrections fix common transcription mistakes automatically. Auto-learns high-confidence local single-word manual corrections, while broader rewrites and deletions are skipped. Includes importable term packs
+- **Dictionary** - Terms improve cloud recognition accuracy. Corrections fix common transcription mistakes automatically. Auto-learns high-confidence local single-word manual corrections, while broader rewrites and deletions are skipped. Includes importable term packs and vocabulary import from Wispr Flow, Handy, and compatible CSV files
 - **Localized term packs** - Built-in term pack names and descriptions are localized in English and German
 - **Snippets** - Text shortcuts with trigger/replacement. Supports placeholders like `{{DATE}}`, `{{TIME}}`, and `{{CLIPBOARD}}`
-- **History** - Searchable transcription history with inline editing, correction detection, app context tracking, timeline grouping, filters, bulk delete, multi-select export, auto-retention, and a standalone window accessible from the tray menu
+- **History** - Searchable transcription history with inline editing, correction detection, app context tracking, timeline grouping, device grouping, filters, bulk delete, multi-select export, auto-retention, and a standalone window accessible from the tray menu
 
 ### Premium
 
@@ -170,9 +167,10 @@ The localized macOS screenshot workflow is documented in [docs/screenshot-automa
   transcript output for supported meeting providers
 - **Correction learning** - Learn deliberate manual corrections in supported
   target apps using conservative local matching and dictionary integration
+- **iCloud sync** - Sync History and Inbox between your Macs automatically
+  through TypeWhisper's private iCloud container
 - **Cloud Folder Sync** - Sync Dictionary and Snippets data through a
-  user-selected iCloud Drive, Dropbox, OneDrive, Syncthing, or custom folder;
-  automatic private iCloud sync remains disabled in current distributed builds
+  user-selected iCloud Drive, Dropbox, OneDrive, Syncthing, or custom folder
 - **Clear entitlement states** - The Premium hub shows account access and the
   exact availability of each feature for the current license or signed-in
   Premium account
@@ -195,6 +193,7 @@ The localized macOS screenshot workflow is documented in [docs/screenshot-automa
 - **Home dashboard** - Usage statistics, activity chart, and onboarding tutorial
 - **Statistics and backups** - Inspect local aggregate usage and export or
   restore supported settings and user data without uploading them to TypeWhisper
+- **Your data** - Export all app data as a ZIP or delete it in Advanced settings
 - **Auto-update** - Built-in updates via Sparkle with stable, release-candidate, and daily channels
 - **Universal binary** - Runs natively on Apple Silicon and Intel Macs
 - **Widgets** - Desktop widgets for usage stats, last transcription, activity chart, and transcription history
@@ -213,13 +212,13 @@ brew install --cask typewhisper/tap/typewhisper
 
 Download the latest DMG from [GitHub Releases](https://github.com/TypeWhisper/typewhisper-mac/releases/latest).
 
-Stable direct-download releases use the default Sparkle channel. Release candidates such as `1.6.0-rc*` and daily builds such as `v1.6.0-daily.*` are published as GitHub prereleases, update the shared Sparkle appcast on their own channels, and are excluded from Homebrew.
+Stable direct-download releases use the default Sparkle channel. Release candidates and daily builds are published as GitHub prereleases, update the shared Sparkle appcast on their own channels, and are excluded from Homebrew.
 Installed builds can switch channels in `Settings -> About` via the `Update Channel` picker.
 
 ## Quick Start
 
 1. Install TypeWhisper from Homebrew or the latest DMG.
-2. Open Settings and grant Microphone plus Accessibility access.
+2. Open Settings and grant Microphone plus Accessibility access (System Settings > Privacy & Security > Accessibility, named Device Control and Data Access on macOS 27 and later).
 3. Pick an engine and, if needed, download a local model.
 4. Trigger the global hotkey and complete your first dictation.
 
@@ -277,9 +276,9 @@ If a fresh install still crashes immediately after these steps, please open an i
 - 8 GB RAM minimum, 16 GB+ recommended for larger models
 - Some features (Apple Translate, improved Settings UI) require macOS 15+. Apple Intelligence and SpeechAnalyzer require macOS 26+.
 
-## Gemma 4 Support
+## Local LLM (MLX)
 
-TypeWhisper includes a bundled local Gemma 4 plugin powered by MLX for on-device prompt processing on Apple Silicon. In the current verified release path, Gemma 4 support is limited to the dense `E2B 4-bit` and `E4B 4-bit` variants; larger or unverified variants stay visible in the UI but remain disabled until they are validated end to end.
+TypeWhisper includes the Local LLM (MLX) plugin for on-device prompt processing on Apple Silicon. It recommends the dense Gemma 4 `E2B 4-bit` and `E4B 4-bit` models. Qwen3.5 2B and LFM2.5 2.6B need less memory and are available as experimental models; larger Gemma 4 variants are experimental as well. The plugin replaces the former Gemma 4 plugin (`com.typewhisper.gemma4`) but installs separately: existing Gemma 4 installations do not update to it, and downloaded models, the HuggingFace token, and the model selection are not carried over. Workflows and prompt actions that used Gemma 4 switch to Local LLM (MLX) once the Gemma 4 plugin is removed.
 
 ## Model Recommendations
 
@@ -507,6 +506,8 @@ curl "http://localhost:8978/v1/dictation/transcription?id=<uuid>"
 
 Dictation control records microphone audio for system-wide insertion. A completed dictation session returns text that TypeWhisper can paste back into the active app.
 
+For the last 100 dictations since the app started, the transcription response also contains a `latency` object with the timings of each dictation phase, from the start request to verified insertion and clipboard restoration. It never contains transcript text, audio or app content. Other sessions return `latency: null`.
+
 ### Recorder Control
 
 Recorder control uses the same recorder path as the TypeWhisper UI, including microphone capture, optional system audio capture, mixing, finalization, and final transcription. Use it for automations that need a saved recording file or meeting/system-audio transcription without auto-pasting into another app.
@@ -575,6 +576,54 @@ Conflict and lookup behavior:
 - Stopping without an active API recorder session returns `409 Conflict`.
 - Polling with a missing or invalid `id` returns `400 Bad Request`.
 - Polling a valid but unknown session id returns `404 Not Found`.
+
+### Completed Recorder Transcripts
+
+`GET /v1/recorder/recordings` returns the latest successfully saved transcript for each recording, including recordings started manually, by the calendar integration, or through the API. Results survive app restarts and do not depend on live preview or an API session.
+
+```bash
+curl "http://localhost:8978/v1/recorder/recordings?since=1791100000.123456"
+```
+
+```json
+{
+  "recordings": [
+    {
+      "source": "recorder",
+      "recording_id": "8F8C1F45-6D03-44D2-A38C-0C4DE4F7E5F7",
+      "completion_id": "59CBC40C-274A-47A9-804C-8774AB504401",
+      "completed_at": 1791100000.123456,
+      "text": "Meeting notes from the recording.",
+      "audio_file": "/Users/alex/Documents/TypeWhisper Recordings/Meeting.m4a",
+      "transcript_file": "/Users/alex/Documents/TypeWhisper Recordings/Meeting.txt"
+    }
+  ]
+}
+```
+
+`since` accepts Unix seconds or an ISO 8601 timestamp and filters **inclusively by successful completion time**, not the recording's start time. Results are ordered oldest completion first. After processing a response, retain its last `completed_at` and deduplicate by `completion_id`; querying inclusively avoids losing completions with equal timestamps. Invalid timestamps return `400`; unreadable completion receipts return `500` so a consumer does not silently advance past them.
+
+Each successful retranscription keeps the `recording_id`, assigns a new `completion_id`, and replaces the previous result. This is a list of the latest saved results, not a revision history. Failed attempts leave the last successful result available. `markdown_file` is included only when a Markdown transcript was saved and still exists; currently that applies to calendar recordings with meeting metadata. Audio and transcript paths refer to existing files.
+
+Completion receipts are saved alongside recordings as `<audio filename>.transcript-ready.json`. A separate `<audio filename>.recording-id.json` preserves the recording ID if the receipt is damaged, so retranscription can repair it without changing the ID. Both files are committed with the transcript and removed when the recording is deleted in TypeWhisper. Existing recordings become available here after their next successful transcription. Recordings without a saved transcript are omitted. The endpoint uses the same optional API token as the other private routes.
+
+The Plugin SDK emits **`recorderTranscriptReady`** after the transcript and receipt have been saved. It does not emit the dictation `transcriptionCompleted` event or run Recorder Workflows. Event delivery is best effort while TypeWhisper and the plugin are running; use the API to catch up on missed completions.
+
+In **Webhook Notifications**, enable **Also send completed Recorder transcripts** for each destination that should receive this event. The JSON body has the same fields as an entry above. Webhook retries keep the same `completion_id`.
+
+In **Script Runner**, enable **Also run for completed Recorder transcripts** for each export command. Both options default to off, including for existing configurations, and operate independently of dictation rule/workflow filters. Recorder scripts receive the saved original through stdin and these environment variables:
+
+| Variable | Value |
+| --- | --- |
+| `TYPEWHISPER_SOURCE` | `recorder` |
+| `TYPEWHISPER_RECORDING_ID` | Stable recording UUID |
+| `TYPEWHISPER_COMPLETION_ID` | UUID for this successful save |
+| `TYPEWHISPER_COMPLETED_AT` | Completion time in Unix seconds |
+| `TYPEWHISPER_AUDIO_FILE` | Audio file path |
+| `TYPEWHISPER_TRANSCRIPT_FILE` | Plain-text transcript path |
+| `TYPEWHISPER_MARKDOWN_FILE` | Markdown path, when available; otherwise unset |
+
+Recorder scripts export the original transcript independently; stdout is ignored and may be empty. A nonzero exit status is logged as a failure. The existing five-second script timeout applies, so enqueue longer processing in a separate worker. Ordinary dictation scripts continue to transform text through stdout.
 
 ## CLI Tool
 

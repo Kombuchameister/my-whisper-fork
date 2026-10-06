@@ -11,6 +11,8 @@ private final class MenuBarState: ObservableObject {
     @Published var isModelReady: Bool
     @Published var hasRecentTranscriptions: Bool
     @Published var canCopyLastTranscription: Bool
+    @Published var canUndoLastDictation: Bool
+    @Published var canRestoreRawTranscript: Bool
     @Published var hasLastTranscribedText: Bool
     @Published var hasRecoverableRecording: Bool
     @Published var recorderState: AudioRecorderViewModel.RecorderState
@@ -20,6 +22,8 @@ private final class MenuBarState: ObservableObject {
     @Published var copyLastTranscriptionMenuShortcut: HotkeyService.MenuShortcutDescriptor?
     @Published var pasteLastTranscriptionMenuShortcut: HotkeyService.MenuShortcutDescriptor?
     @Published var recorderToggleMenuShortcut: HotkeyService.MenuShortcutDescriptor?
+    @Published var undoLastDictationMenuShortcut: HotkeyService.MenuShortcutDescriptor?
+    @Published var restoreRawTranscriptMenuShortcut: HotkeyService.MenuShortcutDescriptor?
 
     private var cancellables = Set<AnyCancellable>()
 
@@ -37,6 +41,8 @@ private final class MenuBarState: ObservableObject {
         let hasRecentTranscriptions = recentTranscriptionStore.latestEntry(historyRecords: historyService.recentRecords) != nil
         self.hasRecentTranscriptions = hasRecentTranscriptions
         self.canCopyLastTranscription = hasRecentTranscriptions
+        self.canUndoLastDictation = dictation.dictationUndoService.canUndo
+        self.canRestoreRawTranscript = dictation.dictationUndoService.canRestoreRaw
         self.hasLastTranscribedText = dictation.lastTranscribedText != nil
         self.hasRecoverableRecording = audioRecordingService.latestRecoveryRecordingURL != nil
         self.recorderState = recorder.state
@@ -46,6 +52,8 @@ private final class MenuBarState: ObservableObject {
         self.copyLastTranscriptionMenuShortcut = DictationSettingsHandler.loadMenuShortcutDescriptor(for: .copyLastTranscription)
         self.pasteLastTranscriptionMenuShortcut = DictationSettingsHandler.loadMenuShortcutDescriptor(for: .pasteLastTranscription)
         self.recorderToggleMenuShortcut = DictationSettingsHandler.loadMenuShortcutDescriptor(for: .recorderToggle)
+        self.undoLastDictationMenuShortcut = DictationSettingsHandler.loadMenuShortcutDescriptor(for: .undoLastDictation)
+        self.restoreRawTranscriptMenuShortcut = DictationSettingsHandler.loadMenuShortcutDescriptor(for: .restoreRawTranscript)
         let modelStatus = Self.idleModelStatus(from: modelManager)
         self.statusText = modelStatus.text
         self.statusImage = modelStatus.image
@@ -77,6 +85,13 @@ private final class MenuBarState: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.refreshCopyAvailability()
+            }
+            .store(in: &cancellables)
+
+        dictation.dictationUndoService.$snapshot
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.refreshUndoAvailability()
             }
             .store(in: &cancellables)
 
@@ -160,28 +175,16 @@ private final class MenuBarState: ObservableObject {
     }
 
     private static func idleModelStatus(from modelManager: ModelManagerService) -> (text: String, image: String) {
-        guard let name = modelManager.activeModelName else {
+        guard modelManager.activeModelName != nil else {
             return (String(localized: "No model loaded"), "exclamationmark.triangle.fill")
         }
 
-        let label = activeModelLabel(engine: modelManager.activeEngineName, model: name)
-
+        // The model itself is named by the Model quick selector below the status line.
         if modelManager.isModelReady {
-            return (String(localized: "\(label) ready"), "checkmark.circle.fill")
+            return (String(localized: "Ready"), "checkmark.circle.fill")
         }
 
-        return (String(localized: "\(label) selected"), "clock.fill")
-    }
-
-    /// Prefixes the model name with its provider/engine (e.g. "Groq • whisper-large-v3") so the
-    /// menu bar shows which provider handles transcription. Skips the prefix when it would be
-    /// redundant — e.g. local engines whose model name already contains the provider ("Parakeet").
-    static func activeModelLabel(engine: String?, model: String) -> String {
-        guard let engine, !engine.isEmpty, engine != model,
-              !model.localizedCaseInsensitiveContains(engine) else {
-            return model
-        }
-        return "\(engine) • \(model)"
+        return (localizedAppText("Model selected", de: "Modell ausgewählt"), "clock.fill")
     }
 
     private func refreshCopyAvailability() {
@@ -210,6 +213,14 @@ private final class MenuBarState: ObservableObject {
         copyLastTranscriptionMenuShortcut = DictationSettingsHandler.loadMenuShortcutDescriptor(for: .copyLastTranscription)
         pasteLastTranscriptionMenuShortcut = DictationSettingsHandler.loadMenuShortcutDescriptor(for: .pasteLastTranscription)
         recorderToggleMenuShortcut = DictationSettingsHandler.loadMenuShortcutDescriptor(for: .recorderToggle)
+        undoLastDictationMenuShortcut = DictationSettingsHandler.loadMenuShortcutDescriptor(for: .undoLastDictation)
+        restoreRawTranscriptMenuShortcut = DictationSettingsHandler.loadMenuShortcutDescriptor(for: .restoreRawTranscript)
+    }
+
+    private func refreshUndoAvailability() {
+        let undoService = DictationViewModel.shared.dictationUndoService
+        canUndoLastDictation = undoService.canUndo
+        canRestoreRawTranscript = undoService.canRestoreRaw
     }
 }
 
@@ -226,6 +237,8 @@ enum MenuBarMenuItem: Hashable {
     case copyLastTranscription
     case pasteLastTranscription
     case readBackLastTranscription
+    case undoLastDictation
+    case restoreRawTranscript
     case checkForUpdates
 }
 
@@ -331,6 +344,7 @@ struct PluginAppCommands: Commands {
 struct MenuBarView: View {
     @Environment(\.openWindow) private var openWindow
     @StateObject private var status = MenuBarState()
+    @StateObject private var quickSelection = DictationQuickSelectionModel()
     @ObservedObject private var pluginManager: PluginManager
 
     init(pluginManager: PluginManager = PluginManager.shared) {
@@ -350,6 +364,12 @@ struct MenuBarView: View {
             menuItem(for: .toggleRecorder)
 
             Divider()
+
+            Section(localizedAppText("Dictation", de: "Diktat")) {
+                microphoneQuickSelector
+                languageQuickSelector
+                modelQuickSelector
+            }
 
             ForEach(MenuBarMenuSection.allCases, id: \.self) { section in
                 Section(String(localized: section.titleResource)) {
@@ -383,7 +403,9 @@ struct MenuBarView: View {
 
             Divider()
 
+            #if !APPSTORE
             menuItem(for: .checkForUpdates)
+            #endif
 
             Button(String(localized: "Quit")) {
                 NSApplication.shared.terminate(nil)
@@ -465,6 +487,13 @@ struct MenuBarView: View {
                 copyLastTranscriptionButton
                 pasteLastTranscriptionButton
                 readBackLastTranscriptionButton
+                // Undo needs to read the target field through Accessibility,
+                // which the App Sandbox does not allow.
+                #if !APPSTORE
+                Divider()
+                undoLastDictationButton
+                restoreRawTranscriptButton
+                #endif
             } label: {
                 Label(
                     localizedAppText("Last Transcription", de: "Letzte Transkription"),
@@ -475,6 +504,7 @@ struct MenuBarView: View {
                 !status.hasRecentTranscriptions
                     && !status.canCopyLastTranscription
                     && !status.hasLastTranscribedText
+                    && !status.canUndoLastDictation
             )
 
         case .recentTranscriptions:
@@ -489,11 +519,134 @@ struct MenuBarView: View {
         case .readBackLastTranscription:
             readBackLastTranscriptionButton
 
+        case .undoLastDictation:
+            undoLastDictationButton
+
+        case .restoreRawTranscript:
+            restoreRawTranscriptButton
+
         case .checkForUpdates:
             Button(String(localized: "Check for Updates...")) {
                 UpdateChecker.shared?.checkForUpdates()
             }
             .disabled(UpdateChecker.shared?.canCheckForUpdates() != true)
+        }
+    }
+
+    // MARK: Dictation quick selectors
+
+    private var microphoneQuickSelector: some View {
+        let snapshot = quickSelection.snapshot
+        return Menu {
+            ForEach(snapshot.microphoneOptions) { option in
+                quickSelectionItem(option, select: quickSelection.selectMicrophone)
+            }
+            Divider()
+            dictationSettingsButton
+        } label: {
+            Label(
+                localizedAppText(
+                    "Microphone: \(snapshot.microphoneSummary)",
+                    de: "Mikrofon: \(snapshot.microphoneSummary)"
+                ),
+                systemImage: "mic"
+            )
+        }
+        .quickSelectorLock(snapshot.isLocked)
+    }
+
+    private var languageQuickSelector: some View {
+        let snapshot = quickSelection.snapshot
+        return Menu {
+            if let note = snapshot.languageWorkflowNote {
+                Text(verbatim: note)
+                Divider()
+            }
+            ForEach(snapshot.languageOptions) { option in
+                quickSelectionItem(option, select: quickSelection.selectLanguage)
+            }
+            if !snapshot.moreLanguageOptions.isEmpty {
+                Menu(localizedAppText("More Languages", de: "Weitere Sprachen")) {
+                    ForEach(snapshot.moreLanguageOptions) { option in
+                        quickSelectionItem(option, select: quickSelection.selectLanguage)
+                    }
+                }
+            }
+            Divider()
+            dictationSettingsButton
+        } label: {
+            Label(
+                localizedAppText(
+                    "Language: \(snapshot.languageSummary)",
+                    de: "Sprache: \(snapshot.languageSummary)"
+                ),
+                systemImage: "globe"
+            )
+        }
+        .quickSelectorLock(snapshot.isLocked)
+    }
+
+    private var modelQuickSelector: some View {
+        let snapshot = quickSelection.snapshot
+        return Menu {
+            if let note = snapshot.modelWorkflowNote {
+                Text(verbatim: note)
+                Divider()
+            }
+            ForEach(snapshot.modelGroups) { group in
+                if group.options.count == 1, let option = group.options.first, option.value.modelId == nil {
+                    quickSelectionItem(option, select: quickSelection.selectModel)
+                } else {
+                    Section(group.title) {
+                        ForEach(group.options) { option in
+                            quickSelectionItem(option, select: quickSelection.selectModel)
+                        }
+                        if !group.setupRequiredOptions.isEmpty {
+                            let count = group.setupRequiredOptions.count
+                            Menu(localizedAppText("More Models (\(count))", de: "Weitere Modelle (\(count))")) {
+                                ForEach(group.setupRequiredOptions) { option in
+                                    quickSelectionItem(option, select: quickSelection.selectModel)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Divider()
+            dictationSettingsButton
+        } label: {
+            Label(
+                localizedAppText(
+                    "Model: \(snapshot.modelSummary)",
+                    de: "Modell: \(snapshot.modelSummary)"
+                ),
+                systemImage: "waveform"
+            )
+        }
+        .quickSelectorLock(snapshot.isLocked)
+    }
+
+    /// A checkmark menu item. Choosing the selected entry again does nothing, so it cannot
+    /// reset state such as the microphone priority list.
+    private func quickSelectionItem<Value: Hashable>(
+        _ option: DictationQuickSelectionOption<Value>,
+        select: @escaping (Value) -> Void
+    ) -> some View {
+        Toggle(isOn: Binding(
+            get: { option.isSelected },
+            set: { _ in
+                guard !option.isSelected else { return }
+                select(option.value)
+            }
+        )) {
+            Text(verbatim: option.title)
+        }
+        .disabled(!option.isEnabled)
+    }
+
+    private var dictationSettingsButton: some View {
+        Button(localizedAppText("Dictation Settings...", de: "Diktat-Einstellungen …")) {
+            quickSelection.openDictationSettings()
         }
     }
 
@@ -547,6 +700,34 @@ struct MenuBarView: View {
         .disabled(!status.hasLastTranscribedText)
     }
 
+    @ViewBuilder
+    private var undoLastDictationButton: some View {
+        Button {
+            DictationViewModel.shared.undoLastDictation()
+        } label: {
+            Label(
+                localizedAppText("Undo Last Dictation", de: "Letztes Diktat rückgängig"),
+                systemImage: "arrow.uturn.backward"
+            )
+        }
+        .keyboardShortcut(keyboardShortcut(from: status.undoLastDictationMenuShortcut))
+        .disabled(!status.canUndoLastDictation)
+    }
+
+    @ViewBuilder
+    private var restoreRawTranscriptButton: some View {
+        Button {
+            DictationViewModel.shared.restoreRawTranscript()
+        } label: {
+            Label(
+                localizedAppText("Restore Raw Transcript", de: "Rohtext wiederherstellen"),
+                systemImage: "text.badge.checkmark"
+            )
+        }
+        .keyboardShortcut(keyboardShortcut(from: status.restoreRawTranscriptMenuShortcut))
+        .disabled(!status.canRestoreRawTranscript)
+    }
+
     private var recorderToggleTitle: String {
         switch status.recorderState {
         case .idle:
@@ -597,5 +778,19 @@ struct MenuBarView: View {
         if flags.contains(.shift) { modifiers.insert(.shift) }
         if flags.contains(.function) { modifiers.insert(EventModifiers(rawValue: 1 << 23)) }
         return modifiers
+    }
+}
+
+private extension View {
+    /// Selections stay visible but cannot change while a recording or transcription
+    /// runs, so the running session is never interrupted.
+    func quickSelectorLock(_ isLocked: Bool) -> some View {
+        disabled(isLocked)
+            .help(isLocked
+                ? localizedAppText(
+                    "Available when the current recording or transcription has finished",
+                    de: "Verfügbar, sobald die aktuelle Aufnahme oder Transkription beendet ist"
+                )
+                : "")
     }
 }

@@ -59,6 +59,9 @@ SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$")
 OS_VERSION_RE = re.compile(r"^\d+\.\d+(?:\.\d+)?$")
 TYPEWHISPER_RELEASE_NETLOC = "github.com"
 TYPEWHISPER_RELEASE_PATH_PREFIX = "/TypeWhisper/typewhisper-mac/releases/download/"
+# Official plugins use this ID namespace and author name; community entries must not.
+RESERVED_PLUGIN_ID_NAMESPACE = "com.typewhisper"
+RESERVED_AUTHOR = "typewhisper"
 
 
 def load_json(path: Path) -> tuple[dict | None, list[str]]:
@@ -204,8 +207,8 @@ def validate_release(release: object, filename: str, index: int) -> list[str]:
         errors.append(f"{prefix}: 'minHostVersion' must be semver like 1.4.0")
 
     sdk_version = release.get("sdkCompatibilityVersion")
-    if sdk_version is not None and sdk_version != "v1":
-        errors.append(f"{prefix}: 'sdkCompatibilityVersion' must be 'v1'")
+    if sdk_version is not None and sdk_version not in ("v1", "v1-model-import"):
+        errors.append(f"{prefix}: 'sdkCompatibilityVersion' must be 'v1' or 'v1-model-import'")
 
     size = release.get("size")
     if size is not None and not is_positive_int(size):
@@ -261,6 +264,14 @@ def validate_plugin(plugin: dict, path: Path) -> list[str]:
             errors.append(f"{filename}: 'id' must use reverse-domain form")
         elif path.name != f"{plugin_id}.json":
             errors.append(f"{filename}: filename must be '{plugin_id}.json'")
+        normalized_id = plugin_id.lower() if isinstance(plugin_id, str) else ""
+        if (
+            normalized_id == RESERVED_PLUGIN_ID_NAMESPACE
+            or normalized_id.startswith(f"{RESERVED_PLUGIN_ID_NAMESPACE}.")
+        ):
+            errors.append(
+                f"{filename}: 'id' must not use the reserved '{RESERVED_PLUGIN_ID_NAMESPACE}' namespace"
+            )
 
     if plugin.get("source") != "community":
         errors.append(f"{filename}: 'source' must be 'community'")
@@ -275,6 +286,10 @@ def validate_plugin(plugin: dict, path: Path) -> list[str]:
         value = plugin.get(field)
         if value is not None and not is_non_empty_string(value):
             errors.append(f"{filename}: '{field}' must be a non-empty string")
+
+    author = plugin.get("author")
+    if isinstance(author, str) and author.strip().lower() == RESERVED_AUTHOR:
+        errors.append(f"{filename}: 'author' must name the community maintainer, not TypeWhisper")
 
     errors.extend(validate_categories(plugin, filename))
     errors.extend(validate_optional_localized_strings(plugin, filename))

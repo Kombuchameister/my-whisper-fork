@@ -30,25 +30,19 @@ struct OverlayTranscriptPreviewState: Equatable {
 }
 
 struct OverlayIndicatorSurface<Content: View>: View {
+    let theme: IndicatorTheme
     let content: Content
 
-    init(@ViewBuilder content: () -> Content) {
+    init(theme: IndicatorTheme = .classic, @ViewBuilder content: () -> Content) {
+        self.theme = theme
         self.content = content()
-    }
-
-    private var shape: RoundedRectangle {
-        RoundedRectangle(cornerRadius: 24, style: .continuous)
     }
 
     var body: some View {
         content
-            .background(.black.opacity(0.85), in: shape)
-            // The hosting panel itself is rectangular. Clip all rendered content,
-            // especially the feedback progress bar, to the visible pill.
-            .clipShape(shape)
-            .overlay(
-                shape
-                    .stroke(Color.white.opacity(0.15), lineWidth: 1)
+            .indicatorSurface(
+                theme: theme,
+                shape: RoundedRectangle(cornerRadius: 24, style: .continuous)
             )
     }
 }
@@ -58,9 +52,12 @@ struct OverlayIndicatorSurface<Content: View>: View {
 struct OverlayIndicatorView: View {
     @ObservedObject private var viewModel = DictationViewModel.shared
     @ObservedObject private var recorder = AudioRecorderViewModel.shared
+    @ObservedObject private var preview = IndicatorPreviewSession.shared
     @ObservedObject private var countdownModel: CalendarMeetingCountdownModel
+    @Environment(\.colorScheme) private var systemColorScheme
     @State private var textExpanded = false
     @State private var dotPulse = false
+    @State private var revealScale: CGFloat = 1
 
     private let contentPadding: CGFloat = 20
     private let sizing: IndicatorSizing = .overlay
@@ -71,7 +68,7 @@ struct OverlayIndicatorView: View {
     }
 
     private var presentation: IndicatorPresentationData {
-        IndicatorPresentationData.make(dictation: viewModel, recorder: recorder)
+        IndicatorPresentationData.make(dictation: viewModel, recorder: recorder, preview: preview)
     }
 
     private var countdownPresentation: CalendarMeetingCountdownPresentation? {
@@ -115,8 +112,16 @@ struct OverlayIndicatorView: View {
         }
         if hasCancelWarning { return max(closedWidth, IndicatorFeedbackPanelLayout.feedbackWidth) }
         if transcriptBodyVisible { return max(closedWidth, 400) }
-        if hasActionFeedback { return max(closedWidth, IndicatorFeedbackPanelLayout.feedbackWidth) }
+        if hasActionFeedback { return max(closedWidth, actionFeedbackBody.width) }
         return closedWidth
+    }
+
+    private var actionFeedbackBody: IndicatorFeedbackPanelLayout.FeedbackBody {
+        IndicatorFeedbackPanelLayout.feedbackBody(
+            for: .overlay,
+            message: presentation.actionFeedbackMessage,
+            actionTitle: presentation.actionFeedbackActionTitle
+        )
     }
 
     private var isTop: Bool {
@@ -132,7 +137,7 @@ struct OverlayIndicatorView: View {
     }
 
     var body: some View {
-        OverlayIndicatorSurface {
+        OverlayIndicatorSurface(theme: viewModel.indicatorTheme) {
             Group {
                 if let countdownPresentation,
                    countdownPresentation.kind.isStart {
@@ -155,14 +160,18 @@ struct OverlayIndicatorView: View {
             }
             .frame(width: currentWidth)
         }
-        .shadow(color: .black.opacity(0.3), radius: 10, y: 5)
+        .shadow(color: .black.opacity(0.3 * viewModel.indicatorTheme.shadowOpacityScale), radius: 10, y: 5)
+        .scaleEffect(revealScale, anchor: isTop ? .top : .bottom)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: isTop ? .top : .bottom)
-        .preferredColorScheme(.dark)
+        // Classic and Light pin their scheme so semantic colors match the surface
+        // regardless of the hosting appearance. Glass follows the system.
+        .environment(\.colorScheme, viewModel.indicatorTheme.preferredColorScheme ?? systemColorScheme)
         .onHover { hovered in
             guard hasActionFeedback else { return }
             viewModel.setActionFeedbackHovered(hovered)
         }
-        .animation(.easeInOut(duration: 0.3), value: textExpanded)
+        .animation(IndicatorMotion.expand, value: textExpanded)
+        .animation(IndicatorMotion.expand, value: currentWidth)
         .animation(.easeInOut(duration: 0.2), value: presentation.state)
         // Matches the ~30 Hz (33ms) level-publish throttle shared by both
         // audio level sources (AudioRecordingService's dictation pipeline and
@@ -171,10 +180,25 @@ struct OverlayIndicatorView: View {
         // tiny stutter instead of a continuous glide.
         .animation(.linear(duration: 0.033), value: presentation.audioLevel)
         .onChange(of: presentation.partialText) {
-            expandTranscriptPreviewIfNeeded()
+            if presentation.source == .preview, presentation.partialText.isEmpty {
+                // The preview loop restarts: collapse so the expand animation replays.
+                withAnimation(IndicatorMotion.expand) {
+                    textExpanded = false
+                }
+            } else {
+                expandTranscriptPreviewIfNeeded()
+            }
+        }
+        .onChange(of: presentation.source) {
+            // A real session replacing the preview starts with an empty
+            // transcript; the preview taking over again shows what it has.
+            withAnimation(IndicatorMotion.expand) {
+                textExpanded = presentation.source == .preview && !presentation.partialText.isEmpty
+            }
         }
         .onChange(of: presentation.state) {
             if presentation.state == .recording {
+                IndicatorMotion.popIn($revealScale)
                 withAnimation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true)) {
                     dotPulse = true
                 }
@@ -235,7 +259,7 @@ struct OverlayIndicatorView: View {
         case .recording:
             return presentation.recordingStatusLabel
         case .processing:
-            return String(localized: "Processing transcription")
+            return presentation.modelLoadingLabel ?? String(localized: "Processing transcription")
         case .inserting:
             return String(localized: "Inserting text")
         case .error(let message):
@@ -280,10 +304,12 @@ struct OverlayIndicatorView: View {
                     onAction: presentation.actionFeedbackActionTitle == nil ? nil : {
                         viewModel.performActionFeedbackAction()
                     },
-                    remainingFraction: presentation.actionFeedbackRemainingFraction
+                    remainingFraction: presentation.actionFeedbackRemainingFraction,
+                    bodyHeight: actionFeedbackBody.height,
+                    lineLimit: actionFeedbackBody.lineLimit
                 )
                 .overlay(alignment: .top) {
-                    Divider().background(Color.white.opacity(0.1))
+                    Divider().background(Color.primary.opacity(0.1))
                 }
             }
         } else {
@@ -299,10 +325,12 @@ struct OverlayIndicatorView: View {
                     onAction: presentation.actionFeedbackActionTitle == nil ? nil : {
                         viewModel.performActionFeedbackAction()
                     },
-                    remainingFraction: presentation.actionFeedbackRemainingFraction
+                    remainingFraction: presentation.actionFeedbackRemainingFraction,
+                    bodyHeight: actionFeedbackBody.height,
+                    lineLimit: actionFeedbackBody.lineLimit
                 )
                 .overlay(alignment: .bottom) {
-                    Divider().background(Color.white.opacity(0.1))
+                    Divider().background(Color.primary.opacity(0.1))
                 }
             }
 
@@ -350,6 +378,9 @@ struct OverlayIndicatorView: View {
                         sizing: sizing,
                         dotPulse: dotPulse
                     )
+                    if presentation.isModelLoading {
+                        IndicatorPreparingLabel(presentation: presentation, sizing: sizing)
+                    }
                 }
             }
 
@@ -368,11 +399,11 @@ struct OverlayIndicatorView: View {
                 if let phase = presentation.processingPhase {
                     Text(phase)
                         .font(.system(size: 12))
-                        .foregroundStyle(.white.opacity(0.7))
+                        .foregroundStyle(Color.primary.opacity(0.7))
                 }
                 ProgressView()
                     .controlSize(.mini)
-                    .tint(.white)
+                    .tint(.primary)
             }
         }
         .padding(.horizontal, 20)

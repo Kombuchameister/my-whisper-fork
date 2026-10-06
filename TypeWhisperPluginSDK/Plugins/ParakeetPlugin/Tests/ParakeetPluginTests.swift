@@ -18,6 +18,40 @@ final class ParakeetPluginTests: XCTestCase {
         }
     }
 
+    /// Records CTC download hook calls; the first call can be held until released.
+    private actor CtcDownloadRecorder {
+        private(set) var events: [String] = []
+        private var holdsFirstDownload: Bool
+        private var firstDownloadRelease: CheckedContinuation<Void, Never>?
+        private var startWaiter: CheckedContinuation<Void, Never>?
+
+        init(holdsFirstDownload: Bool = false) {
+            self.holdsFirstDownload = holdsFirstDownload
+        }
+
+        func download(loadIntoMemory: Bool) async {
+            let kind = loadIntoMemory ? "load" : "files"
+            events.append("start \(kind)")
+            startWaiter?.resume()
+            startWaiter = nil
+            if holdsFirstDownload {
+                holdsFirstDownload = false
+                await withCheckedContinuation { firstDownloadRelease = $0 }
+            }
+            events.append("end \(kind)")
+        }
+
+        func waitForFirstStart() async {
+            guard events.isEmpty else { return }
+            await withCheckedContinuation { startWaiter = $0 }
+        }
+
+        func releaseFirstDownload() {
+            firstDownloadRelease?.resume()
+            firstDownloadRelease = nil
+        }
+    }
+
     private actor VocabularyFetchRecorder {
         private var requests: [(url: URL, description: String)] = []
         private let data: Data?
@@ -262,6 +296,21 @@ final class ParakeetPluginTests: XCTestCase {
             ParakeetPlugin.vocabularyAssetURL(for: .v3).absoluteString,
             "https://huggingface.co/FluidInference/parakeet-tdt-0.6b-v3-coreml/resolve/main/parakeet_vocab.json"
         )
+        XCTAssertEqual(
+            ParakeetPlugin.vocabularyAssetURL(for: .ultra).absoluteString,
+            "https://huggingface.co/FluidInference/parakeet-ultra-coreml/resolve/main/parakeet_vocab.json"
+        )
+    }
+
+    func testUltraIsOfferedWithV3LanguagesAndFiles() throws {
+        let plugin = makePlugin()
+        XCTAssertEqual(
+            plugin.transcriptionModels.map(\.id),
+            ["parakeet-tdt-0.6b-v2", "parakeet-tdt-0.6b-v3", "parakeet-ultra"]
+        )
+        XCTAssertEqual(ParakeetVersion.from(modelId: "parakeet-ultra"), .ultra)
+        XCTAssertEqual(ParakeetVersion.ultra.supportedLanguages, ParakeetVersion.v3.supportedLanguages)
+        XCTAssertEqual(ParakeetVersion.ultra.requiredModelFiles, ParakeetVersion.v3.requiredModelFiles)
     }
 
     func testEnsureVocabularyAssetSkipsExistingFile() async throws {
@@ -512,6 +561,18 @@ final class ParakeetPluginTests: XCTestCase {
         XCTAssertNil(ParakeetPlugin.sourceProgress(fromFraction: 0.5, totalDuration: 0))
     }
 
+    func testDownloadProgressFollowsDownloadWithinLoadingBand() {
+        XCTAssertEqual(ParakeetPlugin.downloadProgress(after: 0.1, downloadFraction: 0.25), 0.4, accuracy: 0.0001)
+        XCTAssertEqual(ParakeetPlugin.downloadProgress(after: 0.1, downloadFraction: 0.5), 0.7, accuracy: 0.0001)
+        XCTAssertEqual(ParakeetPlugin.downloadProgress(after: 0.1, downloadFraction: 1), 0.7, accuracy: 0.0001)
+    }
+
+    func testDownloadProgressNeverMovesBackwards() {
+        XCTAssertEqual(ParakeetPlugin.downloadProgress(after: 0.55, downloadFraction: 0), 0.55)
+        XCTAssertEqual(ParakeetPlugin.downloadProgress(after: 0.55, downloadFraction: -1), 0.55)
+        XCTAssertEqual(ParakeetPlugin.downloadProgress(after: 0.3, downloadFraction: .nan), 0.3)
+    }
+
     func testSourceProgressObservationOnlyStartsForFluidAudioProgressRange() {
         XCTAssertFalse(ParakeetPlugin.shouldObserveSourceProgress(sampleCount: 160_000))
         XCTAssertFalse(ParakeetPlugin.shouldObserveSourceProgress(sampleCount: 240_000))
@@ -605,6 +666,88 @@ final class ParakeetPluginTests: XCTestCase {
         plugin.setBoostingEnabled(true)
 
         XCTAssertEqual(host.capabilitiesChangedCount, 1)
+    }
+
+    func testEnablingDictionaryTermsSettingTurnsOnBoostingAndDownloadsFilesOnlyWhileUnloaded() async throws {
+        let host = try PluginTestHostServices()
+        let plugin = makePlugin()
+        plugin.activate(host: host)
+        let recorder = CtcDownloadRecorder()
+        plugin.ctcModelDownloadOverrideForTests = { loadIntoMemory in
+            XCTAssertEqual(plugin.dictionaryTermsSupport, .supported)
+            await recorder.download(loadIntoMemory: loadIntoMemory)
+        }
+
+        XCTAssertTrue((plugin as Any) is any DictionaryTermsSettingEnabling)
+        XCTAssertFalse(plugin.dictionaryTermsSettingSummary.isEmpty)
+        XCTAssertEqual(plugin.dictionaryTermsSupport, .requiresPluginSetting)
+
+        try await plugin.enableDictionaryTermsSetting()
+
+        let events = await recorder.events
+        XCTAssertEqual(events, ["start files", "end files"])
+        XCTAssertEqual(plugin.dictionaryTermsSupport, .supported)
+        XCTAssertEqual(host.userDefault(forKey: "vocabularyBoostingEnabled") as? Bool, true)
+        XCTAssertEqual(host.capabilitiesChangedCount, 2)
+    }
+
+    func testEnablingDictionaryTermsSettingThrowsDownloadFailureAndKeepsBoostingOn() async throws {
+        let host = try PluginTestHostServices()
+        let plugin = makePlugin()
+        plugin.activate(host: host)
+        plugin.ctcModelDownloadOverrideForTests = { _ in
+            plugin.ctcModelState = .error("Not enough disk space")
+        }
+
+        do {
+            try await plugin.enableDictionaryTermsSetting()
+            XCTFail("Expected the download failure to be thrown")
+        } catch let error as ParakeetVocabularyBoostingError {
+            XCTAssertEqual(error.localizedDescription, "Not enough disk space")
+        }
+
+        // Same as the settings toggle: boosting stays on and the download is retried later.
+        XCTAssertEqual(plugin.dictionaryTermsSupport, .supported)
+        XCTAssertEqual(plugin.currentSettingsActivity?.isError, true)
+        XCTAssertEqual(host.capabilitiesChangedCount, 1)
+
+        plugin.ctcModelDownloadOverrideForTests = { _ in
+            plugin.ctcModelState = .notDownloaded
+        }
+        try await plugin.enableDictionaryTermsSetting()
+        XCTAssertEqual(host.capabilitiesChangedCount, 2)
+    }
+
+    func testCtcDownloadsFromEnablingAndFirstUseRunOneAfterAnother() async throws {
+        let host = try PluginTestHostServices()
+        let plugin = makePlugin()
+        plugin.activate(host: host)
+        let recorder = CtcDownloadRecorder(holdsFirstDownload: true)
+        plugin.ctcModelDownloadOverrideForTests = { loadIntoMemory in
+            await recorder.download(loadIntoMemory: loadIntoMemory)
+        }
+
+        let enabling = Task { try await plugin.enableDictionaryTermsSetting() }
+        await recorder.waitForFirstStart()
+
+        // A first transcription asks for the in-memory model while the files download.
+        let firstUse = Task { await plugin.downloadCtcModel() }
+        var yields = 0
+        while await plugin.ctcDownloadGate.waitingCount == 0, yields < 10_000 {
+            await Task.yield()
+            yields += 1
+        }
+        let waitingCount = await plugin.ctcDownloadGate.waitingCount
+        XCTAssertEqual(waitingCount, 1)
+        let eventsWhileHeld = await recorder.events
+        XCTAssertEqual(eventsWhileHeld, ["start files"])
+
+        await recorder.releaseFirstDownload()
+        try await enabling.value
+        await firstUse.value
+
+        let events = await recorder.events
+        XCTAssertEqual(events, ["start files", "end files", "start load", "end load"])
     }
 
     func testDisablingVocabularyBoostingPersistsClearsVocabularyAndHidesCtcActivity() throws {
@@ -701,5 +844,100 @@ final class ParakeetPluginTests: XCTestCase {
         for key in envKeys {
             XCTAssertEqual(getenv(key).map { String(cString: $0) }, "hf_env_parakeet")
         }
+    }
+
+    // MARK: - Restore trigger activity (issue #840)
+
+    func testTriggerRestoreModelPublishesActivitySynchronously() throws {
+        let host = try PluginTestHostServices()
+        let plugin = makePlugin()
+        plugin.activate(host: host)
+        // Suppress the async restore task: with nothing persisted it can finish
+        // and flip the mark to the "nothing to restore" error before the
+        // assertion below reads it, which made this test flaky in CI.
+        plugin.suppressAsyncRestoreForTests = true
+
+        XCTAssertNil(plugin.currentSettingsActivity)
+
+        plugin.triggerRestoreModel()
+
+        // The activity must be visible synchronously: the host only extends its
+        // restore wait past the base window while an activity is reported, and
+        // task scheduling can delay the async restore task before it publishes
+        // its first state update.
+        let activity = try XCTUnwrap(plugin.currentSettingsActivity)
+        XCTAssertFalse(activity.isError)
+    }
+
+    func testTriggerRestoreModelWithoutPersistedModelSurfacesError() async throws {
+        let host = try PluginTestHostServices()
+        let plugin = makePlugin()
+        plugin.activate(host: host)
+
+        // No `loadedModel` persisted, so the async restore has nothing to load.
+        plugin.triggerRestoreModel()
+
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        var errorActivity: PluginSettingsActivity?
+        while ContinuousClock.now < deadline {
+            if let current = plugin.currentSettingsActivity, current.isError {
+                errorActivity = current
+                break
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        let activity = try XCTUnwrap(
+            errorActivity,
+            "a restore with nothing persisted must surface an error, not stay silent"
+        )
+        XCTAssertTrue(activity.message.contains("No previously loaded model"))
+    }
+
+    /// Opt-in Core ML regression through the user-facing restore trigger: seeds the
+    /// persisted `loadedModel` marker, goes through `triggerRestoreModel()`, and verifies
+    /// the plugin configures and transcribes. Without this, a regression in the generic
+    /// trigger could leave the persisted model unloaded while the suite stays green,
+    /// because every other Parakeet restore test calls `restoreLoadedModel(...)` directly.
+    func testTriggerRestoreModelRestoresPersistedModelBeforeTranscription() async throws {
+        let audio = try regressionAudio()
+
+        let host = try PluginTestHostServices(defaults: [
+            "loadedModel": "parakeet-tdt-0.6b-v3",
+        ])
+        let plugin = makePlugin()
+        plugin.activate(host: host)
+        defer { plugin.deactivate() }
+
+        plugin.triggerRestoreModel()
+
+        let deadline = ContinuousClock.now.advanced(by: .seconds(30))
+        while !plugin.isConfigured && ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        guard plugin.isConfigured else {
+            XCTFail("triggerRestoreModel() left the persisted model unloaded: \(plugin.modelState)")
+            return
+        }
+        let result = try await plugin.transcribe(
+            audio: audio,
+            language: nil,
+            translate: false,
+            prompt: nil
+        )
+        XCTAssertFalse(result.text.isEmpty, "the restored persisted model must transcribe")
+    }
+
+    func testTriggerRestoreModelForModelPublishesActivitySynchronously() throws {
+        let host = try PluginTestHostServices()
+        let plugin = makePlugin()
+        plugin.activate(host: host)
+        // Same suppression as above: assert on the synchronous mark only.
+        plugin.suppressAsyncRestoreForTests = true
+
+        plugin.triggerRestoreModel(forModel: "parakeet-tdt-0.6b-v3")
+
+        // Same synchronous-activity contract as the parameterless trigger.
+        XCTAssertNotNil(plugin.currentSettingsActivity)
     }
 }

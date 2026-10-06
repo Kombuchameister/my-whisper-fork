@@ -46,8 +46,9 @@ python3 scripts/validate_plugin_release_manifest.py path/to/manifest.json --vers
 
 The release workflow rejects older minimum hosts before building and verifies
 the resulting binary against the SDK shipped by the declared host release.
-Until stable 1.7.0 is published, manual preview releases require the explicit
-`allow_prerelease_host` option to use a matching 1.7.0 daily host for that check.
+Manual preview releases targeting a host version without a published stable
+release require the explicit `allow_prerelease_host` option to use a matching
+daily or RC host for that check.
 Previously published plugin binaries and registry releases retain their original
 host requirements. Use a new plugin version for a new build; preserve old release
 entries so TypeWhisper 1.6 can keep selecting its newest compatible release.
@@ -178,6 +179,30 @@ extension MyTranscriptionEngine: DictionaryTermsBudgetProviding {
 This protocol is optional. Legacy plugins that do not adopt it remain compatible on
 `sdkCompatibilityVersion = "v1"` and automatically continue to use TypeWhisper's
 default 600-character fallback when building dictionary prompts.
+
+If your engine reports `.requiresPluginSetting` through
+`DictionaryTermsCapabilityProviding` and can turn that setting on by itself, adopt
+`DictionaryTermsSettingEnabling`. When a user adds a dictionary term while your
+engine is selected, TypeWhisper suggests the setting with an Enable button and
+offers the same action in the dictionary's engine overview:
+
+```swift
+extension MyTranscriptionEngine: DictionaryTermsSettingEnabling {
+    var dictionaryTermsSettingSummary: String {
+        String(localized: "My Engine recognizes your terms better with term boosting (about 50 MB download).")
+    }
+
+    func enableDictionaryTermsSetting() async throws {
+        setTermBoostingEnabled(true)         // dictionaryTermsSupport now returns .supported
+        host?.notifyCapabilitiesChanged()
+        try await downloadTermBoostingModel() // throw a localized error on failure
+    }
+}
+```
+
+`DictionaryTermsSettingEnabling` requires TypeWhisper 1.8.0 or later; declare
+`"minHostVersion": "1.8.0"` when you adopt it. Plugins without it keep working and
+TypeWhisper continues to show its static plugin-setting hint for them.
 
 ### LLMProviderPlugin
 
@@ -374,6 +399,8 @@ func activate(host: HostServices) {
 
 Local model plugins that restore a previously loaded model during activation should first check `host.shouldRestoreLoadedModelsPassively`. Rebuilt plugins that already honor that policy can adopt `HostModelLifecyclePolicyAwarePlugin` so TypeWhisper does not apply the legacy external-plugin `loadedModel` masking shim during `activate(host:)`.
 
+When the user sets auto-unload to "Immediate", a model loaded from the plugin settings is unloaded again right away and loaded on demand for each use. `host.unloadsModelsImmediatelyAfterUse` reports that policy, and `host.modelIdLoadedOnDemand` returns the persisted `loadedModel` while it applies. Show `PluginModelLoadsOnDemandStatus` for that model instead of a Load button, and add its two strings to the plugin's string catalog.
+
 ---
 
 ## Event Bus
@@ -392,16 +419,32 @@ func activate(host: HostServices) {
             print("Recording started at \(payload.timestamp)")
         case .recordingStopped(let payload):
             print("Duration: \(payload.durationSeconds)s")
+        case .recorderTranscriptReady(let payload):
+            print("Saved Recorder transcript: \(payload.transcriptFilePath)")
+            print("Completion: \(payload.completionID)")
         case .textInserted(let payload):
             print("Inserted: \(payload.text)")
         case .actionCompleted(let payload):
             print("Action \(payload.actionId): \(payload.message)")
         case .transcriptionFailed(let payload):
             print("Error: \(payload.error)")
+        default:
+            break
         }
     }
 }
 ```
+
+`recorderTranscriptReady` requires TypeWhisper 1.8.0 or later. It is separate from
+`transcriptionCompleted`, so existing dictation subscribers do not receive meetings.
+Subscribe only with an explicit Recorder opt-in. The payload contains the saved text,
+stable `recordingID`, per-save `completionID`, `completedAt`, `audioFilePath`,
+`transcriptFilePath`, and an optional `markdownFilePath`. It is emitted after a
+successful save, including retranscription, regardless of live-preview settings.
+Its JSON uses snake_case keys, `source: "recorder"`, and Unix seconds for `completed_at`.
+Delivery is best effort; `/v1/recorder/recordings?since=...` provides the latest durable
+completion per recording for catch-up. Retain the subscription ID and unsubscribe
+when deactivating your plugin.
 
 ---
 
@@ -524,7 +567,7 @@ let wavData = PluginWavEncoder.encode(samples, sampleRate: 16000)
 | `principalClass` | Yes | Objective-C class name, must match `@objc(Name)` |
 | `category` | No | Primary/legacy marketplace category: `transcription`, `tts`, `llm`, `post-processor`, `action`, `memory`, or `utility`. |
 | `categories` | No | Optional list of all plugin capabilities. Use this for plugins that cover multiple surfaces, for example `["transcription", "llm"]`. |
-| `capabilities` | No | Optional list of feature-level capability identifiers for overview/filter UI. Use `source-footage-progress` for engines that report real source-audio progress during file transcription. |
+| `capabilities` | No | Optional list of feature-level capability identifiers for overview/filter UI. Use `source-footage-progress` for engines that report real source-audio progress during file transcription. Use `live-dictation` for live-capable engines whose live session should produce the final dictation result: TypeWhisper then streams dictation through it even when the transcript preview is hidden, instead of sending one batch request after recording stops. Older hosts ignore it. |
 | `hosting` | No | Marketplace hosting classification: `local` or `cloud`. If omitted, TypeWhisper falls back to `requiresAPIKey == true` as cloud and otherwise local. |
 | `requiresAPIKey` | No | Whether the plugin specifically needs an API key credential. This is not the Local/Cloud category; use `hosting` for that. |
 | `iconSystemName` | No | SF Symbol name for marketplace and settings UI. |
@@ -535,14 +578,25 @@ let wavData = PluginWavEncoder.encode(samples, sampleRate: 16000)
 
 To distribute via the TypeWhisper plugin marketplace:
 
-1. Submit plugin source for review, or link to a reviewed source repository.
-2. Submit a PR adding `PluginRegistry/community-v1/com.yourname.myplugin.json`
-   on `main`.
+1. Submit a PR to `main` that adds the plugin source under
+   `TypeWhisperPluginSDK/Plugins/<Name>Plugin/`, its Xcode bundle target, and
+   a slug-to-target mapping in `.github/workflows/plugin-release.yml`.
+   The release workflow only builds plugins from this repository, so a link to
+   an external source repository is not enough.
+2. In the same PR, or after source review, add
+   `PluginRegistry/community-v1/com.yourname.myplugin.json`.
 3. Keep `releases[]` omitted or empty until a TypeWhisper maintainer publishes
    the installable artifact.
 4. After review, a maintainer runs `plugin-release.yml` with
    `distribution_source=community`. The workflow builds, signs, hosts, and
    publishes the TypeWhisper-owned ZIP to `gh-pages/plugins-community-v1.json`.
+
+Community plugins must use their own ID namespace and author name. The
+`com.typewhisper` ID namespace and the author `TypeWhisper` are reserved for
+official plugins and rejected by registry validation. The author check ignores
+case and surrounding whitespace, so variants like ` typewhisper ` are rejected
+too. The bundled `manifest.json` must use the same `id` and `author` as the
+registry entry, or the community release workflow stops before building.
 
 Community marketplace artifacts must be built and hosted by TypeWhisper.
 Contributor-hosted ZIPs, personal GitHub Release assets, and other external

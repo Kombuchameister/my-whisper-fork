@@ -57,7 +57,7 @@ enum WorkflowTemplate: String, CaseIterable, Codable, Sendable {
         case .translation:
             WorkflowTemplateDefinition(
                 template: self,
-                name: localizedAppText("Translation", de: "Uebersetzung"),
+                name: localizedAppText("Translation", de: "Übersetzung"),
                 description: localizedAppText(
                     "Translate dictated text into the target language.",
                     de: "Uebersetzt diktierten Text in die Zielsprache."
@@ -77,7 +77,7 @@ enum WorkflowTemplate: String, CaseIterable, Codable, Sendable {
         case .meetingNotes:
             WorkflowTemplateDefinition(
                 template: self,
-                name: localizedAppText("Meeting Notes", de: "Meeting Notes"),
+                name: localizedAppText("Meeting Notes", de: "Besprechungsnotizen"),
                 description: localizedAppText(
                     "Structure dictated notes into a meeting summary.",
                     de: "Strukturiert diktierte Notizen zu einer Meeting-Zusammenfassung."
@@ -124,6 +124,18 @@ enum WorkflowTemplate: String, CaseIterable, Codable, Sendable {
                 ),
                 systemImage: "slider.horizontal.3"
             )
+        }
+    }
+
+    /// Whether the template's LLM step transforms each sentence on its own, so the
+    /// outputs of independent segments can be joined. Templates that restructure,
+    /// condense, or wrap the whole dictation (and custom instructions) cannot be split.
+    var allowsSegmentedPostProcessing: Bool {
+        switch self {
+        case .cleanedText, .translation:
+            true
+        case .emailReply, .meetingNotes, .checklist, .json, .summary, .dictation, .speakToWindow, .custom:
+            false
         }
     }
 }
@@ -328,6 +340,10 @@ struct WorkflowBehavior: Codable, Equatable, Sendable {
     var inlineCommandsEnabled: Bool?
     var temperatureModeRaw: String?
     var temperatureValue: Double?
+    /// Opt-in: run the workflow LLM on sentence-aligned segments (during recording
+    /// for streaming engines, concurrently after stop otherwise). `nil` means off,
+    /// so data written by builds without this field decodes unchanged.
+    var segmentedPostProcessingEnabled: Bool?
 
     init(
         settings: [String: String] = [:],
@@ -340,7 +356,8 @@ struct WorkflowBehavior: Codable, Equatable, Sendable {
         microphoneBoostOverride: Bool? = nil,
         inlineCommandsEnabled: Bool? = nil,
         temperatureModeRaw: String? = nil,
-        temperatureValue: Double? = nil
+        temperatureValue: Double? = nil,
+        segmentedPostProcessingEnabled: Bool? = nil
     ) {
         self.settings = settings
         self.fineTuning = fineTuning
@@ -353,6 +370,7 @@ struct WorkflowBehavior: Codable, Equatable, Sendable {
         self.inlineCommandsEnabled = inlineCommandsEnabled
         self.temperatureModeRaw = temperatureModeRaw
         self.temperatureValue = temperatureValue
+        self.segmentedPostProcessingEnabled = segmentedPostProcessingEnabled
     }
 
     var temperatureMode: PluginLLMTemperatureMode {
@@ -371,6 +389,16 @@ enum WorkflowAutoEnterMode: String, CaseIterable, Identifiable, Codable, Sendabl
     case duringDictation
 
     var id: String { rawValue }
+
+    /// Submitting with Enter during dictation needs an event tap that keeps Enter from reaching
+    /// the target app. The App Store edition can only observe key events.
+    var isAvailable: Bool {
+#if APPSTORE
+        self != .duringDictation
+#else
+        true
+#endif
+    }
 
     var displayName: String {
         switch self {
@@ -401,11 +429,19 @@ enum WorkflowAutoEnterMode: String, CaseIterable, Identifiable, Codable, Sendabl
                 "Presses Enter when the dictation ends with “press enter” or “press return”.",
                 de: "Drückt Enter, wenn das Diktat mit „press enter“ oder „press return“ endet."
             )
+#if APPSTORE
+        case .duringDictation:
+            localizedAppText(
+                "Not available in this edition because TypeWhisper cannot keep Enter from reaching the app. Dictations are inserted without pressing Enter.",
+                de: "In dieser Edition nicht verfügbar, weil TypeWhisper Enter nicht von der App fernhalten kann. Diktate werden ohne Enter eingefügt."
+            )
+#else
         case .duringDictation:
             localizedAppText(
                 "Press Enter during recording to stop, insert the text, and submit. Stopping normally only inserts the text.",
                 de: "Drücke während der Aufnahme Enter, um sie zu stoppen, den Text einzufügen und abzusenden. Normales Stoppen fügt nur den Text ein."
             )
+#endif
         case .always:
             localizedAppText(
                 "Presses Enter after every inserted dictation.",
@@ -457,6 +493,22 @@ enum WorkflowAutoEnterResolver {
         }
 
         return WorkflowAutoEnterResolution(text: content, shouldPressEnter: true)
+    }
+
+    /// Decides whether Return follows insertion. After an AI post-processing failure the raw
+    /// transcript is inserted instead, so `.always` must not submit it. An explicit
+    /// per-dictation submit (spoken command or physical Enter) still does.
+    static func shouldPressEnterAfterInsertion(
+        mode: WorkflowAutoEnterMode,
+        resolution: WorkflowAutoEnterResolution,
+        insertedText: String,
+        usedRawTranscriptionFallback: Bool
+    ) -> Bool {
+        if mode == .always {
+            return !usedRawTranscriptionFallback
+        }
+        return resolution.shouldPressEnter
+            && !insertedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }
 
@@ -739,6 +791,42 @@ extension Workflow {
             }
             behavior = updatedBehavior
         }
+    }
+
+    /// Whether the workflow runs a prompt-based LLM step whose input can be split
+    /// into independent segments. Only per-sentence templates qualify (see
+    /// `WorkflowTemplate.allowsSegmentedPostProcessing`), so a stored flag on any
+    /// other template is ignored. Inline Commands and Apple Translate are excluded:
+    /// an inline instruction applies to the whole dictation, and Apple Translate
+    /// runs on-device without an LLM request. Structured output formats also
+    /// disable it (see `outputFormatAllowsSegmentation`).
+    var supportsSegmentedPostProcessing: Bool {
+        template.allowsSegmentedPostProcessing
+            && !usesInlineCommands
+            && !usesAppleTranslate
+            && outputFormatAllowsSegmentation()
+            && systemPrompt() != nil
+    }
+
+    /// Segment outputs are joined as plain text, so only plain-text output can be
+    /// split. Formats such as JSON, HTML, or code describe a single document and
+    /// must come from one request. `resolvedOutputFormat` is the format resolved for
+    /// the target app; without it, "auto" resolves the way `outputInstruction` does.
+    func outputFormatAllowsSegmentation(resolvedOutputFormat: String? = nil) -> Bool {
+        let format = resolvedOutputFormat ?? WorkflowOutputFormatResolver.resolvedFormat(
+            storedFormat: output.format,
+            bundleIdentifier: nil,
+            url: nil
+        )
+        guard let normalizedFormat = WorkflowOutputFormatResolver.normalized(format) else {
+            return true
+        }
+        return normalizedFormat == WorkflowOutputFormatResolver.plainTextFormat
+            || normalizedFormat == "plain text"
+    }
+
+    var usesSegmentedPostProcessing: Bool {
+        behavior.segmentedPostProcessingEnabled == true && supportsSegmentedPostProcessing
     }
 
     var isManuallyRunnable: Bool {

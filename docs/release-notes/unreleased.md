@@ -1,13 +1,10 @@
 # Unreleased
 
-## Improvements
-
-- Dictation Recovery keeps the last three successful dictations for up to 24 hours, so an incomplete provider response can be retried even when it looks successful. The Immediately retention setting disables this buffer as well. Groq's settings now let you disable dictionary context without changing post-transcription corrections. Final-transcription diagnostics include audio duration, word counts, and segment timing without logging audio, prompt contents, or transcript text. (#1352)
-
-- Administrators can provision `ManagedLicenseKey` through a macOS configuration profile or user-context script. TypeWhisper activates it automatically, reuses the activation, and displays organization-managed licensing controls. Includes the license and Keychain persistence fixes shipped in 1.6.1. See [the MDM deployment guide](../mdm/README.md). (#1314)
-
-- Number formatting now offers Always, 10 and above (the default), and 100 and above under Settings → Dictation → Output Formatting. Smaller spoken whole numbers and ordinals keep their original wording. Negative numbers use their magnitude; decimals and recognized digit sequences still convert to digits. The threshold also applies when a workflow enables number normalization. Settings backups preserve both the number-normalization toggle and threshold. Existing digits are unchanged. (#1304)
-
-## Fixes
-
-- Escape used to cancel dictation is now consumed by TypeWhisper instead of reaching the target app and potentially dismissing a text field or navigating back. This applies during microphone startup, recording, and transcription, including both presses in double-Escape mode. Holding Escape does not count as a second press. Escape works normally again after cancellation and releasing the key. (#1303)
+- Audio ducking: Preserve the output volume from before microphone startup so stopping or cancelling dictation restores the original level on devices such as USB speakerphones, including cancellation before the first audio buffer, externally cancelled startup, and recording startup failures. Keep restoration paired with the original output device when the default output changes during recording.
+- Gemini plugin: Choose Verbatim or Smart transcription for live dictation and audio files. Verbatim is now the default and preserves fillers, repetitions, and spoken corrections; select Smart to keep the previous cleanup and formatting behavior.
+- Gemini plugin 1.1.2: Reduce the wait after releasing the dictation hotkey, retain available text if finalization times out, and prepare a fresh Live connection for the next dictation. Unused connections close before they become too old to hand over safely.
+- Recorder automation: Send successfully saved transcripts to Webhook Notifications or Script Runner with a separate, default-off option for each destination. The local API can retrieve completed manual, calendar, and API recordings after a restart, including retranscriptions. Webhook and Script Runner 1.2.0 require TypeWhisper 1.8.0.
+- Dictionary: When you add a Term while Parakeet is selected and Vocabulary Boosting is off, TypeWhisper offers to turn it on right there, including the one-time model download (about 100 MB). "Not now" is remembered, and the engine overview keeps the Enable button. Parakeet 1.4.0 requires TypeWhisper 1.8.0.
+- Hotkeys: Typing and clicking no longer freeze system-wide when TypeWhisper stops responding. A keystroke goes straight to the app if TypeWhisper does not pick it up within 100 ms, and macOS timeouts no longer put the hotkey listener straight back into the input path. Also shipped in 1.7.1.
+- Dictation (direct download edition): When a dictation ends without a text field to paste into, the indicator shows "No text field detected" with an Insert button. Click into the field you want, then click Insert or press your Paste Last Transcription shortcut. The offer stays for 30 seconds, and hovering pauses it. The message for a text field that changed during dictation offers the same button.
+- CLI: `typewhisper transcribe -` now reads audio from stdin as the help text describes instead of failing with "Unknown option '-'".

@@ -101,6 +101,8 @@ enum HotkeySlotType: String, CaseIterable, Sendable {
     case copyLastTranscription
     case pasteLastTranscription
     case recorderToggle
+    case undoLastDictation
+    case restoreRawTranscript
 
     var defaultsKey: String {
         switch self {
@@ -112,6 +114,8 @@ enum HotkeySlotType: String, CaseIterable, Sendable {
         case .copyLastTranscription: return UserDefaultsKeys.copyLastTranscriptionHotkey
         case .pasteLastTranscription: return UserDefaultsKeys.pasteLastTranscriptionHotkey
         case .recorderToggle: return UserDefaultsKeys.recorderToggleHotkey
+        case .undoLastDictation: return UserDefaultsKeys.undoLastDictationHotkey
+        case .restoreRawTranscript: return UserDefaultsKeys.restoreRawTranscriptHotkey
         }
     }
 
@@ -125,16 +129,21 @@ enum HotkeySlotType: String, CaseIterable, Sendable {
         case .copyLastTranscription: return UserDefaultsKeys.copyLastTranscriptionHotkeys
         case .pasteLastTranscription: return UserDefaultsKeys.pasteLastTranscriptionHotkeys
         case .recorderToggle: return UserDefaultsKeys.recorderToggleHotkeys
+        case .undoLastDictation: return UserDefaultsKeys.undoLastDictationHotkeys
+        case .restoreRawTranscript: return UserDefaultsKeys.restoreRawTranscriptHotkeys
         }
     }
 }
 
-private extension HotkeySlotType {
+extension HotkeySlotType {
+    /// Whether pressing this slot's hotkey starts (or stops) dictation.
+    /// Undo/restore must stay false: those hotkeys are keyDown-only actions.
     var startsDictation: Bool {
         switch self {
         case .hybrid, .pushToTalk, .toggle:
             true
-        case .promptPalette, .recentTranscriptions, .copyLastTranscription, .pasteLastTranscription, .recorderToggle:
+        case .promptPalette, .recentTranscriptions, .copyLastTranscription, .pasteLastTranscription, .recorderToggle,
+             .undoLastDictation, .restoreRawTranscript:
             false
         }
     }
@@ -212,6 +221,8 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
     var onCopyLastTranscription: (() -> Void)?
     var onPasteLastTranscription: (() -> Void)?
     var onRecorderToggle: (() -> Void)?
+    var onUndoLastDictation: (() -> Void)?
+    var onRestoreRawTranscript: (() -> Void)?
     var onProfileDictationStart: ((UUID, UInt64) -> Void)?
     var onWorkflowDictationStart: ((UUID, UInt64) -> Void)?
     var onWorkflowTextProcessing: ((UUID) -> Void)?
@@ -243,6 +254,10 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
     var keyStateProvider: (UInt16) -> Bool = { keyCode in
         CGEventSource.keyState(.combinedSessionState, key: CGKeyCode(keyCode))
     }
+    var mouseButtonStateProvider: (UInt16) -> Bool = { button in
+        guard let mouseButton = CGMouseButton(rawValue: UInt32(button)) else { return false }
+        return CGEventSource.buttonState(.combinedSessionState, button: mouseButton)
+    }
     var workflowTextProcessingModifierPollInterval: TimeInterval = 0.05
     var workflowTextProcessingModifierReleaseTimeout: TimeInterval = 2.0
     var workflowTextProcessingPostReleaseDelay: TimeInterval = 0.15
@@ -253,7 +268,12 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
     private var activeSlotType: HotkeySlotType?
     private var activeGlobalHotkey: UnifiedHotkey?
     private(set) var activeProfileId: UUID?
-    private(set) var activeWorkflowId: UUID?
+    private(set) var activeWorkflowId: UUID? {
+        didSet {
+            if activeWorkflowId == nil { activeWorkflowHotkey = nil }
+        }
+    }
+    private var activeWorkflowHotkey: UnifiedHotkey?
     private var pushToTalkInterruptionSignaled = false
     private var pendingHybridModifierHoldWorkItem: DispatchWorkItem?
     private var pendingHybridModifierHoldHotkey: UnifiedHotkey?
@@ -285,6 +305,7 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
         var fnWasDown = false
         var fnComboKeyPressed = false
         var modifierWasDown = false
+        var lastDownTimestamp: TimeInterval?
         var keyWasDown = false
         var mouseButtonWasDown = false
         // Double-tap tracking
@@ -295,6 +316,7 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
             fnWasDown = false
             fnComboKeyPressed = false
             modifierWasDown = false
+            lastDownTimestamp = nil
             keyWasDown = false
             mouseButtonWasDown = false
             lastTapUpTime = nil
@@ -314,6 +336,7 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
         var fnWasDown = false
         var fnComboKeyPressed = false
         var modifierWasDown = false
+        var lastDownTimestamp: TimeInterval?
         var keyWasDown = false
         var mouseButtonWasDown = false
         // Double-tap tracking
@@ -324,6 +347,7 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
             fnWasDown = false
             fnComboKeyPressed = false
             modifierWasDown = false
+            lastDownTimestamp = nil
             keyWasDown = false
             mouseButtonWasDown = false
             lastTapUpTime = nil
@@ -340,6 +364,7 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
         var fnWasDown = false
         var fnComboKeyPressed = false
         var modifierWasDown = false
+        var lastDownTimestamp: TimeInterval?
         var keyWasDown = false
         var mouseButtonWasDown = false
         var lastTapUpTime: Date?
@@ -349,6 +374,7 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
             fnWasDown = false
             fnComboKeyPressed = false
             modifierWasDown = false
+            lastDownTimestamp = nil
             keyWasDown = false
             mouseButtonWasDown = false
             lastTapUpTime = nil
@@ -369,26 +395,429 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
 
     private var globalMonitor: Any?
     private var localMonitor: Any?
-    private var eventTap: CFMachPort?
+    private var hasEventMonitorFallback = false
+    /// The CGEventTap is created and torn down on the main thread but revived
+    /// from the watchdog's background queue, so the port reference and its
+    /// enable/invalidate lifecycle are guarded by one lock rather than by
+    /// `@unchecked Sendable` alone.
+    private nonisolated final class EventTapHandle: @unchecked Sendable {
+        private let lock = NSLock()
+        private var port: CFMachPort?
+        private var watchdogGeneration: UUID?
+        private var reenableBackoff = EventTapReenableBackoff()
+        /// Changes whenever a tap is installed or torn down, so work queued for an earlier tap
+        /// can tell it is stale.
+        private var tapGeneration: UInt64 = 0
+
+        enum WatchdogAction { case none, retrySetup, recovered }
+
+        func beginWatchdog() -> UUID {
+            lock.withLock {
+                let generation = UUID()
+                watchdogGeneration = generation
+                return generation
+            }
+        }
+
+        func cancelWatchdog() {
+            lock.withLock { watchdogGeneration = nil }
+        }
+
+        func isCurrentWatchdog(_ generation: UUID) -> Bool {
+            lock.withLock { watchdogGeneration == generation }
+        }
+
+        var currentWatchdogGeneration: UUID? {
+            lock.withLock { watchdogGeneration }
+        }
+
+        var isEnabled: Bool {
+            lock.withLock { port.map { CGEvent.tapIsEnabled(tap: $0) } ?? false }
+        }
+
+        var isValid: Bool {
+            lock.withLock { port.map { CFMachPortIsValid($0) } ?? false }
+        }
+
+        var current: CFMachPort? {
+            lock.withLock { port }
+        }
+
+        func store(_ tap: CFMachPort) {
+            lock.withLock {
+                port = tap
+                reenableBackoff = EventTapReenableBackoff()
+                tapGeneration &+= 1
+            }
+        }
+
+        var generation: UInt64 {
+            lock.withLock { tapGeneration }
+        }
+
+        /// Disables and invalidates the tap under the lock so the watchdog can
+        /// never re-enable a port that is being torn down.
+        func invalidateAndClear() {
+            lock.withLock {
+                guard let tap = port else { return }
+                CGEvent.tapEnable(tap: tap, enable: false)
+                // Disabling a tap leaves its Mach port registered with the system, so
+                // each setup/teardown cycle (settings changes, recorder open/close,
+                // wake) would otherwise leak a stale session-level flagsChanged filter
+                // tap. Those linger in the modifier-event path and can break the
+                // system's double-tap-modifier detection (e.g. Apple Dictation).
+                CFMachPortInvalidate(tap)
+                port = nil
+                tapGeneration &+= 1
+            }
+        }
+
+        /// Keep generation checks and port operations in the same critical section:
+        /// a cancelled timer must never revive a replacement tap.
+        func watchdogTick(generation: UUID) -> WatchdogAction {
+            lock.withLock {
+                guard watchdogGeneration == generation else { return .none }
+                guard let tap = port, CFMachPortIsValid(tap) else { return .retrySetup }
+                guard !CGEvent.tapIsEnabled(tap: tap) else { return .none }
+                guard reenableBackoff.allowsReenable(at: DispatchTime.now().uptimeNanoseconds) else { return .none }
+                CGEvent.tapEnable(tap: tap, enable: true)
+                return .recovered
+            }
+        }
+
+        func enable() {
+            lock.withLock {
+                guard let tap = port else { return }
+                CGEvent.tapEnable(tap: tap, enable: true)
+            }
+        }
+
+        /// Re-arms a tap the system switched off unless it keeps timing out, in which
+        /// case the watchdog re-enables it once the backoff ends.
+        func reenableAfterSystemDisable(byTimeout: Bool) -> EventTapReenableBackoff.Outcome {
+            lock.withLock {
+#if APPSTORE
+                // A listen-only tap never holds input back, so re-arming it is always safe.
+                let outcome = EventTapReenableBackoff.Outcome.reenable
+#else
+                let outcome = byTimeout
+                    ? reenableBackoff.recordTimeout(at: DispatchTime.now().uptimeNanoseconds)
+                    : .reenable
+#endif
+                if let tap = port {
+                    // Also switch the tap off when backing off: a watchdog tick may already have
+                    // re-enabled it after this disable.
+                    CGEvent.tapEnable(tap: tap, enable: outcome == .reenable)
+                }
+                return outcome
+            }
+        }
+    }
+
+    /// Runs the hotkey tap off the main thread. An active filter tap holds every keyboard
+    /// event of the login session until its callback returns, so a tap on the main run loop
+    /// turned any main-thread stall into a system-wide typing and clicking freeze.
+    private nonisolated final class EventTapThread: @unchecked Sendable {
+        static let shared = EventTapThread()
+        let runLoop: CFRunLoop
+
+        private init() {
+            final class RunLoopBox: @unchecked Sendable { var runLoop: CFRunLoop? }
+            let box = RunLoopBox()
+            let ready = DispatchSemaphore(value: 0)
+            let thread = Thread {
+                box.runLoop = CFRunLoopGetCurrent()
+                // Without a source CFRunLoopRun returns at once, before any tap is added.
+                var context = CFRunLoopSourceContext()
+                let keepAlive = CFRunLoopSourceCreate(nil, 0, &context)
+                CFRunLoopAddSource(CFRunLoopGetCurrent(), keepAlive, .commonModes)
+                ready.signal()
+                CFRunLoopRun()
+            }
+            thread.name = "\(AppConstants.loggerSubsystem).hotkey-event-tap"
+            thread.qualityOfService = .userInteractive
+            thread.start()
+            ready.wait()
+            runLoop = box.runLoop!
+        }
+
+        /// Runs `work` between two tap callbacks, or right away when already on the tap thread
+        /// (the last reference to a service can be released there).
+        func performAndWait(_ work: @escaping @Sendable () -> Void) {
+            if CFRunLoopGetCurrent() === runLoop {
+                work()
+                return
+            }
+            let done = DispatchSemaphore(value: 0)
+            CFRunLoopPerformBlock(runLoop, CFRunLoopMode.commonModes.rawValue) {
+                work()
+                done.signal()
+            }
+            CFRunLoopWakeUp(runLoop)
+            done.wait()
+        }
+    }
+
+    /// The tap's `userInfo`. It is retained separately and released only after the tap source
+    /// is gone, so a callback already running on the tap thread never touches a freed service.
+    private nonisolated final class EventTapCallbackContext: @unchecked Sendable {
+        weak var service: HotkeyService?
+
+        init(service: HotkeyService) {
+            self.service = service
+        }
+    }
+
+    /// Lets the tap thread ask the main thread whether to consume an event without holding
+    /// the session's input for longer than a short timeout. Once one event goes unanswered,
+    /// later events pass through at once until the main thread responds again. Events
+    /// released undecided are left to the NSEvent monitors, which see every delivered event.
+    nonisolated final class EventTapMainThreadGate: @unchecked Sendable {
+        final class Decision: @unchecked Sendable {
+            fileprivate enum State { case pending, claimed, resolved(suppress: Bool), released, abandoned }
+            // Guarded by the gate's lock.
+            fileprivate var state = State.pending
+            fileprivate let resolved = DispatchSemaphore(value: 0)
+        }
+
+        struct Stall: Equatable {
+            let duration: TimeInterval
+            let releasedEvents: Int
+        }
+
+        enum Claim: Equatable {
+            case handle
+            /// The tap already released the event. `stall` is set for the first main-thread
+            /// work after the stall that released it.
+            case skip(stall: Stall?)
+        }
+
+        enum Answer: Equatable {
+            case decided(suppress: Bool)
+            case released(stallStarted: Bool)
+        }
+
+        private let lock = NSLock()
+        private var stallStartedAt: UInt64?
+        private var releasedEvents = 0
+
+        /// Tap thread. Returns nil while the main thread is known to be unresponsive.
+        func makeDecision() -> Decision? {
+            lock.withLock {
+                guard stallStartedAt == nil else {
+                    releasedEvents += 1
+                    return nil
+                }
+                return Decision()
+            }
+        }
+
+        /// Main thread.
+        func claim(_ decision: Decision, now: UInt64 = DispatchTime.now().uptimeNanoseconds) -> Claim {
+            lock.withLock {
+                if case .pending = decision.state {
+                    decision.state = .claimed
+                    return .handle
+                }
+                return .skip(stall: endStall(now: now))
+            }
+        }
+
+        /// Main thread. Returns the stall that ends here if the tap stopped waiting for this
+        /// event while its handler ran.
+        @discardableResult
+        func resolve(
+            _ decision: Decision,
+            suppress: Bool,
+            now: UInt64 = DispatchTime.now().uptimeNanoseconds
+        ) -> Stall? {
+            let stall = lock.withLock { () -> Stall? in
+                if case .abandoned = decision.state { return endStall(now: now) }
+                decision.state = .resolved(suppress: suppress)
+                return nil
+            }
+            decision.resolved.signal()
+            return stall
+        }
+
+        /// Tap thread. The main thread has until `requestedAt + timeout` to pick the event up.
+        /// A handler that is already running gets up to `claimedTimeout` more, because its side
+        /// effects (a cancelled dictation, a consumed Return) assume its decision is honored.
+        func wait(
+            for decision: Decision,
+            requestedAt: UInt64,
+            timeout: TimeInterval,
+            claimedTimeout: TimeInterval
+        ) -> Answer {
+            let deadline = DispatchTime(uptimeNanoseconds: requestedAt) + timeout
+            if decision.resolved.wait(timeout: deadline) == .success {
+                return answer(for: decision)
+            }
+            if releaseIfStillIn(.pending, decision, requestedAt: requestedAt) {
+                return .released(stallStarted: true)
+            }
+            if decision.resolved.wait(timeout: deadline + claimedTimeout) == .success {
+                return answer(for: decision)
+            }
+            if releaseIfStillIn(.claimed, decision, requestedAt: requestedAt) {
+                return .released(stallStarted: true)
+            }
+            return answer(for: decision)
+        }
+
+        private enum WaitPhase { case pending, claimed }
+
+        private func releaseIfStillIn(_ phase: WaitPhase, _ decision: Decision, requestedAt: UInt64) -> Bool {
+            lock.withLock {
+                switch (phase, decision.state) {
+                case (.pending, .pending):
+                    decision.state = .released
+                case (.claimed, .claimed):
+                    decision.state = .abandoned
+                default:
+                    return false
+                }
+                stallStartedAt = requestedAt
+                releasedEvents = 1
+                return true
+            }
+        }
+
+        /// Call with the lock held.
+        private func endStall(now: UInt64) -> Stall? {
+            guard let startedAt = stallStartedAt else { return nil }
+            let stall = Stall(
+                duration: TimeInterval(now &- startedAt) / 1_000_000_000,
+                releasedEvents: releasedEvents
+            )
+            stallStartedAt = nil
+            releasedEvents = 0
+            return stall
+        }
+
+        private func answer(for decision: Decision) -> Answer {
+            lock.withLock {
+                guard case .resolved(let suppress) = decision.state else { return .released(stallStarted: false) }
+                return .decided(suppress: suppress)
+            }
+        }
+    }
+
+    /// The system disables a tap whose callback keeps the session's input waiting. Re-arming
+    /// it right away each time put the tap straight back into the input path, so after
+    /// repeated timeouts the tap stays off for a while and the NSEvent monitors handle
+    /// hotkeys without suppression.
+    nonisolated struct EventTapReenableBackoff: Sendable {
+        enum Outcome: Equatable {
+            case reenable
+            /// The tap stays disabled; set when this timeout started the backoff.
+            case backingOff(seconds: TimeInterval?)
+        }
+
+        static let timeoutLimit = 3
+        static let timeoutWindow: UInt64 = 30_000_000_000
+        static let initialBackoff: UInt64 = 30_000_000_000
+        static let maximumBackoff: UInt64 = 300_000_000_000
+
+        private var recentTimeouts: [UInt64] = []
+        private var backoffUntil: UInt64?
+        private var lastBackoffEnd: UInt64?
+        private var nextBackoff = Self.initialBackoff
+
+        func allowsReenable(at now: UInt64) -> Bool {
+            guard let backoffUntil else { return true }
+            return now >= backoffUntil
+        }
+
+        mutating func recordTimeout(at now: UInt64) -> Outcome {
+            if let backoffUntil {
+                guard now >= backoffUntil else { return .backingOff(seconds: nil) }
+                self.backoffUntil = nil
+                lastBackoffEnd = backoffUntil
+            }
+            // A quiet period after the last backoff starts the next one from the beginning.
+            if let lastBackoffEnd, now - lastBackoffEnd > Self.maximumBackoff {
+                nextBackoff = Self.initialBackoff
+                self.lastBackoffEnd = nil
+            }
+            recentTimeouts = recentTimeouts.filter { now - $0 < Self.timeoutWindow } + [now]
+            guard recentTimeouts.count >= Self.timeoutLimit else { return .reenable }
+            let backoff = nextBackoff
+            backoffUntil = now + backoff
+            nextBackoff = min(backoff * 2, Self.maximumBackoff)
+            recentTimeouts.removeAll()
+            return .backingOff(seconds: TimeInterval(backoff) / 1_000_000_000)
+        }
+    }
+
+    private let eventTapHandle = EventTapHandle()
+    private let eventTapMainThreadGate = EventTapMainThreadGate()
+    /// How long one keystroke may wait for the main thread to pick it up before the tap lets it through.
+    private nonisolated static let eventTapDecisionTimeout: TimeInterval = 0.1
+    /// Extra time for a hotkey handler that is already running. Stays well below the roughly
+    /// one second after which the system disables a tap for holding input.
+    private nonisolated static let eventTapClaimedDecisionTimeout: TimeInterval = 0.5
+    private var eventTap: CFMachPort? { eventTapHandle.current }
+#if DEBUG
+    private(set) var monitorSetupCountForTesting = 0
+    private(set) var eventTapSetupAttemptCountForTesting = 0
+    var failEventTapCreationForTesting = false
+#endif
     private var runLoopSource: CFRunLoopSource?
+    private var eventTapCallbackContext: Unmanaged<EventTapCallbackContext>?
+    /// Re-arm disabled taps independently of the main run loop. Events already
+    /// missed during an outage cannot be reconstructed; recovery also reconciles
+    /// physical key state once the main thread can process hotkeys again.
+    private let eventTapWatchdogQueue = DispatchQueue(
+        label: "\(AppConstants.loggerSubsystem).hotkey-tap-watchdog",
+        qos: .userInitiated
+    )
+    private var eventTapWatchdogTimer: DispatchSourceTimer?
+    private static let eventTapWatchdogInterval: TimeInterval = 2.0
     private var carbonHotkeyRegistrations: [UInt32: CarbonHotkeyRegistration] = [:]
+    /// Carbon hotkeys that another app already holds; only the event tap can observe them.
+    private var failedCarbonHotkeyIDs: Set<UInt32> = []
     private var carbonHotkeyEventHandlerRef: EventHandlerRef?
     private var recentEventTapDispatches: [HotkeyDispatchKey: Date] = [:]
     private var capsLockOriginSuppressionUntil: Date?
 
+#if APPSTORE
+    /// The App Store edition observes keys through a listen-only tap, which needs Input
+    /// Monitoring instead of Accessibility.
+    var accessibilityTrustedProvider: () -> Bool = { CGPreflightListenEventAccess() }
+#else
     var accessibilityTrustedProvider: () -> Bool = { AXIsProcessTrusted() }
+#endif
     var secureInputEnabledProvider: () -> Bool = { IsSecureEventInputEnabled() }
 
     var canSuppressExternalKeyEvents: Bool {
+#if APPSTORE
+        // A listen-only tap cannot hold back events from other apps.
+        return false
+#else
         guard !secureInputEnabledProvider() else { return false }
 #if DEBUG
         if let externalKeySuppressionAvailableOverride { return externalKeySuppressionAvailableOverride }
 #endif
-        return eventTap.map { CGEvent.tapIsEnabled(tap: $0) } ?? false
+        return eventTapHandle.isEnabled
+#endif
     }
 
 #if DEBUG
     var externalKeySuppressionAvailableOverride: Bool?
+#endif
+
+#if APPSTORE
+    /// Whether a configured hotkey needs the listen-only event tap because Carbon cannot
+    /// register it (modifier-only, Fn, double-tap and mouse-button hotkeys, or a shortcut
+    /// that another app already registered).
+    var requiresEventObservation: Bool {
+        if !failedCarbonHotkeyIDs.isEmpty { return true }
+        let hotkeys = slots.values.flatMap { $0.compactMap(\.hotkey) }
+            + profileSlots.values.map(\.hotkey)
+            + workflowSlots.values.flatMap { $0.map(\.hotkey) }
+        return hotkeys.contains { !Self.supportsCarbonHotkey($0) }
+    }
 #endif
 
     private let logger = Logger(subsystem: AppConstants.loggerSubsystem, category: "HotkeyService")
@@ -408,6 +837,55 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
         0x3B, // Left Control
         0x3E, // Right Control
     ]
+
+    // Device-dependent modifier flag bits (NX_DEVICE*KEYMASK) keyed by modifier keyCode.
+    // These distinguish the left and right key of a modifier pair, which the generic
+    // NSEvent.ModifierFlags cannot.
+    private nonisolated static let deviceModifierBits: [UInt16: UInt] = [
+        0x37: 0x0008, // Left Command
+        0x36: 0x0010, // Right Command
+        0x38: 0x0002, // Left Shift
+        0x3C: 0x0004, // Right Shift
+        0x3A: 0x0020, // Left Option
+        0x3D: 0x0040, // Right Option
+        0x3B: 0x0001, // Left Control
+        0x3E: 0x2000, // Right Control
+    ]
+
+    private nonisolated static let deviceModifierFamilyMasks: [UInt: UInt] = {
+        var masks: [UInt: UInt] = [:]
+        for (keyCode, bit) in deviceModifierBits {
+            guard let flag = modifierFlagForKeyCode(keyCode) else { continue }
+            masks[flag.rawValue, default: 0] |= bit
+        }
+        return masks
+    }()
+
+    /// Whether the specific physical modifier key is down in this flagsChanged event.
+    /// Synthetic events (and some input devices) omit the device-dependent bits, in
+    /// which case this falls back to the generic per-family flag and returns nil for
+    /// "unknown side".
+    private nonisolated static func specificModifierKeyIsDown(
+        _ event: NSEvent,
+        keyCode: UInt16,
+        genericFlag: NSEvent.ModifierFlags
+    ) -> Bool? {
+        specificModifierKeyIsDown(flags: event.modifierFlags, keyCode: keyCode, genericFlag: genericFlag)
+    }
+
+    private nonisolated static func specificModifierKeyIsDown(
+        flags: NSEvent.ModifierFlags,
+        keyCode: UInt16,
+        genericFlag: NSEvent.ModifierFlags
+    ) -> Bool? {
+        guard flags.contains(genericFlag) else { return false }
+        guard let deviceBit = deviceModifierBits[keyCode],
+              let familyMask = deviceModifierFamilyMasks[genericFlag.rawValue],
+              flags.rawValue & familyMask != 0 else {
+            return nil
+        }
+        return flags.rawValue & deviceBit != 0
+    }
 
     func setup() {
         loadHotkeys()
@@ -635,28 +1113,52 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
     // MARK: - Event Monitor
 
     private func setupMonitor() {
+#if DEBUG
+        monitorSetupCountForTesting += 1
+#endif
         tearDownMonitor()
         let includeMouse = needsMouseEventMonitoring
+#if !APPSTORE
         let suppressingMouse = needsSuppressingMouseEventTap
+#endif
         let accessibilityTrusted = accessibilityTrustedProvider()
         installCarbonHotkeys()
 
         guard accessibilityTrusted else {
             logger.info("Accessibility permission not granted, installing local hotkey monitor only")
             installLocalEventMonitor(includeMouse: includeMouse)
+            // Trust is commonly still false for a moment at launch; the watchdog
+            // upgrades monitoring once it reports true so the session tap gets created
+            // without waiting for an explicit permission request.
+            startEventTapWatchdog()
             return
         }
 
+#if APPSTORE
+        // Global NSEvent key monitors need Accessibility, which the sandbox cannot get. The
+        // listen-only tap observes other apps; the local monitor covers TypeWhisper's windows.
+        if setupEventTap(includeMouse: includeMouse) {
+            logger.info("Using listen-only CGEventTap for hotkey monitoring")
+        } else {
+            logger.info("CGEventTap unavailable, installing local hotkey monitor only")
+        }
+        installLocalEventMonitor(includeMouse: includeMouse)
+        startEventTapWatchdog()
+#else
         // Try CGEventTap first - it can suppress hotkey events from reaching other apps
         if setupEventTap(includeMouse: suppressingMouse) {
             logger.info("Using head-inserted CGEventTap for hotkey monitoring with NSEvent compatibility fallback")
             installEventMonitors(includeMouse: includeMouse)
+            startEventTapWatchdog()
             return
         }
 
-        // Fallback: NSEvent monitors (no event suppression)
+        // Fallback: NSEvent monitors (no event suppression). The watchdog keeps
+        // retrying tap creation so suppression recovers without an app restart.
         logger.info("CGEventTap unavailable, falling back to NSEvent monitors (hotkey events will pass through)")
         installEventMonitors(includeMouse: includeMouse)
+        startEventTapWatchdog()
+#endif
     }
 
     private var needsMouseEventMonitoring: Bool {
@@ -690,13 +1192,16 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
     }
 
     private func installEventMonitors(includeMouse: Bool) {
-        let mask = eventMonitorMask(includeMouse: includeMouse)
+        installGlobalEventMonitor(includeMouse: includeMouse)
+        installLocalEventMonitor(includeMouse: includeMouse)
+    }
 
+    private func installGlobalEventMonitor(includeMouse: Bool) {
+        hasEventMonitorFallback = true
+        let mask = eventMonitorMask(includeMouse: includeMouse)
         globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: mask) { [weak self] event in
             self?.handleGlobalMonitorEvent(event)
         }
-
-        installLocalEventMonitor(includeMouse: includeMouse)
     }
 
     private func handleGlobalMonitorEvent(_ event: NSEvent) {
@@ -728,6 +1233,8 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
         isEscapeKeySuppressed = false
         suppressedSubmitKeyCodes.removeAll()
         tearDownCarbonHotkeys()
+        stopEventTapWatchdog()
+        hasEventMonitorFallback = false
 
         if let monitor = globalMonitor {
             NSEvent.removeMonitor(monitor)
@@ -737,25 +1244,28 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
             NSEvent.removeMonitor(monitor)
             localMonitor = nil
         }
-        if let source = runLoopSource {
-            CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
-            // Invalidate the source so it is fully unregistered, not just removed
-            // from the main run loop.
-            CFRunLoopSourceInvalidate(source)
-            runLoopSource = nil
-        }
-        if let tap = eventTap {
-            CGEvent.tapEnable(tap: tap, enable: false)
-            // Disabling a tap leaves its Mach port registered with the system, so
-            // each setup/teardown cycle (settings changes, recorder open/close,
-            // wake) would otherwise leak a stale session-level flagsChanged filter
-            // tap. Those linger in the modifier-event path and can break the
-            // system's double-tap-modifier detection (e.g. Apple Dictation).
-            CFMachPortInvalidate(tap)
-            eventTap = nil
-        }
+        tearDownEventTap()
         recentEventTapDispatches.removeAll()
         capsLockOriginSuppressionUntil = nil
+    }
+
+    private func tearDownEventTap() {
+        if let source = runLoopSource {
+            // Remove the source on the tap thread itself, so no callback still runs against
+            // this service once teardown returns. A callback waiting for this blocked main
+            // thread gives up after its decision timeout.
+            nonisolated(unsafe) let source = source
+            EventTapThread.shared.performAndWait {
+                CFRunLoopRemoveSource(CFRunLoopGetCurrent(), source, .commonModes)
+                // Invalidate the source so it is fully unregistered, not just removed
+                // from the tap thread's run loop.
+                CFRunLoopSourceInvalidate(source)
+            }
+            runLoopSource = nil
+        }
+        eventTapHandle.invalidateAndClear()
+        eventTapCallbackContext?.release()
+        eventTapCallbackContext = nil
     }
 
     func suspendMonitoring() {
@@ -838,6 +1348,7 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
             logger.warning(
                 "RegisterEventHotKey failed: id=\(id, privacy: .public), status=\(status, privacy: .public), hotkey=\(Self.displayName(for: hotkey), privacy: .public)"
             )
+            failedCarbonHotkeyIDs.insert(id)
             return
         }
 
@@ -1034,7 +1545,7 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
             if behavior == .processSelectedText, hotkey.kind == .keyWithModifiers {
                 setWorkflowKeyWasDown(workflowId: workflowId, hotkey: hotkey, keyWasDown: true)
             }
-            handleWorkflowKeyDown(workflowId: workflowId, behavior: behavior)
+            handleWorkflowKeyDown(workflowId: workflowId, hotkey: hotkey, behavior: behavior)
         case .up:
             handleWorkflowKeyUp(workflowId: workflowId, behavior: behavior)
         }
@@ -1079,6 +1590,7 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
             }
         }
         carbonHotkeyRegistrations.removeAll()
+        failedCarbonHotkeyIDs.removeAll()
 
         if let handler = carbonHotkeyEventHandlerRef {
             RemoveEventHandler(handler)
@@ -1091,46 +1603,112 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
     /// Creates a CGEventTap to intercept and suppress hotkey events before they reach other apps.
     /// Requires Accessibility permission. Returns true if the tap was successfully created.
     private func setupEventTap(includeMouse: Bool) -> Bool {
-        let selfPtr = Unmanaged.passUnretained(self).toOpaque()
+#if DEBUG
+        eventTapSetupAttemptCountForTesting += 1
+        if failEventTapCreationForTesting { return false }
+#endif
+        let context = Unmanaged.passRetained(EventTapCallbackContext(service: self))
 
         // @convention(c) callback - must not capture context. Uses userInfo to access HotkeyService.
-        // The tap source is attached to the main run loop, but this callback does not execute as a
-        // MainActor task. Avoid MainActor runtime assumptions and route through unsafe main-thread-only helpers.
+        // The tap source is attached to the dedicated tap thread's run loop. Hotkey state lives on
+        // the main thread, so the callback only touches lock-guarded state and hops to main.
         let callback: CGEventTapCallBack = { _, type, event, userInfo in
+            guard let userInfo,
+                  let service = Unmanaged<EventTapCallbackContext>.fromOpaque(userInfo)
+                    .takeUnretainedValue().service else {
+                return Unmanaged.passUnretained(event)
+            }
+
             if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-                if let userInfo {
-                    let service = Unmanaged<HotkeyService>.fromOpaque(userInfo).takeUnretainedValue()
-                    service.reenableEventTapAfterSystemDisable()
-                }
+                service.reenableEventTapAfterSystemDisable(byTimeout: type == .tapDisabledByTimeout)
                 return Unmanaged.passUnretained(event)
             }
 
-            guard let userInfo else {
-                return Unmanaged.passUnretained(event)
-            }
-
-            let service = Unmanaged<HotkeyService>.fromOpaque(userInfo).takeUnretainedValue()
-            let shouldSuppress = service.handleEventTapCallback(event)
+            let shouldSuppress = service.decideEventTapEvent(event)
             return shouldSuppress ? nil : Unmanaged.passUnretained(event)
         }
 
+#if APPSTORE
+        // Active taps are not available in the App Sandbox. A listen-only tap ignores the
+        // callback's result, so matched hotkeys, Escape and Return also reach the target app.
+        let tapOptions: CGEventTapOptions = .listenOnly
+#else
+        let tapOptions: CGEventTapOptions = .defaultTap
+#endif
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
             place: Self.hotkeyEventTapPlacement,
-            options: .defaultTap,
+            options: tapOptions,
             eventsOfInterest: Self.suppressingEventTapMask(includeMouse: includeMouse),
             callback: callback,
-            userInfo: selfPtr
+            userInfo: context.toOpaque()
         ) else {
+            context.release()
             return false
         }
 
-        eventTap = tap
+        eventTapHandle.store(tap)
+        eventTapCallbackContext = context
         let source = CFMachPortCreateRunLoopSource(nil, tap, 0)
         runLoopSource = source
-        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
-        CGEvent.tapEnable(tap: tap, enable: true)
+        let tapRunLoop = EventTapThread.shared.runLoop
+        CFRunLoopAddSource(tapRunLoop, source, .commonModes)
+        CFRunLoopWakeUp(tapRunLoop)
+        eventTapHandle.enable()
         return true
+    }
+
+    private func startEventTapWatchdog(interval: TimeInterval = HotkeyService.eventTapWatchdogInterval) {
+        stopEventTapWatchdog()
+        let generation = eventTapHandle.beginWatchdog()
+        let timer = DispatchSource.makeTimerSource(queue: eventTapWatchdogQueue)
+        timer.schedule(
+            deadline: .now() + interval,
+            repeating: interval
+        )
+        timer.setEventHandler { [weak self] in
+            self?.eventTapWatchdogTick(generation: generation)
+        }
+        timer.resume()
+        eventTapWatchdogTimer = timer
+    }
+
+    /// One watchdog pass. Runs on the watchdog queue; only the lock-guarded tap
+    /// handle is touched off-main, everything else hops to the main actor.
+    private nonisolated func eventTapWatchdogTick(generation: UUID) {
+        let action = eventTapHandle.watchdogTick(generation: generation)
+        guard action != .none else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.eventTapHandle.isCurrentWatchdog(generation) else { return }
+            switch action {
+            case .none:
+                break
+            case .recovered:
+                self.resyncHotkeyStateAfterEventTapRecovery()
+                self.recoverReleasedActiveHotkeyAfterEventTapDisable()
+            case .retrySetup:
+                guard !self.eventTapHandle.isValid, self.accessibilityTrustedProvider() else { return }
+                // Preserve Carbon registrations, local monitoring, pending holds,
+                // deduplication, and press latches even during a permission upgrade.
+                self.tearDownEventTap()
+#if APPSTORE
+                _ = self.setupEventTap(includeMouse: self.needsMouseEventMonitoring)
+#else
+                _ = self.setupEventTap(includeMouse: self.needsSuppressingMouseEventTap)
+                if !self.hasEventMonitorFallback {
+                    self.installGlobalEventMonitor(includeMouse: self.needsMouseEventMonitoring)
+                }
+#endif
+                self.resyncHotkeyStateAfterEventTapRecovery()
+                self.recoverReleasedActiveHotkeyAfterEventTapDisable()
+            }
+        }
+    }
+
+    private func stopEventTapWatchdog() {
+        eventTapHandle.cancelWatchdog()
+        eventTapWatchdogTimer?.cancel()
+        eventTapWatchdogTimer = nil
     }
 
     private nonisolated static func suppressingEventTapMask(includeMouse: Bool) -> CGEventMask {
@@ -1151,13 +1729,125 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
         button != 2
     }
 
-    private func reenableEventTapAfterSystemDisable() {
-        if let tap = eventTap {
-            CGEvent.tapEnable(tap: tap, enable: true)
+    /// Tap thread.
+    private nonisolated func reenableEventTapAfterSystemDisable(byTimeout: Bool) {
+        let reason = byTimeout ? "timeout" : "user input"
+        switch eventTapHandle.reenableAfterSystemDisable(byTimeout: byTimeout) {
+        case .reenable:
+            logger.warning("CGEventTap was disabled by system (\(reason, privacy: .public)), re-enabling")
+        case .backingOff(let seconds):
+            // Later timeouts within the backoff follow no new outage.
+            guard let seconds else { return }
+            logger.error(
+                "CGEventTap timed out \(EventTapReenableBackoff.timeoutLimit) times within \(Int(EventTapReenableBackoff.timeoutWindow / 1_000_000_000))s; leaving it disabled for \(Int(seconds))s, hotkeys keep working without suppression"
+            )
         }
-        logger.warning("CGEventTap was disabled by system, re-enabling")
+        // Releases missed during the outage would otherwise leave a hotkey latched, also while
+        // the NSEvent monitors take over during a backoff.
+        guard let generation = eventTapHandle.currentWatchdogGeneration else { return }
         DispatchQueue.main.async { [weak self] in
-            self?.recoverReleasedActiveHotkeyAfterEventTapDisable()
+            guard let self, self.eventTapHandle.isCurrentWatchdog(generation) else { return }
+            self.resyncHotkeyStateAfterEventTapRecovery()
+            self.recoverReleasedActiveHotkeyAfterEventTapDisable()
+        }
+    }
+
+    /// Clears "key is down" tracking that no longer matches the physical keyboard.
+    /// While the event tap is disabled, release events are lost; a stale
+    /// `modifierWasDown`/`fnWasDown` flag then makes the next press classify as a
+    /// key repeat and the hotkey is silently swallowed. This is what previously
+    /// left toggle-mode dictations stuck in recording after a missed stop press.
+    private func resyncHotkeyStateAfterEventTapRecovery() {
+        let flags = modifierFlagsStateProvider()
+        var resyncedCount = 0
+
+        func staleFlagCleared(hotkey: UnifiedHotkey, state: inout SlotState) -> Bool {
+            switch hotkey.kind {
+            case .fn:
+                guard state.fnWasDown, !flags.contains(.function) else { return false }
+                state.fnWasDown = false
+                state.fnComboKeyPressed = false
+                return true
+            case .modifierOnly, .modifierCombo:
+                guard state.modifierWasDown, !isHotkeyPhysicallyHeld(hotkey) else { return false }
+                state.modifierWasDown = false
+                return true
+            case .keyWithModifiers, .bareKey:
+                guard state.keyWasDown, !keyStateProvider(hotkey.keyCode) else { return false }
+                state.keyWasDown = false
+                return true
+            case .mouseButton:
+                guard state.mouseButtonWasDown, !isHotkeyPhysicallyHeld(hotkey) else { return false }
+                state.mouseButtonWasDown = false
+                return true
+            }
+        }
+
+        for slotType in HotkeySlotType.allCases {
+            guard var states = slots[slotType] else { continue }
+            for index in states.indices {
+                guard let hotkey = states[index].hotkey else { continue }
+                if staleFlagCleared(hotkey: hotkey, state: &states[index]) {
+                    resyncedCount += 1
+                }
+            }
+            slots[slotType] = states
+        }
+
+        for profileId in Array(profileSlots.keys) {
+            guard var pState = profileSlots[profileId] else { continue }
+            var state = SlotState(
+                hotkey: pState.hotkey,
+                fnWasDown: pState.fnWasDown,
+                fnComboKeyPressed: pState.fnComboKeyPressed,
+                modifierWasDown: pState.modifierWasDown,
+                lastDownTimestamp: pState.lastDownTimestamp,
+                keyWasDown: pState.keyWasDown,
+                mouseButtonWasDown: pState.mouseButtonWasDown
+            )
+            if staleFlagCleared(hotkey: pState.hotkey, state: &state) {
+                pState.fnWasDown = state.fnWasDown
+                pState.fnComboKeyPressed = state.fnComboKeyPressed
+                pState.lastDownTimestamp = state.lastDownTimestamp
+                pState.modifierWasDown = state.modifierWasDown
+                pState.keyWasDown = state.keyWasDown
+                pState.mouseButtonWasDown = state.mouseButtonWasDown
+                profileSlots[profileId] = pState
+                resyncedCount += 1
+            }
+        }
+
+        for workflowId in Array(workflowSlots.keys) {
+            guard var states = workflowSlots[workflowId] else { continue }
+            var changed = false
+            for index in states.indices {
+                var state = SlotState(
+                    hotkey: states[index].hotkey,
+                    fnWasDown: states[index].fnWasDown,
+                    fnComboKeyPressed: states[index].fnComboKeyPressed,
+                    modifierWasDown: states[index].modifierWasDown,
+                    lastDownTimestamp: states[index].lastDownTimestamp,
+                    keyWasDown: states[index].keyWasDown,
+                    mouseButtonWasDown: states[index].mouseButtonWasDown
+                )
+                if staleFlagCleared(hotkey: states[index].hotkey, state: &state) {
+                    states[index].fnWasDown = state.fnWasDown
+                    states[index].fnComboKeyPressed = state.fnComboKeyPressed
+                    states[index].lastDownTimestamp = state.lastDownTimestamp
+                    states[index].modifierWasDown = state.modifierWasDown
+                    states[index].keyWasDown = state.keyWasDown
+                    states[index].mouseButtonWasDown = state.mouseButtonWasDown
+                    changed = true
+                    resyncedCount += 1
+                }
+            }
+            if changed {
+                workflowSlots[workflowId] = states
+            }
+        }
+
+        if resyncedCount > 0 {
+            logger.warning("Resynced \(resyncedCount) stale hotkey key-state flag(s) after event tap recovery")
         }
     }
 
@@ -1166,16 +1856,82 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
         return handleEventTapEvent(nsEvent)
     }
 
+    /// Tap thread. Asks the main thread whether to consume `event`, but lets it through if the
+    /// main thread does not pick it up within `eventTapDecisionTimeout`.
+    private nonisolated func decideEventTapEvent(_ event: CGEvent) -> Bool {
+        nonisolated(unsafe) let event = event
+#if APPSTORE
+        // A listen-only tap ignores the result, so it never has to wait for the main thread.
+        let generation = eventTapHandle.generation
+        DispatchQueue.main.async { [self] in
+            // Monitoring may have been suspended, e.g. for the shortcut recorder, since this was queued.
+            guard eventTapHandle.generation == generation else { return }
+            _ = handleEventTapCallback(event)
+        }
+        return false
+#else
+        guard let decision = eventTapMainThreadGate.makeDecision() else { return false }
+        let requestedAt = DispatchTime.now().uptimeNanoseconds
+        DispatchQueue.main.async { [self] in
+            switch eventTapMainThreadGate.claim(decision) {
+            case .handle:
+                let suppress = handleEventTapCallback(event)
+                if let stall = eventTapMainThreadGate.resolve(decision, suppress: suppress) {
+                    finishEventTapMainThreadStall(stall)
+                }
+            case .skip(let stall):
+                if let stall { finishEventTapMainThreadStall(stall) }
+            }
+        }
+        switch eventTapMainThreadGate.wait(
+            for: decision,
+            requestedAt: requestedAt,
+            timeout: Self.eventTapDecisionTimeout,
+            claimedTimeout: Self.eventTapClaimedDecisionTimeout
+        ) {
+        case .decided(let suppress):
+            return suppress
+        case .released(let stallStarted):
+            if stallStarted {
+                logger.warning(
+                    "Main thread did not answer the hotkey event tap within \(Int(Self.eventTapDecisionTimeout * 1000))ms; letting input through until it responds"
+                )
+            }
+            return false
+        }
+#endif
+    }
+
+    private func finishEventTapMainThreadStall(_ stall: EventTapMainThreadGate.Stall) {
+        logger.warning(
+            "Main thread was unresponsive for \(Int(stall.duration * 1000))ms; \(stall.releasedEvents) input event(s) passed the hotkey event tap undecided"
+        )
+        resyncHotkeyStateAfterEventTapRecovery()
+        recoverReleasedActiveHotkeyAfterEventTapDisable()
+    }
+
     /// Processes event for CGEventTap: matches hotkeys synchronously, dispatches handling asynchronously.
     /// Returns true if the event should be suppressed (consumed by TypeWhisper).
     private func handleEventTapEvent(_ event: NSEvent) -> Bool {
+#if APPSTORE
+        // The listen-only tap cannot consume Return, so it must not act as a submit key.
+        handleEvent(event, source: .eventTap, canSuppressSubmit: false)
+#else
         handleEvent(event, source: .eventTap)
+#endif
     }
 
     // MARK: - NSEvent Fallback
 
     @discardableResult
     private func handleEvent(_ event: NSEvent, source: HotkeyEventSource, canSuppressSubmit: Bool = true) -> Bool {
+        // TypeWhisper's own Cmd+V / Cmd+C is posted while the triggering shortcut can still be
+        // held. It must reach the target app and must not count as that shortcut's repeat or release.
+        if event.type == .keyDown || event.type == .keyUp, event.modifierFlags.contains(.command),
+           event.cgEvent?.getIntegerValueField(.eventSourceUserData)
+            == TextInsertionService.simulatedClipboardShortcutEventMarker {
+            return false
+        }
         if event.type == .keyDown || event.type == .keyUp, Self.returnKeyCodes.contains(event.keyCode) {
             // A submitted Return must pass even while the physical key is held.
             if event.cgEvent?.getIntegerValueField(.eventSourceUserData) == TextInsertionService.simulatedReturnEventMarker {
@@ -1202,10 +1958,24 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
             isEscapeKeySuppressed = false
             return true
         }
+        if event.type == .keyUp, event.keyCode == Self.escapeKeyCode, !isCancellationAvailable {
+            // Disabled mode: the release of a passed-through Escape press must
+            // pass through as well. Otherwise it falls into slot matching and a
+            // bare-Escape toggle/workflow slot swallows it instead of the app
+            // receiving it.
+            return false
+        }
         if event.type == .keyDown && event.keyCode == Self.escapeKeyCode {
             cancelPendingHybridModifierHold()
             if isEscapeKeySuppressed { return true }
-            guard isCancellationAvailable, !event.isARepeat else { return false }
+            if !isCancellationAvailable {
+                // Disabled mode: Escape is never ours. Pass it straight through
+                // to the foreground app before the push-to-talk interruption
+                // check and slot matching, so it can neither discard a
+                // recording nor fire a hotkey slot.
+                return false
+            }
+            guard !event.isARepeat else { return false }
 
             isEscapeKeySuppressed = true
             // The press latch deduplicates fallback delivery without dropping a quick second press.
@@ -1279,7 +2049,8 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
             }
             var state = SlotState(hotkey: pState.hotkey, fnWasDown: pState.fnWasDown,
                                   fnComboKeyPressed: pState.fnComboKeyPressed,
-                                  modifierWasDown: pState.modifierWasDown, keyWasDown: pState.keyWasDown,
+                                  modifierWasDown: pState.modifierWasDown,
+                                  lastDownTimestamp: pState.lastDownTimestamp, keyWasDown: pState.keyWasDown,
                                   mouseButtonWasDown: pState.mouseButtonWasDown,
                                   lastTapUpTime: pState.lastTapUpTime, tapCount: pState.tapCount)
             let (keyDown, keyUp, isMatch) = processKeyEvent(
@@ -1290,6 +2061,7 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
             )
             pState.fnWasDown = state.fnWasDown
             pState.fnComboKeyPressed = state.fnComboKeyPressed
+            pState.lastDownTimestamp = state.lastDownTimestamp
             pState.modifierWasDown = state.modifierWasDown
             pState.keyWasDown = state.keyWasDown
             pState.mouseButtonWasDown = state.mouseButtonWasDown
@@ -1326,6 +2098,7 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
                     fnWasDown: wState.fnWasDown,
                     fnComboKeyPressed: wState.fnComboKeyPressed,
                     modifierWasDown: wState.modifierWasDown,
+                    lastDownTimestamp: wState.lastDownTimestamp,
                     keyWasDown: wState.keyWasDown,
                     mouseButtonWasDown: wState.mouseButtonWasDown,
                     lastTapUpTime: wState.lastTapUpTime,
@@ -1339,6 +2112,7 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
                 )
                 wState.fnWasDown = state.fnWasDown
                 wState.fnComboKeyPressed = state.fnComboKeyPressed
+                wState.lastDownTimestamp = state.lastDownTimestamp
                 wState.modifierWasDown = state.modifierWasDown
                 wState.keyWasDown = state.keyWasDown
                 wState.mouseButtonWasDown = state.mouseButtonWasDown
@@ -1389,7 +2163,7 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
         return Self.modifierFlagForKeyCode(hotkey.keyCode) == .control
     }
 
-    private func scheduleDelayedHybridModifierHoldStart(for hotkey: UnifiedHotkey) {
+    private func scheduleDelayedHybridModifierHoldStart(for hotkey: UnifiedHotkey, requestTimestamp: UInt64) {
         cancelPendingHybridModifierHold()
 
         pendingHybridModifierHoldGeneration &+= 1
@@ -1397,7 +2171,7 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
         pendingHybridModifierHoldHotkey = hotkey
 
         let workItem = DispatchWorkItem { [weak self] in
-            self?.activatePendingHybridModifierHold(generation: generation)
+            self?.activatePendingHybridModifierHold(generation: generation, requestTimestamp: requestTimestamp)
         }
         pendingHybridModifierHoldWorkItem = workItem
         DispatchQueue.main.asyncAfter(
@@ -1406,7 +2180,7 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
         )
     }
 
-    private func activatePendingHybridModifierHold(generation: UInt64) {
+    private func activatePendingHybridModifierHold(generation: UInt64, requestTimestamp: UInt64) {
         guard generation == pendingHybridModifierHoldGeneration,
               let hotkey = pendingHybridModifierHoldHotkey else {
             return
@@ -1430,7 +2204,12 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
         pushToTalkInterruptionSignaled = false
         activeDelayedHybridModifierHold = true
         currentMode = .pushToTalk
-        onDictationStart?(Self.requestTimestamp())
+        let now = Self.requestTimestamp()
+        let pressToActivationMs = Double(now >= requestTimestamp ? now - requestTimestamp : 0) / 1_000_000
+        logger.info(
+            "Hybrid modifier hold confirmed: pressToActivationMs=\(String(format: "%.1f", pressToActivationMs), privacy: .public)"
+        )
+        onDictationStart?(requestTimestamp)
     }
 
     private func cancelPendingHybridModifierHoldIfInterrupted(by event: NSEvent) {
@@ -1515,8 +2294,10 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
             if source != .eventTap {
                 logFallbackMatchIfNeeded(hotkey: hotkey, source: source)
             }
+            // Capture the press time before the event-tap main-queue hop so start latency includes it.
+            let requestTimestamp = Self.requestTimestamp()
             performHotkeyAction(source: source) { [weak self] in
-                self?.handleKeyDown(slotType: slotType, hotkey: hotkey)
+                self?.handleKeyDown(slotType: slotType, hotkey: hotkey, requestTimestamp: requestTimestamp)
             }
         } else if keyUp, shouldDispatch(
             target: .slot(slotType),
@@ -1584,7 +2365,7 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
                 logFallbackMatchIfNeeded(hotkey: hotkey, source: source)
             }
             performHotkeyAction(source: source) { [weak self] in
-                self?.handleWorkflowKeyDown(workflowId: workflowId, behavior: behavior)
+                self?.handleWorkflowKeyDown(workflowId: workflowId, hotkey: hotkey, behavior: behavior)
             }
         } else if keyUp, !isTextProcessingModifierRelease, shouldDispatch(
             target: .workflow(workflowId),
@@ -1692,13 +2473,20 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
         if isEscapeKeySuppressed, !keyStateProvider(Self.escapeKeyCode) {
             isEscapeKeySuppressed = false
         }
-        guard isActive,
-              currentMode == .pushToTalk,
-              activeProfileId == nil,
+        guard isActive, currentMode == .pushToTalk else { return }
+        if let workflowId = activeWorkflowId {
+            guard let hotkey = activeWorkflowHotkey, !isHotkeyPhysicallyHeld(hotkey) else { return }
+            // A lost release has no timestamp. Before the hybrid threshold, retain
+            // toggle behavior; after it, stop conservatively rather than risk a
+            // runaway recording based on an unknowable physical release time.
+            handleWorkflowKeyUp(workflowId: workflowId, behavior: .startDictation)
+            return
+        }
+        guard activeProfileId == nil,
               activeWorkflowId == nil,
               let slotType = activeSlotType,
               let hotkey = activeGlobalHotkey,
-              !isHotkeyPhysicallyPressed(hotkey) else {
+              !isHotkeyPhysicallyHeld(hotkey) else {
             return
         }
 
@@ -1708,31 +2496,55 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
         handleKeyUp(slotType: slotType)
     }
 
-    private func isHotkeyPhysicallyPressed(_ hotkey: UnifiedHotkey) -> Bool {
+    private func isHotkeyPhysicallyHeld(_ hotkey: UnifiedHotkey) -> Bool {
         switch hotkey.kind {
         case .fn:
             return modifierFlagsStateProvider().contains(.function)
         case .modifierOnly:
             guard let flag = Self.modifierFlagForKeyCode(hotkey.keyCode) else { return false }
-            return modifierFlagsStateProvider().contains(flag)
-        case .modifierCombo:
             let flags = modifierFlagsStateProvider()
-            if !hotkey.modifierKeyCodes.isEmpty {
-                let activeModifierKeyCodes = Self.modifierKeyCodes(from: flags)
-                return hotkey.modifierKeyCodes.isSubset(of: activeModifierKeyCodes)
-            }
-            let requiredFlags = NSEvent.ModifierFlags(rawValue: hotkey.modifierFlags)
-            let relevantMask: NSEvent.ModifierFlags = [.command, .option, .control, .shift, .function]
-            return flags.intersection(relevantMask).isSuperset(of: requiredFlags)
+            // The device-dependent bit tells the left key from the right one;
+            // the generic family flag is only a fallback when the state snapshot
+            // carries no device bits at all.
+            return Self.specificModifierKeyIsDown(flags: flags, keyCode: hotkey.keyCode, genericFlag: flag)
+                ?? flags.contains(flag)
+        case .modifierCombo:
+            return Self.isAnyRequiredModifierHeld(hotkey, flags: modifierFlagsStateProvider())
         case .keyWithModifiers, .bareKey:
             return keyStateProvider(hotkey.keyCode)
         case .mouseButton:
-            return true
+            guard let button = hotkey.mouseButton else { return false }
+            return mouseButtonStateProvider(button)
         }
     }
 
+    /// Once a modifier combination starts, it stays held until its final required
+    /// modifier is released. Recovery and normal event handling share this rule.
+    private nonisolated static func isAnyRequiredModifierHeld(
+        _ hotkey: UnifiedHotkey,
+        flags: NSEvent.ModifierFlags
+    ) -> Bool {
+        var remainingFlags = NSEvent.ModifierFlags(rawValue: hotkey.modifierFlags)
+        for keyCode in hotkey.modifierKeyCodes {
+            guard let flag = modifierFlagForKeyCode(keyCode) else { continue }
+            if specificModifierKeyIsDown(flags: flags, keyCode: keyCode, genericFlag: flag)
+                ?? flags.contains(flag) {
+                return true
+            }
+            remainingFlags.remove(flag)
+        }
+        // Includes Fn, which has no left/right device bit, and generic combos.
+        return !flags.intersection(remainingFlags).isEmpty
+    }
+
     private nonisolated static func supportsCarbonHotkey(_ hotkey: UnifiedHotkey) -> Bool {
-        hotkey.kind == .keyWithModifiers
+#if APPSTORE
+        // Carbon consumes the key, which a listen-only tap cannot, and needs no permission.
+        if hotkey.kind == .bareKey, !hotkey.isDoubleTap, hotkey.mouseButton == nil {
+            return true
+        }
+#endif
+        return hotkey.kind == .keyWithModifiers
             && !hotkey.isDoubleTap
             && hotkey.mouseButton == nil
             && carbonModifierFlags(for: hotkey) != 0
@@ -1773,12 +2585,46 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
         handleGlobalMonitorEvent(event)
     }
 
+    var isEventTapEnabledForTesting: Bool { eventTapHandle.isEnabled }
+
+    /// Runs the tap thread's decision path; call it off the main thread.
+    nonisolated func decideEventTapEventForTesting(_ event: CGEvent) -> Bool {
+        decideEventTapEvent(event)
+    }
+
+    func installWatchdogTapForTesting(_ tap: CFMachPort) {
+        tearDownMonitor()
+        eventTapHandle.store(tap)
+        startEventTapWatchdog(interval: 0.02)
+    }
+
+    var isEventTapWatchdogActiveForTesting: Bool {
+        eventTapWatchdogTimer != nil
+    }
+
+    func runEventTapWatchdogTickForTesting() {
+        guard let generation = eventTapHandle.currentWatchdogGeneration else { return }
+        eventTapWatchdogTick(generation: generation)
+    }
+
+    func capturedWatchdogTickForTesting() -> @Sendable () -> Void {
+        let generation = eventTapHandle.currentWatchdogGeneration
+        return { [weak self] in
+            guard let generation else { return }
+            self?.eventTapWatchdogTick(generation: generation)
+        }
+    }
+
     func processLocalEventForTesting(_ event: NSEvent) -> NSEvent? {
         handleLocalMonitorEvent(event)
     }
 
     func recoverReleasedActiveHotkeyAfterEventTapDisableForTesting() {
         recoverReleasedActiveHotkeyAfterEventTapDisable()
+    }
+
+    func resyncHotkeyStateAfterEventTapRecoveryForTesting() {
+        resyncHotkeyStateAfterEventTapRecovery()
     }
 
     func needsMouseEventMonitoringForTesting() -> Bool {
@@ -1865,6 +2711,29 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
         state: inout SlotState,
         fnTriggerMode: FnTriggerMode
     ) -> (keyDown: Bool, keyUp: Bool, shouldSuppress: Bool) {
+        // A compatibility-monitor copy can arrive after recovery cleared the
+        // held state and after the dispatch dedup window expired. The original
+        // event timestamp still identifies the press across every binding kind.
+        if event.timestamp > 0, state.lastDownTimestamp == event.timestamp {
+            let isPressCopy: Bool
+            switch hotkey.kind {
+            case .mouseButton:
+                isPressCopy = event.type == .otherMouseDown && event.buttonNumber == Int(hotkey.mouseButton ?? 0)
+            case .keyWithModifiers, .bareKey:
+                isPressCopy = event.type == .keyDown && event.keyCode == hotkey.keyCode
+            case .fn:
+                isPressCopy = event.type == .flagsChanged && event.modifierFlags.contains(.function)
+            case .modifierOnly:
+                isPressCopy = event.type == .flagsChanged && event.keyCode == hotkey.keyCode
+            case .modifierCombo:
+                isPressCopy = event.type == .flagsChanged
+            }
+            if isPressCopy {
+                let suppress = hotkey.mouseButton.map(Self.shouldSuppressMouseButtonHotkey) ?? true
+                return (false, false, suppress)
+            }
+        }
+
         // Mouse button hotkeys - self-contained path (no modifier interplay)
         if hotkey.kind == .mouseButton {
             guard event.type == .otherMouseDown || event.type == .otherMouseUp else {
@@ -1880,6 +2749,7 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
 
             if isDown && !wasDown {
                 state.mouseButtonWasDown = true
+                state.lastDownTimestamp = event.timestamp
                 guard hotkey.isDoubleTap else { return (true, false, shouldSuppress) }
                 if state.tapCount == 1,
                    let lastUp = state.lastTapUpTime,
@@ -1925,6 +2795,7 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
                 let fnDown = event.modifierFlags.contains(.function)
                 if fnDown, !state.fnWasDown {
                     state.fnWasDown = true
+                    state.lastDownTimestamp = event.timestamp
                     state.fnComboKeyPressed = false
                     return (true, false, true)
                 }
@@ -1949,6 +2820,7 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
                 let fnDown = event.modifierFlags.contains(.function)
                 if fnDown, !state.fnWasDown {
                     state.fnWasDown = true
+                    state.lastDownTimestamp = event.timestamp
                     state.fnComboKeyPressed = false
                     return (false, false, false)
                 }
@@ -1977,6 +2849,10 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
             modifierWasDown: state.modifierWasDown,
             keyWasDown: state.keyWasDown
         )
+
+        if result == .down {
+            state.lastDownTimestamp = event.timestamp
+        }
 
         let value: Bool?
         switch result {
@@ -2061,10 +2937,22 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
             guard event.type == .flagsChanged, event.keyCode == hotkey.keyCode else { return .none }
             let flag = Self.modifierFlagForKeyCode(hotkey.keyCode)
             guard let flag else { return .none }
-            let isDown = event.modifierFlags.contains(flag)
+            // Prefer the device-dependent bit for this specific key: the generic family
+            // flag stays set while the sibling key (e.g. left Option for a right-Option
+            // hotkey) is held, which previously misread this key's release as a repeat.
+            let specificIsDown = Self.specificModifierKeyIsDown(event, keyCode: hotkey.keyCode, genericFlag: flag)
+            let isDown = specificIsDown ?? event.modifierFlags.contains(flag)
             if isDown, !modifierWasDown { return .down }
             if !isDown, modifierWasDown { return .up }
-            if isDown, modifierWasDown { return .repeatDown }
+            if isDown, modifierWasDown {
+                // A flagsChanged event for this keyCode only fires when this key
+                // transitions. Seeing it "down" while our state already says down
+                // means the release was lost (e.g. the event tap was disabled by
+                // a main-thread stall mid-gesture). When the device bit confirms
+                // the key is really down, treat it as a fresh press so the hotkey
+                // is not silently swallowed.
+                return specificIsDown == true ? .down : .repeatDown
+            }
 
         case .modifierCombo:
             guard event.type == .flagsChanged else { return .none }
@@ -2075,9 +2963,7 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
             let physicalModifiersMatch = hotkey.modifierKeyCodes.isEmpty
                 || activeModifierKeyCodes == hotkey.modifierKeyCodes
             let allDown = current == requiredFlags && physicalModifiersMatch
-            let anyRequiredStillDown = hotkey.modifierKeyCodes.isEmpty
-                ? !current.intersection(requiredFlags).isEmpty
-                : !activeModifierKeyCodes.intersection(hotkey.modifierKeyCodes).isEmpty
+            let anyRequiredStillDown = Self.isAnyRequiredModifierHeld(hotkey, flags: event.modifierFlags)
             if allDown, !modifierWasDown { return .down }
             if allDown, modifierWasDown { return .repeatDown }
             if modifierWasDown {
@@ -2123,7 +3009,11 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
 
     // MARK: - Key Down / Up (Global Slots)
 
-    private func handleKeyDown(slotType: HotkeySlotType, hotkey: UnifiedHotkey) {
+    private func handleKeyDown(
+        slotType: HotkeySlotType,
+        hotkey: UnifiedHotkey,
+        requestTimestamp: UInt64 = HotkeyService.requestTimestamp()
+    ) {
         if slotType == .promptPalette {
             onPromptPaletteToggle?()
             return
@@ -2140,13 +3030,22 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
             onPasteLastTranscription?()
             return
         }
+        if slotType == .undoLastDictation {
+            onUndoLastDictation?()
+            return
+        }
+        if slotType == .restoreRawTranscript {
+            onRestoreRawTranscript?()
+            return
+        }
         if slotType == .recorderToggle {
             onRecorderToggle?()
             return
         }
 
         if !isActive, shouldDelayHybridModifierHold(for: slotType, hotkey: hotkey) {
-            scheduleDelayedHybridModifierHoldStart(for: hotkey)
+            // Report the physical press time so start latency logs include the hold delay.
+            scheduleDelayedHybridModifierHoldStart(for: hotkey, requestTimestamp: requestTimestamp)
             return
         }
 
@@ -2163,7 +3062,6 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
             activeDelayedHybridModifierHold = false
             onDictationStop?()
         } else {
-            let requestTimestamp = Self.requestTimestamp()
             activeSlotType = slotType
             activeGlobalHotkey = hotkey
             activeProfileId = nil
@@ -2219,6 +3117,10 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
         case .copyLastTranscription:
             break // handled on keyDown only
         case .pasteLastTranscription:
+            break // handled on keyDown only
+        case .undoLastDictation:
+            break // handled on keyDown only
+        case .restoreRawTranscript:
             break // handled on keyDown only
         case .recorderToggle:
             break // handled on keyDown only
@@ -2278,7 +3180,7 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
 
     // MARK: - Key Down / Up (Workflow Slots)
 
-    private func handleWorkflowKeyDown(workflowId: UUID, behavior: WorkflowHotkeyBehavior) {
+    private func handleWorkflowKeyDown(workflowId: UUID, hotkey: UnifiedHotkey, behavior: WorkflowHotkeyBehavior) {
         guard behavior == .startDictation else {
             guard !isActive else {
                 isActive = false
@@ -2312,6 +3214,7 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
             let requestTimestamp = Self.requestTimestamp()
             activeProfileId = nil
             activeWorkflowId = workflowId
+            activeWorkflowHotkey = hotkey
             activeSlotType = nil
             activeGlobalHotkey = nil
             keyDownTime = Date()
@@ -2438,6 +3341,22 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
         return hotkey.isDoubleTap ? "\(baseName) x2" : baseName
     }
 
+    /// Keycap legends keep single glyphs such as German ß instead of expanding to SS.
+    nonisolated static func keycapName(for keyCode: UInt16, layoutData: CFData?, keyboardType: UInt32) -> String {
+        switch keyCode {
+        case 0x66: return "英数"
+        case 0x68: return "かな"
+        default: break
+        }
+        if let layoutData, let character = characterForKeyCode(keyCode, layoutData: layoutData, keyboardType: keyboardType) {
+            let uppercased = character.uppercased()
+            return character.count == 1 && uppercased.count > 1 ? character : uppercased
+        }
+        if keyCode == 0x5D { return "¥" }
+        if keyCode == 0x5E { return "_" }
+        return keyName(for: keyCode)
+    }
+
     nonisolated static func keyName(for keyCode: UInt16) -> String {
         // Special keys that don't produce meaningful characters via UCKeyTranslate
         let specialKeys: [UInt16: String] = [
@@ -2447,14 +3366,15 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
             0x65: "F9", 0x6D: "F10", 0x67: "F11", 0x6F: "F12",
             0x69: "F13", 0x6B: "F14", 0x71: "F15",
             0x7E: "↑", 0x7D: "↓", 0x7B: "←", 0x7C: "→",
+            0x66: "英数", 0x68: "かな",
         ]
         if let name = specialKeys[keyCode] { return name }
 
         let modifierNames: [UInt16: String] = [
-            0x37: "Left Command", 0x36: "Right Command",
-            0x38: "Left Shift", 0x3C: "Right Shift",
-            0x3A: "Left Option", 0x3D: "Right Option",
-            0x3B: "Left Control", 0x3E: "Right Control",
+            0x37: String(localized: "Left Command"), 0x36: String(localized: "Right Command"),
+            0x38: String(localized: "Left Shift"), 0x3C: String(localized: "Right Shift"),
+            0x3A: String(localized: "Left Option"), 0x3D: String(localized: "Right Option"),
+            0x3B: String(localized: "Left Control"), 0x3E: String(localized: "Right Control"),
         ]
         if let name = modifierNames[keyCode] { return name }
 
@@ -2527,11 +3447,15 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
 
     /// Resolves the character for a keyCode using the current keyboard input source.
     private nonisolated static func characterForKeyCode(_ keyCode: UInt16) -> String? {
-        let source = TISCopyCurrentKeyboardInputSource().takeRetainedValue()
-        guard let layoutDataRef = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) else {
+        guard let source = TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue(),
+              let layoutDataRef = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) else {
             return nil
         }
         let layoutData = unsafeBitCast(layoutDataRef, to: CFData.self)
+        return characterForKeyCode(keyCode, layoutData: layoutData, keyboardType: UInt32(LMGetKbdType()))
+    }
+
+    private nonisolated static func characterForKeyCode(_ keyCode: UInt16, layoutData: CFData, keyboardType: UInt32) -> String? {
         let keyLayoutPtr = unsafeBitCast(CFDataGetBytePtr(layoutData), to: UnsafePointer<UCKeyboardLayout>.self)
 
         var deadKeyState: UInt32 = 0
@@ -2543,7 +3467,7 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
             keyCode,
             UInt16(kUCKeyActionDown),
             0, // no modifiers
-            UInt32(LMGetKbdType()),
+            keyboardType,
             UInt32(kUCKeyTranslateNoDeadKeysMask),
             &deadKeyState,
             chars.count,
@@ -2590,8 +3514,8 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
 
     nonisolated static func modifierKeyCodes(from flags: NSEvent.ModifierFlags) -> Set<UInt16> {
         let rawValue = flags.rawValue
-        return Set(deviceModifierKeyMasks.compactMap { entry in
-            rawValue & entry.mask == entry.mask ? entry.keyCode : nil
+        return Set(deviceModifierBits.compactMap { keyCode, mask in
+            rawValue & mask == mask ? keyCode : nil
         })
     }
 
@@ -2604,17 +3528,6 @@ final class HotkeyService: ObservableObject, @unchecked Sendable {
         default: return nil
         }
     }
-
-    private nonisolated static let deviceModifierKeyMasks: [(mask: UInt, keyCode: UInt16)] = [
-        (0x00000008, 0x37), // Left Command
-        (0x00000010, 0x36), // Right Command
-        (0x00000002, 0x38), // Left Shift
-        (0x00000004, 0x3C), // Right Shift
-        (0x00000020, 0x3A), // Left Option
-        (0x00000040, 0x3D), // Right Option
-        (0x00000001, 0x3B), // Left Control
-        (0x00002000, 0x3E), // Right Control
-    ]
 
     private nonisolated static func modifierKeyCodeComesBefore(_ lhs: UInt16, _ rhs: UInt16) -> Bool {
         modifierKeyCodeSortIndex(lhs) < modifierKeyCodeSortIndex(rhs)

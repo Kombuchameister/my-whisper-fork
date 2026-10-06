@@ -87,6 +87,28 @@ struct HotkeySettingsView: View {
                     subtitle: String(localized: "Insert your latest transcription into the focused app.")
                 )
                 }
+
+                #if !APPSTORE
+                Section(localizedAppText("Dictation Undo", de: "Diktat rückgängig")) {
+                MultiHotkeySlotRecorder(
+                    slot: .undoLastDictation,
+                    title: localizedAppText("Undo last dictation shortcut", de: "Shortcut „Letztes Diktat rückgängig“"),
+                    subtitle: localizedAppText(
+                        "Delete the text inserted by the most recent dictation.",
+                        de: "Löscht den Text des zuletzt eingefügten Diktats."
+                    )
+                )
+
+                MultiHotkeySlotRecorder(
+                    slot: .restoreRawTranscript,
+                    title: localizedAppText("Restore raw transcript shortcut", de: "Shortcut „Rohtext wiederherstellen“"),
+                    subtitle: localizedAppText(
+                        "Replace the last inserted dictation with its raw transcript.",
+                        de: "Ersetzt das zuletzt eingefügte Diktat durch sein Roh-Transkript."
+                    )
+                )
+                }
+                #endif
             }
             .formStyle(.grouped)
             .padding(.horizontal, SettingsLayoutMetrics.pagePadding)
@@ -143,7 +165,8 @@ private struct MultiHotkeySlotRecorder: View {
                         label: HotkeyService.displayName(for: hotkey),
                         presentation: .compactChip,
                         onRecord: { newHotkey in record(newHotkey, replacing: hotkey) },
-                        onClear: { dictation.removeHotkey(hotkey, for: slot) }
+                        onClear: { dictation.removeHotkey(hotkey, for: slot) },
+                        hotkey: hotkey
                     )
                 }
 
