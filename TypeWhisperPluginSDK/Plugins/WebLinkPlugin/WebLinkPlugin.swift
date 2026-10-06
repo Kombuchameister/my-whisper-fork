@@ -646,6 +646,21 @@ final class WebLinkObsidianJobList: ObservableObject {
         guard let index = jobs.firstIndex(where: { $0.id == id }) else { return }
         jobs[index].state = state
     }
+
+    /// Removes the entry from the list only; the note stays in the vault.
+    func remove(_ id: UUID) {
+        jobs.removeAll { $0.id == id }
+    }
+
+    /// Removes every finished entry. Notes still being transcribed stay listed
+    /// so their progress remains visible; no note is deleted.
+    func clearFinished() {
+        jobs.removeAll { $0.state != .transcribing }
+    }
+
+    var hasFinishedJobs: Bool {
+        jobs.contains { $0.state != .transcribing }
+    }
 }
 
 private final class WebLinkImportActivity: @unchecked Sendable {
@@ -1016,6 +1031,16 @@ private struct WebLinkObsidianSection: View {
 
             if !jobs.jobs.isEmpty {
                 Divider()
+                HStack {
+                    Spacer()
+                    Button(webLinkLocalized("Clear List")) {
+                        jobs.clearFinished()
+                    }
+                    .controlSize(.small)
+                    .disabled(!jobs.hasFinishedJobs)
+                    .help(webLinkLocalized("Removes finished entries from this list. The notes stay in your vault."))
+                    .accessibilityIdentifier("webLinkTranscription.obsidianClearList")
+                }
                 ForEach(jobs.jobs) { job in
                     jobRow(job)
                 }
@@ -1108,6 +1133,17 @@ private struct WebLinkObsidianSection: View {
                 openInObsidian(job.noteURL)
             }
             .controlSize(.small)
+
+            Button {
+                jobs.remove(job.id)
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.borderless)
+            .disabled(job.state == .transcribing)
+            .help(webLinkLocalized("Remove from list. The note stays in your vault."))
+            .accessibilityLabel(webLinkLocalized("Remove from list"))
         }
     }
 

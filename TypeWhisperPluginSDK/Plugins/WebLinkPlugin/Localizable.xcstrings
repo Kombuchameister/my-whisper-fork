@@ -1,6 +1,10 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "Clear List": {"localizations":{"ja":{"stringUnit":{"state":"translated","value":"リストをクリア"}},"de":{"stringUnit":{"state":"translated","value":"Liste leeren"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"清空列表"}}}},
+    "Removes finished entries from this list. The notes stay in your vault.": {"localizations":{"ja":{"stringUnit":{"state":"translated","value":"完了した項目をこのリストから削除します。ノートは保管庫に残ります。"}},"de":{"stringUnit":{"state":"translated","value":"Entfernt abgeschlossene Einträge aus dieser Liste. Die Notizen bleiben in deinem Vault."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"从此列表中移除已完成的条目。笔记仍保留在你的库中。"}}}},
+    "Remove from list. The note stays in your vault.": {"localizations":{"ja":{"stringUnit":{"state":"translated","value":"リストから削除します。ノートは保管庫に残ります。"}},"de":{"stringUnit":{"state":"translated","value":"Aus der Liste entfernen. Die Notiz bleibt in deinem Vault."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"从列表中移除。笔记仍保留在你的库中。"}}}},
+    "Remove from list": {"localizations":{"ja":{"stringUnit":{"state":"translated","value":"リストから削除"}},"de":{"stringUnit":{"state":"translated","value":"Aus der Liste entfernen"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"从列表中移除"}}}},
     "Engine": {"localizations":{"de":{"stringUnit":{"state":"translated","value":"Engine"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"引擎"}}}},
     "Model": {"localizations":{"de":{"stringUnit":{"state":"translated","value":"Modell"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"模型"}}}},
     "not ready": {"localizations":{"de":{"stringUnit":{"state":"translated","value":"nicht bereit"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"未就绪"}}}},
