@@ -1,7 +1,8 @@
 # my-whisper-fork
 
 Personal fork of [TypeWhisper/typewhisper-mac](https://github.com/TypeWhisper/typewhisper-mac).
-The fork is self-contained: the app never updates itself or its plugins from upstream.
+The app never updates itself from upstream. The plugin catalog is upstream's, so every upstream
+plugin can be installed, but plugins built from this fork are never updated or replaced from it.
 
 ## Remotes and branches
 
@@ -22,8 +23,10 @@ git merge upstream/main          # resolve conflicts, keeping fork behaviour
 After every upstream merge, check that no upstream endpoints came back:
 
 ```bash
-git grep -nE 'typewhisper\.github\.io|TypeWhisper/typewhisper-mac/releases' -- TypeWhisper ':!*.md'
+git grep -nE 'typewhisper\.github\.io|TypeWhisper/typewhisper-mac/releases' -- TypeWhisper ':!*.md' ':!TypeWhisper/App/AppConstants.swift' ':!TypeWhisper/Services/ScreenshotFixtureSeeder.swift'
 ```
+
+(The plugin catalog's upstream URLs live only in `AppConstants.ForkDistribution`.)
 
 `AppFormatterServiceTests.testForkDistributionEndpointsNeverPointUpstream` fails if they do.
 
@@ -35,9 +38,10 @@ plus Sparkle's `SUFeedURL` in `TypeWhisper/Resources/Info.plist`.
 | What | Source | Current state |
 | --- | --- | --- |
 | App updates (Sparkle) | `kombuchameister.github.io/my-whisper-fork/appcast.xml` | not published; automatic checks off |
-| Plugin marketplace / plugin updates | `kombuchameister.github.io/my-whisper-fork/plugins-community-v1.json` | not served; no updates are offered |
+| Plugin catalog (Integrations → Discover) | upstream's `typewhisper.github.io/typewhisper-mac/plugins-community-v1.json` | all upstream plugins listed and installable |
 | Term packs | `kombuchameister.github.io/my-whisper-fork/termpacks.json` | published by the fork's term-pack workflow |
-| Plugin downloads (official and community) | only `github.com/Kombuchameister/my-whisper-fork/releases/download/…` | anything else is ignored, even from a cached registry |
+| Plugin downloads (official and community) | `github.com/TypeWhisper/typewhisper-mac/releases/download/…` or `github.com/Kombuchameister/my-whisper-fork/releases/download/…` | anything else is ignored |
+| Fork-built plugins | built by `scripts/fork/install-plugins.sh`, marked with `Contents/Resources/ForkPluginBuild.txt` | never offered upstream updates, never replaced from the catalog |
 
 Upstream's `SUPublicEDKey` is still in Info.plist, but it cannot validate anything the fork
 publishes. Before hosting a fork appcast, generate a fork key with Sparkle's `generate_keys`
@@ -68,7 +72,10 @@ scripts/fork/install-plugins.sh --app-support TypeWhisper-Dev-main --add GroqPlu
 ```
 
 The script moves replaced bundles to `Plugins.replaced/<timestamp>/` and writes
-`fork-plugins.lock` (plugin, version, source commit). It never touches the production app:
+`fork-plugins.lock` (plugin, version, source commit). Each bundle it installs is marked as
+fork-built, so the app keeps it even when upstream's catalog has a newer version. A first-party
+plugin installed from the catalog is replaced by a fork build the next time this script runs
+(it rebuilds every installed plugin that has a source in this checkout). It never touches the production app:
 `/Applications/TypeWhisper.app` stays the unmodified upstream build as a fallback.
 
 ## State outside this repo
