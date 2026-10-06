@@ -347,14 +347,14 @@ final class PluginRegistryServiceTests: XCTestCase {
                       "minHostVersion": "1.7.0",
                       "sdkCompatibilityVersion": "v1-model-import",
                       "size": 12,
-                      "downloadURL": "https://example.com/model-import.zip"
+                      "downloadURL": "https://github.com/Kombuchameister/my-whisper-fork/releases/download/test/model-import.zip"
                     },
                     {
                       "version": "1.0.5",
                       "minHostVersion": "1.7.0",
                       "sdkCompatibilityVersion": "v1",
                       "size": 10,
-                      "downloadURL": "https://example.com/legacy-v1.zip"
+                      "downloadURL": "https://github.com/Kombuchameister/my-whisper-fork/releases/download/test/legacy-v1.zip"
                     }
                   ]
                 }
@@ -371,7 +371,7 @@ final class PluginRegistryServiceTests: XCTestCase {
 
         XCTAssertEqual(plugins.count, 1)
         XCTAssertEqual(plugins.first?.version, "1.0.6")
-        XCTAssertEqual(plugins.first?.downloadURL, "https://example.com/model-import.zip")
+        XCTAssertEqual(plugins.first?.downloadURL, "https://github.com/Kombuchameister/my-whisper-fork/releases/download/test/model-import.zip")
     }
 
     func testMultiReleaseRegistryRejectsReleaseWithMismatchedSDKCompatibilityVersionAtSameHostVersion() throws {
