@@ -5564,6 +5564,84 @@ final class AudioOutputVolumeIntegrationTests: XCTestCase {
         XCTAssertEqual(controller.setCalls[0].volume, 0.02, accuracy: 0.0001)
         XCTAssertEqual(controller.setCalls[1], .init(deviceID: AudioDeviceID(1), volume: 0.10))
     }
+
+    @MainActor
+    func testAudioDuckingPreservesPreparedVolumeWhenStartupChangesOutputVolume() {
+        let controller = FakeAudioOutputVolumeController.airPods(volume: 0.75)
+        let service = AudioDuckingService(volumeController: controller)
+
+        service.prepareDucking()
+        XCTAssertTrue(controller.setCalls.isEmpty)
+        controller.updateVolume(0, for: AudioDeviceID(1))
+        service.prepareDucking()
+        service.duckAudio(to: 0.20)
+        service.restoreAudio()
+
+        XCTAssertEqual(controller.setCalls.count, 2)
+        XCTAssertEqual(controller.setCalls[0].volume, 0.15, accuracy: 0.0001)
+        XCTAssertEqual(controller.setCalls[1].volume, 0.75)
+
+        controller.updateVolume(0.50, for: AudioDeviceID(1))
+        service.prepareDucking()
+        controller.updateVolume(0, for: AudioDeviceID(1))
+        service.restoreAudio()
+        XCTAssertEqual(controller.setCalls.last?.volume, 0.50)
+    }
+
+    @MainActor
+    func testAudioDuckingRestoresPreparedVolumeIfDuckingWriteFails() {
+        let controller = FakeAudioOutputVolumeController.airPods(volume: 0.75)
+        let service = AudioDuckingService(volumeController: controller)
+
+        service.prepareDucking()
+        controller.updateVolume(0, for: AudioDeviceID(1))
+        controller.volumeWritesSucceed = false
+        service.duckAudio(to: 0.20)
+        controller.volumeWritesSucceed = true
+        service.restoreAudio()
+
+        XCTAssertEqual(controller.setCalls.last?.volume, 0.75)
+        XCTAssertEqual(controller.defaultOutputSnapshot()?.volume, 0.75)
+    }
+
+    @MainActor
+    func testAudioDuckingKeepsSavedVolumePairedWithItsOutputDevice() {
+        for switchBeforeDucking in [true, false] {
+            let controller = FakeAudioOutputVolumeController(
+                defaultDeviceID: AudioDeviceID(1),
+                snapshots: [
+                    AudioDeviceID(1): AudioOutputVolumeSnapshot(
+                        deviceID: AudioDeviceID(1),
+                        deviceUID: "original-output",
+                        deviceName: "Original output",
+                        volume: 0.75
+                    ),
+                    AudioDeviceID(2): AudioOutputVolumeSnapshot(
+                        deviceID: AudioDeviceID(2),
+                        deviceUID: "new-output",
+                        deviceName: "New output",
+                        volume: 0.40
+                    ),
+                ]
+            )
+            let service = AudioDuckingService(volumeController: controller)
+            let scenario = switchBeforeDucking ? "switch before ducking" : "switch after ducking"
+
+            service.prepareDucking()
+            controller.updateVolume(0, for: AudioDeviceID(1))
+            if switchBeforeDucking { controller.defaultDeviceID = AudioDeviceID(2) }
+            service.duckAudio(to: 0.20)
+            XCTAssertEqual(controller.setCalls.count, switchBeforeDucking ? 0 : 1, scenario)
+            controller.defaultDeviceID = AudioDeviceID(2)
+            service.restoreAudio()
+
+            XCTAssertEqual(controller.setCalls.last, .init(deviceID: AudioDeviceID(1), volume: 0.75), scenario)
+            XCTAssertTrue(controller.setCalls.allSatisfy { $0.deviceID == AudioDeviceID(1) }, scenario)
+            XCTAssertEqual(controller.defaultOutputSnapshot()?.volume, 0.40, scenario)
+            controller.defaultDeviceID = AudioDeviceID(1)
+            XCTAssertEqual(controller.defaultOutputSnapshot()?.volume, 0.75, scenario)
+        }
+    }
 }
 
 private final class FakeAudioDeviceTransportResolver: AudioDeviceTransportResolving {
@@ -5996,6 +6074,7 @@ private final class FakeAudioOutputVolumeController: AudioOutputVolumeControllin
     var defaultDeviceID: AudioDeviceID?
     private var snapshots: [AudioDeviceID: AudioOutputVolumeSnapshot]
     private(set) var setCalls: [SetCall] = []
+    var volumeWritesSucceed = true
 
     init(defaultDeviceID: AudioDeviceID?, snapshots: [AudioDeviceID: AudioOutputVolumeSnapshot]) {
         self.defaultDeviceID = defaultDeviceID
@@ -6023,6 +6102,7 @@ private final class FakeAudioOutputVolumeController: AudioOutputVolumeControllin
 
     func setVolume(_ volume: Float, for deviceID: AudioDeviceID) -> Bool {
         setCalls.append(.init(deviceID: deviceID, volume: volume))
+        guard volumeWritesSucceed else { return false }
         updateVolume(volume, for: deviceID)
         return true
     }
