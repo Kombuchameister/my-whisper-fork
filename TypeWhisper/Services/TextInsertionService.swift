@@ -297,6 +297,12 @@ final class TextInsertionService {
         var leftFocusedTextUnchanged: Bool {
             self == .pasted(verification: .unverified(.focusedTextUnchanged))
         }
+
+        /// The paste reached no text field: none was focused, or the focused field was readable
+        /// and stayed unchanged.
+        var missedTextField: Bool {
+            leftFocusedTextUnchanged || self == .pasted(verification: .unverified(.noFocusedTextElement))
+        }
     }
 
     /// When the latest `insertText` call inserted its text and when it verified it, as
@@ -318,8 +324,11 @@ final class TextInsertionService {
     }
 
     enum PasteVerificationFailure: String, Equatable {
+        /// A text element was focused, but its text could not be read.
         case focusedTextStateUnavailable = "focused-text-state-unavailable"
         case focusedTextUnchanged = "focused-text-unchanged"
+        /// Accessibility could inspect the focused app, and no text element was focused.
+        case noFocusedTextElement = "no-focused-text-element"
     }
 
     enum TextInsertionError: LocalizedError {
@@ -456,6 +465,14 @@ final class TextInsertionService {
 
     struct PasteVerificationState {
         fileprivate let focusedTextState: FocusedTextState?
+        /// Accessibility answered the focus query and no text element was focused. False when the
+        /// query failed or could not run, for example without access to other apps.
+        fileprivate let noTextElementFocused: Bool
+
+        /// Whether verification can show that the paste missed. Unreadable fields never can.
+        var canDetectMissedTextField: Bool {
+            focusedTextState.map(\.hasReadableText) ?? noTextElementFocused
+        }
     }
 
     fileprivate struct FocusedTextState: Equatable {
@@ -562,26 +579,39 @@ final class TextInsertionService {
 
     /// Returns the focused text element (even without selection), for later insertion.
     func getFocusedTextElement(messagingTimeout: Float? = nil) -> AXUIElement? {
+        queryFocusedTextElement(messagingTimeout: messagingTimeout).element
+    }
+
+    /// The focused text element, and whether accessibility answered the focus query. Without an
+    /// answer, a missing element does not mean that no text element was focused.
+    private func queryFocusedTextElement(
+        messagingTimeout: Float? = nil
+    ) -> (element: AXUIElement?, focusQuerySucceeded: Bool) {
         if let focusedTextElementOverride {
-            guard let element = focusedTextElementOverride() else { return nil }
+            guard let element = focusedTextElementOverride() else { return (nil, true) }
             applyMessagingTimeout(messagingTimeout, to: element)
-            return element
+            return (element, true)
         }
-        guard canInspectOtherApplications else { return nil }
+        guard canInspectOtherApplications else { return (nil, false) }
 
         let systemWide = AXUIElementCreateSystemWide()
         applyMessagingTimeout(messagingTimeout, to: systemWide)
         var focusedElement: AnyObject?
-        guard AXUIElementCopyAttributeValue(systemWide, kAXFocusedUIElementAttribute as CFString, &focusedElement) == .success else {
-            return nil
+        switch AXUIElementCopyAttributeValue(systemWide, kAXFocusedUIElementAttribute as CFString, &focusedElement) {
+        case .success:
+            break
+        case .noValue:
+            return (nil, true)
+        default:
+            return (nil, false)
         }
 
-        guard let element = axElement(from: focusedElement) else { return nil }
+        guard let element = axElement(from: focusedElement) else { return (nil, false) }
         applyMessagingTimeout(messagingTimeout, to: element)
         if isLiveFieldTextRole(element) {
-            return element
+            return (element, true)
         }
-        return findEditableTextDescendant(of: element, messagingTimeout: messagingTimeout)
+        return (findEditableTextDescendant(of: element, messagingTimeout: messagingTimeout), true)
     }
 
     /// Replaces the selected text on a previously captured AXUIElement.
@@ -853,8 +883,16 @@ final class TextInsertionService {
         return defaultPasteFallbackRestoreDelay
     }
 
-    func capturePasteVerificationState() -> PasteVerificationState {
-        PasteVerificationState(focusedTextState: captureFocusedTextState())
+    /// `acceptsPasteWithoutTextElement` is for apps such as terminals that take a paste even though
+    /// accessibility shows no text element.
+    func capturePasteVerificationState(acceptsPasteWithoutTextElement: Bool = false) -> PasteVerificationState {
+        let query = queryFocusedTextElement()
+        return PasteVerificationState(
+            focusedTextState: query.element.flatMap { captureFocusedTextState(for: $0) },
+            // A found element whose state could not be captured is not proof of a missing field.
+            noTextElementFocused: query.focusQuerySucceeded && query.element == nil
+                && !acceptsPasteWithoutTextElement
+        )
     }
 
     func captureInsertionContext() -> InsertionContext? {
@@ -1189,16 +1227,18 @@ final class TextInsertionService {
     /// Inserts text into the focused application.
     ///
     /// A synthetic paste only waits for paste verification when the caller needs the paste to
-    /// land before this returns (`autoEnter`, `awaitPasteVerification`). With `preserveClipboard`,
-    /// the clipboard restore runs afterwards and only while the clipboard still holds the
-    /// generated payload.
+    /// land before this returns (`autoEnter`, `awaitPasteVerification`), or when
+    /// `detectMissedTextField` asks for it and verification can show a miss (see
+    /// `InsertionResult.missedTextField`). With `preserveClipboard`, the clipboard restore runs
+    /// afterwards and only while the clipboard still holds the generated payload.
     func insertText(
         _ text: String,
         preserveClipboard: Bool = false,
         autoEnter: Bool = false,
         outputFormat: String? = nil,
         deferredClipboardRestore: DeferredClipboardRestore? = nil,
-        awaitPasteVerification: Bool = false
+        awaitPasteVerification: Bool = false,
+        detectMissedTextField: Bool = false
     ) async throws -> InsertionResult {
 #if !APPSTORE
         guard isAccessibilityGranted else {
@@ -1263,10 +1303,12 @@ final class TextInsertionService {
                 ?? pendingOriginalItems
                 ?? saveClipboard(from: pasteboard))
             : []
-        let verifiesBeforeReturning = autoEnter || awaitPasteVerification
-        let pasteVerificationState = verifiesBeforeReturning || preserveClipboard
-            ? capturePasteVerificationState()
+        let pasteVerificationState = autoEnter || awaitPasteVerification || preserveClipboard
+            || detectMissedTextField
+            ? capturePasteVerificationState(acceptsPasteWithoutTextElement: isTerminalApp)
             : nil
+        let verifiesBeforeReturning = autoEnter || awaitPasteVerification
+            || (detectMissedTextField && pasteVerificationState?.canDetectMissedTextField == true)
         let initialChangeCount = pasteboard.changeCount
 
         // Set transcribed text on clipboard and simulate Cmd+V.
@@ -1370,7 +1412,7 @@ final class TextInsertionService {
 
     private func waitForPasteVerification(using state: PasteVerificationState) async -> PasteVerification {
         guard state.focusedTextState != nil else {
-            return .unverified(.focusedTextStateUnavailable)
+            return .unverified(state.noTextElementFocused ? .noFocusedTextElement : .focusedTextStateUnavailable)
         }
 
         let attempts = max(0, pasteVerificationAttempts)
