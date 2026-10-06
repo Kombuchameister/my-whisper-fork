@@ -3,9 +3,10 @@ import AppKit
 import TypeWhisperPluginSDK
 
 enum SettingsTab: Hashable {
-    case home, general, dictation, hotkeys, recorder
+    case home, general, appearance, dictation, hotkeys, recorder
     case dictationRecovery, fileTranscription, history, statistics, dictionary, snippets, workflows, profiles, prompts, premium, integrations, advanced, license, about
     case plugin(pluginId: String, itemId: String)
+    case installedPlugin(pluginId: String)
 }
 
 private struct SettingsDestination: Identifiable, Hashable {
@@ -13,6 +14,10 @@ private struct SettingsDestination: Identifiable, Hashable {
     let title: String
     let systemImage: String
     let badge: Int?
+    var iconURL: URL?
+    var darkIconURL: URL?
+    var isDimmed = false
+    var hasUpdate = false
 
     var id: SettingsTab { tab }
 }
@@ -40,7 +45,8 @@ struct SettingsView: View {
         guard AppConstants.isScreenshotAutomation else { return .home }
 
         switch AppConstants.screenshotState {
-        case "general", "indicator-settings": return .general
+        case "general": return .general
+        case "indicator-settings", "appearance": return .appearance
         case "indicator": return .home
         case "recording": return .dictation
         case "recovery": return .dictationRecovery
@@ -53,7 +59,8 @@ struct SettingsView: View {
         case "snippets": return .snippets
         case "workflows": return .workflows
         case "premium": return .premium
-        case "plugins", "integrations-available": return .integrations
+        // "plugins" moves on to the first installed plugin once the plugins are loaded.
+        case "plugins", "integrations-available", "integrations-local": return .integrations
         case "advanced": return .advanced
         case "license": return .license
         case "about": return .about
@@ -65,6 +72,7 @@ struct SettingsView: View {
         let builtInDestinations = [
             SettingsDestination(tab: .home, title: String(localized: "Home"), systemImage: "house", badge: nil),
             SettingsDestination(tab: .general, title: String(localized: "General"), systemImage: "gear", badge: nil),
+            SettingsDestination(tab: .appearance, title: String(localized: "Appearance"), systemImage: "circle.lefthalf.filled", badge: nil),
             SettingsDestination(tab: .dictation, title: String(localized: "Dictation"), systemImage: "mic.fill", badge: nil),
             SettingsDestination(tab: .hotkeys, title: String(localized: "Hotkeys"), systemImage: "keyboard", badge: nil),
             SettingsDestination(
@@ -103,7 +111,7 @@ struct SettingsView: View {
             ),
             SettingsDestination(
                 tab: .integrations,
-                title: String(localized: "Integrations"),
+                title: localizedAppText("Discover plugins", de: "Plugins entdecken"),
                 systemImage: "puzzlepiece.extension",
                 badge: registryService.availableUpdatesCount > 0 ? registryService.availableUpdatesCount : nil
             ),
@@ -123,7 +131,35 @@ struct SettingsView: View {
             }
         }
 
-        return builtInDestinations + pluginDestinations
+        let installedPluginDestinations = pluginManager.loadedPlugins
+            .sorted { lhs, rhs in
+                // Disabled plugins sink below the ones in use.
+                if lhs.isEnabled != rhs.isEnabled { return lhs.isEnabled }
+                return lhs.manifest.name.localizedCompare(rhs.manifest.name) == .orderedAscending
+            }
+            .map { plugin in
+                let registryPlugin = registryService.registry.first { $0.id == plugin.id }
+                return SettingsDestination(
+                    tab: .installedPlugin(pluginId: plugin.id),
+                    title: plugin.manifest.name,
+                    systemImage: registryPlugin?.iconSystemName
+                        ?? plugin.manifest.iconSystemName
+                        ?? "puzzlepiece.extension",
+                    badge: nil,
+                    iconURL: validatedHTTPSURL(registryPlugin?.iconURL)
+                        ?? validatedHTTPSURL(plugin.manifest.iconURL)
+                        ?? plugin.iconResourceURL,
+                    darkIconURL: validatedHTTPSURL(registryPlugin?.iconDarkURL)
+                        ?? validatedHTTPSURL(plugin.manifest.iconDarkURL),
+                    isDimmed: !plugin.isEnabled,
+                    hasUpdate: {
+                        if case .updateAvailable = registryService.installInfo(for: plugin.id) { return true }
+                        return false
+                    }()
+                )
+            }
+
+        return builtInDestinations + installedPluginDestinations + pluginDestinations
     }
 
     private var destinationSections: [SettingsDestinationSection] {
@@ -155,6 +191,16 @@ struct SettingsView: View {
         .frame(minWidth: 950, idealWidth: 1050, minHeight: 550, idealHeight: 600)
         .onAppear {
             navigateToFileTranscriptionIfNeeded()
+            syncIndicatorPreview()
+            selectScreenshotPluginPageIfNeeded()
+        }
+        // The detail view's own onDisappear is not reliable inside the split
+        // view, so the selected tab drives the live indicator preview.
+        .onChange(of: selectedTab) { _, _ in
+            syncIndicatorPreview()
+        }
+        .onDisappear {
+            IndicatorPreviewSession.shared.stop()
         }
         .onChange(of: fileTranscription.showFilePickerFromMenu) { _, _ in
             navigateToFileTranscriptionIfNeeded()
@@ -186,10 +232,41 @@ struct SettingsView: View {
                 selectedTab = Self.availableTab(request.tab)
             }
         }
+        .onChange(of: pluginManager.loadedPlugins.map(\.id)) { _, pluginIds in
+            // An uninstalled plugin takes its sidebar entry with it.
+            if case .installedPlugin(let pluginId) = selectedTab, !pluginIds.contains(pluginId) {
+                selectedTab = .integrations
+            }
+            selectScreenshotPluginPageIfNeeded()
+        }
     }
 
     static func availableTab(_ tab: SettingsTab) -> SettingsTab {
         tab
+    }
+
+    private func selectScreenshotPluginPageIfNeeded() {
+        guard AppConstants.isScreenshotAutomation,
+              AppConstants.screenshotState == "plugins",
+              selectedTab == .integrations,
+              let plugin = pluginManager.loadedPlugins
+                .filter({ $0.isEnabled && $0.supportsSettingsWindow })
+                .min(by: { $0.manifest.name.localizedCompare($1.manifest.name) == .orderedAscending }) else {
+            return
+        }
+        selectedTab = .installedPlugin(pluginId: plugin.id)
+        // Keep a text field of the plugin from showing a focus ring in the capture.
+        DispatchQueue.main.async {
+            NSApp.windows.forEach { $0.makeFirstResponder(nil) }
+        }
+    }
+
+    private func syncIndicatorPreview() {
+        if selectedTab == .appearance {
+            IndicatorPreviewSession.shared.start()
+        } else {
+            IndicatorPreviewSession.shared.stop()
+        }
     }
 
     private func navigateToFileTranscriptionIfNeeded() {
@@ -213,6 +290,8 @@ struct SettingsView: View {
             #endif
         case .general:
             GeneralSettingsView()
+        case .appearance:
+            AppearanceSettingsView()
         case .dictation:
             RecordingSettingsView()
         case .hotkeys:
@@ -244,9 +323,16 @@ struct SettingsView: View {
         case .advanced:
             AdvancedSettingsView()
         case .license:
+            #if APPSTORE
+            PremiumSettingsView()
+            #else
             LicenseSettingsView()
+            #endif
         case .about:
             AboutSettingsView()
+        case .installedPlugin(let pluginId):
+            PluginSettingsView(focusedPluginId: pluginId)
+                .id(pluginId)
         case .plugin(let pluginId, let itemId):
             if let view = pluginManager.settingsSidebarView(pluginId: pluginId, itemId: itemId) {
                 view
@@ -490,20 +576,28 @@ private struct SettingsSidebarList: View {
     }
 
     var body: some View {
-        List(selection: $selectedTab) {
-            ForEach(filteredSections) { section in
-                Section {
-                    ForEach(section.destinations) { destination in
-                        SettingsSidebarRow(
-                            destination: destination,
-                            isSelected: destination.tab == selectedTab
-                        )
-                        .tag(destination.tab)
+        ScrollViewReader { proxy in
+            List(selection: $selectedTab) {
+                ForEach(filteredSections) { section in
+                    Section {
+                        ForEach(section.destinations) { destination in
+                            SettingsSidebarRow(
+                                destination: destination,
+                                isSelected: destination.tab == selectedTab
+                            )
+                            .tag(destination.tab)
+                            .id(destination.tab)
+                        }
                     }
                 }
             }
+            .listStyle(.sidebar)
+            // A page opened from elsewhere (e.g. a freshly installed plugin) may sit
+            // below the visible rows.
+            .onChange(of: selectedTab) { _, tab in
+                proxy.scrollTo(tab)
+            }
         }
-        .listStyle(.sidebar)
         // Changing the section/row count via search filtering can leave stale,
         // blank space behind from SwiftUI's incremental List diffing. Keying the
         // List on the query forces a clean rebuild instead of a partial diff.
@@ -566,6 +660,7 @@ private func settingsBadge(_ destinations: [SettingsDestination], _ tab: Setting
 private func settingsDestinationSections(_ destinations: [SettingsDestination]) -> [SettingsDestinationSection] {
     var coreDestinations = [
         settingsDestination(destinations, .general),
+        settingsDestination(destinations, .appearance),
         settingsDestination(destinations, .dictation)
     ]
     if let recoveryDestination = settingsDestinationIfAvailable(destinations, .dictationRecovery) {
@@ -587,11 +682,27 @@ private func settingsDestinationSections(_ destinations: [SettingsDestination]) 
     ]
 
     let pluginDestinations = destinations.filter {
-        if case .plugin = $0.tab { return true }
-        return false
+        switch $0.tab {
+        case .plugin, .installedPlugin: return true
+        default: return false
+        }
     }
 
     let integrationDestinations = [settingsDestination(destinations, .integrations)] + pluginDestinations
+
+    #if APPSTORE
+    // Premium is bought on the Premium page, so there is no License page.
+    let systemDestinations = [
+        settingsDestination(destinations, .advanced),
+        settingsDestination(destinations, .about)
+    ]
+    #else
+    let systemDestinations = [
+        settingsDestination(destinations, .advanced),
+        settingsDestination(destinations, .license),
+        settingsDestination(destinations, .about)
+    ]
+    #endif
 
     return [
         SettingsDestinationSection(
@@ -612,11 +723,7 @@ private func settingsDestinationSections(_ destinations: [SettingsDestination]) 
         ),
         SettingsDestinationSection(
             id: "system",
-            destinations: [
-                settingsDestination(destinations, .advanced),
-                settingsDestination(destinations, .license),
-                settingsDestination(destinations, .about)
-            ]
+            destinations: systemDestinations
         )
     ]
 }
@@ -684,15 +791,31 @@ private struct SettingsSidebarRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Label(destination.title, systemImage: destination.systemImage)
-                .symbolEffect(.bounce, value: bounceTrigger)
+            if destination.iconURL != nil {
+                Label {
+                    Text(destination.title)
+                } icon: {
+                    SettingsSidebarPluginIcon(destination: destination)
+                }
+            } else {
+                Label(destination.title, systemImage: destination.systemImage)
+                    .symbolEffect(.bounce, value: bounceTrigger)
+            }
 
             Spacer(minLength: 8)
+
+            if destination.hasUpdate {
+                Image(systemName: "arrow.down.circle.fill")
+                    .foregroundStyle(isSelected ? AnyShapeStyle(.primary) : AnyShapeStyle(.tint))
+                    .help(localizedAppText("Update available", de: "Update verfügbar", ja: "アップデートがあります"))
+                    .accessibilityLabel(localizedAppText("Update available", de: "Update verfügbar", ja: "アップデートがあります"))
+            }
 
             if let badge = destination.badge {
                 SettingsSidebarBadge(title: destination.title, count: badge)
             }
         }
+        .opacity(destination.isDimmed && !isSelected ? 0.5 : 1)
         .contentShape(Rectangle())
         .onChange(of: isSelected) { _, selected in
             guard hasAppeared, selected, !reduceMotion else { return }
@@ -700,6 +823,50 @@ private struct SettingsSidebarRow: View {
         }
         .onAppear {
             DispatchQueue.main.async { hasAppeared = true }
+        }
+    }
+}
+
+/// The plugin's own logo, so installed plugins are recognizable in the sidebar.
+private struct SettingsSidebarPluginIcon: View {
+    let destination: SettingsDestination
+
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var image: NSImage?
+
+    private static let cache = NSCache<NSURL, NSImage>()
+
+    private var resolvedURL: URL? {
+        colorScheme == .dark ? destination.darkIconURL ?? destination.iconURL : destination.iconURL
+    }
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 18, height: 18)
+            } else {
+                Image(systemName: destination.systemImage)
+            }
+        }
+        .task(id: resolvedURL) {
+            guard let resolvedURL else {
+                image = nil
+                return
+            }
+            if let cached = Self.cache.object(forKey: resolvedURL as NSURL) {
+                image = cached
+                return
+            }
+
+            var request = URLRequest(url: resolvedURL)
+            request.timeoutInterval = 15
+            let data = try? await URLSession.shared.data(for: request).0
+            guard !Task.isCancelled, let loaded = data.flatMap(NSImage.init(data:)) else { return }
+            Self.cache.setObject(loaded, forKey: resolvedURL as NSURL)
+            image = loaded
         }
     }
 }
@@ -730,6 +897,7 @@ struct RecordingSettingsView: View {
     @State private var customSounds: [String] = SoundChoice.installedCustomSounds()
     @State private var draggedInputDevicePriorityItem: AudioInputDevicePriorityItem?
     @AppStorage(UserDefaultsKeys.airPodsInstantStartEnabled) private var bluetoothInstantStartEnabled = false
+    @AppStorage(UserDefaultsKeys.microphonePrerollEnabled) private var microphonePrerollEnabled = false
     @AppStorage(UserDefaultsKeys.transcriptionNumberNormalizationEnabled) private var numberNormalizationEnabled = true
     @AppStorage(UserDefaultsKeys.transcriptionNumberNormalizationMinimumValue)
     private var numberNormalizationMinimumValue = TranscriptionNormalizationService.defaultNumberNormalizationMinimumValue
@@ -737,7 +905,12 @@ struct RecordingSettingsView: View {
     private let audioRecordingService = ServiceContainer.shared.audioRecordingService
 
     private var needsPermissions: Bool {
+#if APPSTORE
         dictation.needsMicPermission || dictation.needsAccessibilityPermission
+            || dictation.needsInputMonitoringPermission
+#else
+        dictation.needsMicPermission || dictation.needsAccessibilityPermission
+#endif
     }
 
     private var usesBluetoothInput: Bool {
@@ -1027,6 +1200,22 @@ struct RecordingSettingsView: View {
                     Text(String(localized: "Keeps the Bluetooth microphone active between dictations. Audio between dictations is discarded. This shows the orange microphone indicator, uses more battery, and keeps headset audio in call-quality mode."))
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                } else {
+                    Toggle(
+                        String(localized: "Start speaking right away"),
+                        isOn: $microphonePrerollEnabled
+                    )
+                    .onChange(of: microphonePrerollEnabled) { _, _ in
+                        audioRecordingService.handleMicrophonePrerollPreferenceChange()
+                    }
+
+                    Text(String(localized: "Keeps the microphone running between dictations and holds the last half second of audio in memory only, so your first words are not cut off. Nothing is saved, sent, or processed until you start dictating. The orange microphone indicator stays on while this is enabled."))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Text(String(localized: "On Macs where the built-in microphone needs voice processing, it cannot stay active between dictations. This setting has no effect there; choose another microphone to use it."))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
 
                 if let message = audioDevice.selectedDeviceStatusMessage {
@@ -1131,6 +1320,15 @@ struct RecordingSettingsView: View {
                 Text(String(localized: "Smaller numbers stay as spoken words. Decimals and digit sequences still convert to digits. Existing digits stay unchanged."))
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
+                Toggle(String(localized: "Strip final period from standalone values"), isOn: Binding(
+                    get: { UserDefaults.standard.bool(forKey: UserDefaultsKeys.stripFinalPeriodFromStandaloneValuesEnabled) },
+                    set: { UserDefaults.standard.set($0, forKey: UserDefaultsKeys.stripFinalPeriodFromStandaloneValuesEnabled) }
+                ))
+
+                Text(String(localized: "Removes a model-added period when a dictated email address, URL, number, or version string is inserted on its own, keeping the value usable in form fields. Abbreviations, dates, and sentences are left alone."))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
                 Section(String(localized: "Audio Ducking")) {
@@ -1179,10 +1377,29 @@ struct RecordingSettingsView: View {
                         }
                     }
 
+#if APPSTORE
+                    if dictation.needsAccessibilityPermission {
+                        AppStorePermissionRow(
+                            dictation: dictation,
+                            kind: .accessibility,
+                            titleStyle: .short,
+                            labelColor: .orange
+                        )
+                    }
+
+                    if dictation.needsInputMonitoringPermission {
+                        AppStorePermissionRow(
+                            dictation: dictation,
+                            kind: .inputMonitoring,
+                            titleStyle: .short,
+                            labelColor: .orange
+                        )
+                    }
+#else
                     if dictation.needsAccessibilityPermission {
                         HStack {
                             Label(
-                                String(localized: "Accessibility"),
+                                AccessibilityPermissionPane.localizedName(),
                                 systemImage: "lock.shield"
                             )
                             .foregroundStyle(.orange)
@@ -1196,6 +1413,7 @@ struct RecordingSettingsView: View {
                             .controlSize(.small)
                         }
                     }
+#endif
                     }
                 }
             }
@@ -1366,10 +1584,19 @@ struct PermissionsBanner: View {
                 }
             }
 
+#if APPSTORE
+            if dictation.needsAccessibilityPermission {
+                AppStorePermissionRow(dictation: dictation, kind: .accessibility, labelColor: .red)
+            }
+
+            if dictation.needsInputMonitoringPermission {
+                AppStorePermissionRow(dictation: dictation, kind: .inputMonitoring, labelColor: .red)
+            }
+#else
             if dictation.needsAccessibilityPermission {
                 HStack {
                     Label(
-                        String(localized: "Accessibility access required"),
+                        AccessibilityPermissionPane.accessRequiredText(),
                         systemImage: "lock.shield"
                     )
                     .foregroundStyle(.red)
@@ -1383,6 +1610,7 @@ struct PermissionsBanner: View {
                     .controlSize(.small)
                 }
             }
+#endif
         }
     }
 }

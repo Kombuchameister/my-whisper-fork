@@ -32,6 +32,23 @@ enum OverlayPosition: String, CaseIterable {
     case bottom
 }
 
+/// Visual treatment of the floating indicator surfaces.
+enum IndicatorTheme: String, CaseIterable {
+    case classic
+    case glass
+    case light
+}
+
+extension IndicatorTheme {
+    var title: String {
+        switch self {
+        case .classic: String(localized: "indicatorTheme.classic", defaultValue: "Classic")
+        case .glass: String(localized: "indicatorTheme.glass", defaultValue: "Glass")
+        case .light: String(localized: "indicatorTheme.light", defaultValue: "Light")
+        }
+    }
+}
+
 extension IndicatorStyle {
     var supportsTranscriptPreview: Bool {
         self != .minimal
@@ -73,12 +90,14 @@ enum CancellationBehavior: String, CaseIterable, Sendable {
     case doubleEscape
     case singleEscape
     case instant
+    case disabled
 
     var title: String {
         switch self {
         case .doubleEscape: String(localized: "cancellationBehavior.double", defaultValue: "Double")
         case .singleEscape: String(localized: "cancellationBehavior.single", defaultValue: "Single")
         case .instant: String(localized: "cancellationBehavior.instant", defaultValue: "Instant")
+        case .disabled: String(localized: "cancellationBehavior.disabled", defaultValue: "Disabled")
         }
     }
 }

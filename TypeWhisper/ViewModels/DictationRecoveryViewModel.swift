@@ -69,7 +69,11 @@ final class DictationRecoveryViewModel: ObservableObject {
         }
     }
     @Published var selectedModel: String? {
-        didSet { defaults.set(selectedModel, forKey: UserDefaultsKeys.dictationRecoveryModel) }
+        didSet {
+            defaults.set(selectedModel, forKey: UserDefaultsKeys.dictationRecoveryModel)
+            guard isInitialized, oldValue != selectedModel else { return }
+            normalizeLanguageSelectionForResolvedEngine()
+        }
     }
     @Published var automaticFallbackEnabled: Bool {
         didSet {
@@ -253,7 +257,7 @@ final class DictationRecoveryViewModel: ObservableObject {
     }
 
     var selectedEngineSupportedLanguages: [String] {
-        resolvedEngine?.supportedLanguages.sorted() ?? []
+        resolvedEngine?.supportedLanguages(forModel: selectedModel).sorted() ?? []
     }
 
     var canUseAutomaticFallback: Bool {
@@ -262,10 +266,17 @@ final class DictationRecoveryViewModel: ObservableObject {
 
     var automaticFallbackUnavailableMessage: String? {
         guard !canUseAutomaticFallback else { return nil }
+        #if APPSTORE
+        return localizedAppText(
+            "Automatic fallback requires TypeWhisper Premium.",
+            de: "Automatischer Fallback benötigt TypeWhisper Premium."
+        )
+        #else
         return localizedAppText(
             "Automatic fallback requires a commercial license or active supporter status.",
             de: "Automatischer Fallback benötigt eine kommerzielle Lizenz oder aktiven Supporter-Status."
         )
+        #endif
     }
 
     /// Re-reads the recovery preferences after a settings-backup import wrote
@@ -420,6 +431,12 @@ final class DictationRecoveryViewModel: ObservableObject {
         updateRecoveryURLs(audioRecordingService.recoveryRecordingURLs)
     }
 
+    func discardAllRecoveries() {
+        guard !isProcessing else { return }
+        audioRecordingService.discardAllRecoveryRecordings()
+        updateRecoveryURLs(audioRecordingService.recoveryRecordingURLs)
+    }
+
     func refreshRecoveries() {
         updateRecoveryURLs(audioRecordingService.refreshRecoveryRecordings())
     }
@@ -482,7 +499,9 @@ final class DictationRecoveryViewModel: ObservableObject {
 
     private func normalizeLanguageSelectionForResolvedEngine() {
         guard let engine = resolvedEngine else { return }
-        let normalized = languageSelection.normalizedForSupportedLanguages(engine.supportedLanguages)
+        let normalized = languageSelection.normalizedForSupportedLanguages(
+            engine.supportedLanguages(forModel: selectedModel)
+        )
         if normalized != languageSelection {
             languageSelection = normalized
         }

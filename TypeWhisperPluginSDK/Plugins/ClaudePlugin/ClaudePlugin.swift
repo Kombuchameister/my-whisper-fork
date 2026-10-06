@@ -3,6 +3,15 @@ import os
 import SwiftUI
 import TypeWhisperPluginSDK
 
+// Screenshot automation blocks provider requests, so an automatic refresh could only fail.
+enum ClaudeAutomaticRefreshPolicy {
+    static func allowsRefreshOnAppear(
+        arguments: [String] = ProcessInfo.processInfo.arguments
+    ) -> Bool {
+        !arguments.contains("--store-screenshots")
+    }
+}
+
 // MARK: - Plugin Entry Point
 
 @objc(ClaudePlugin)
@@ -639,6 +648,11 @@ final class ClaudePlugin: NSObject, LLMProviderPlugin, LLMTemperatureAndEffortCo
             throw PluginChatError.apiError("Failed to parse response")
         }
 
+        // A reply stopped at max_tokens is incomplete; fail instead of returning it.
+        if (json["stop_reason"] as? String) == "max_tokens" {
+            throw PluginChatError.apiError("The reply was cut off at the output token limit (4096 tokens), so the text is incomplete.")
+        }
+
         return text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
@@ -843,7 +857,7 @@ private struct ClaudeSettingsView: View {
                     Text("Temperature", bundle: bundle)
                         .font(.headline)
 
-                    Picker("Temperature Mode", selection: $llmTemperatureMode) {
+                    Picker(String(localized: "Temperature Mode", bundle: bundle), selection: $llmTemperatureMode) {
                         Text("Provider Default", bundle: bundle).tag(PluginLLMTemperatureMode.providerDefault)
                         Text("Custom", bundle: bundle).tag(PluginLLMTemperatureMode.custom)
                     }
@@ -885,7 +899,9 @@ private struct ClaudeSettingsView: View {
             reasoningEffortId = plugin.defaultEffortId(for: selectedModel) ?? "high"
             lastUpdated = plugin.cacheLastUpdated
             // Serve the cache immediately; refresh in the background if stale.
-            if plugin.isAvailable, !plugin.isModelCacheFresh {
+            if plugin.isAvailable,
+               !plugin.isModelCacheFresh,
+               ClaudeAutomaticRefreshPolicy.allowsRefreshOnAppear() {
                 refresh()
             }
         }

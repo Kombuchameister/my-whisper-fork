@@ -261,7 +261,7 @@ final class FileTranscriptionViewModel: ObservableObject {
     }
 
     var selectedEngineSupportedLanguages: [String] {
-        resolvedEngine?.supportedLanguages.sorted() ?? []
+        resolvedEngine?.supportedLanguages(forModel: selectedModel).sorted() ?? []
     }
 
     var hasResults: Bool {

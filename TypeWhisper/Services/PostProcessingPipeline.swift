@@ -4,7 +4,7 @@ import os.log
 
 private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "TypeWhisper", category: "PostProcessingPipeline")
 
-private func isPostProcessingCancellation(_ error: Error) -> Bool {
+func isPostProcessingCancellation(_ error: Error) -> Bool {
     if error is CancellationError { return true }
     if let urlError = error as? URLError, urlError.code == .cancelled { return true }
     let nsError = error as NSError
@@ -52,46 +52,33 @@ final class PostProcessingPipeline {
         outputFormat: String? = nil,
         llmStepName: String? = nil,
         normalizeNumbers: Bool? = nil,
-        llmFailureFallbackText: String? = nil
+        llmFailureFallbackText: String? = nil,
+        deferUsageCountSaves: Bool = false
     ) async throws -> PostProcessingResult {
         // Collect plugin processors with their priorities
         let plugins = PluginManager.shared.postProcessors
-
-        // Build priority-ordered step list: (priority, id)
-        // IDs: -1 = LLM, -2 = snippets, -3 = dictionary, -4 = app formatter, -5 = punctuation, -6 = normalization, 0+ = plugin index
-        var steps: [(priority: Int, id: Int)] = []
-
-        steps.append((100, -6))
-
-        // App formatter at priority 150 (before LLM at 300)
-        let formattingEnabled = UserDefaults.standard.bool(forKey: UserDefaultsKeys.appFormattingEnabled)
-        if formattingEnabled, outputFormat != nil, appFormatterService != nil {
-            steps.append((150, -4))
-        }
-
-        steps.append((200, -5))
-
-        if llmHandler != nil {
-            steps.append((300, -1))
-        }
-        for (index, plugin) in plugins.enumerated() {
-            steps.append((plugin.priority, index))
-        }
-        steps.append((500, -2))
-        steps.append((600, -3))
-        steps.sort { $0.priority < $1.priority }
+        let steps = orderedSteps(
+            includesLLMStep: llmHandler != nil,
+            outputFormat: outputFormat,
+            plugins: plugins
+        )
 
         var result = text
         var appliedSteps: [String] = []
+        // Tracks correction usage across the pre- and post-LLM passes so each correction is
+        // counted at most once per dictation, and the pre-LLM pass counts only if processing
+        // succeeds (a fallback or cancellation inserts text without its corrections).
+        var correctionUsage = CorrectionUsageLedger()
 
         func stepName(for id: Int) -> String {
             switch id {
             case -6: return "Number Normalization"
+            case -7: return "Time Notation"
             case -4: return "Formatting"
             case -5: return "Speech Punctuation"
             case -1: return llmStepName ?? "Prompt"
             case -2: return "Snippets"
-            case -3: return "Corrections"
+            case -3, -8: return "Corrections"
             default: return plugins[id].processorName
             }
         }
@@ -102,61 +89,25 @@ final class PostProcessingPipeline {
             let stepStart = ContinuousClock.now
             do {
                 switch step.id {
-                case -6:
-                    let languages = TranscriptionNormalizationService.normalizationLanguages(
-                        task: .transcribe,
-                        detectedLanguage: dictationContext?.detectedLanguage ?? context.language,
-                        configuredLanguage: dictationContext?.configuredLanguage ?? context.language,
-                        configuredLanguageCandidates: dictationContext?.configuredLanguageCandidates ?? []
-                    )
-                    result = TranscriptionNormalizationService.normalizeText(
-                        result,
-                        languages: languages,
-                        normalizeNumbers: normalizeNumbers
-                    )
-                case -4:
-                    result = appFormatterService!.format(
-                        text: result,
-                        bundleId: context.bundleIdentifier,
-                        url: context.url,
-                        outputFormat: outputFormat
-                    )
-                case -5:
-                    if let resolvedStrategy = punctuationStrategyResolver.resolve(
-                        engineId: dictationContext?.engineId,
-                        modelId: dictationContext?.modelId,
-                        configuredLanguage: dictationContext?.configuredLanguage,
-                        detectedLanguage: dictationContext?.detectedLanguage ?? context.language
-                    ) {
-                        switch resolvedStrategy.strategy {
-                        case .nativeOnly:
-                            break
-                        case .automatic:
-                            result = speechPunctuationService.normalize(
-                                text: result,
-                                language: resolvedStrategy.languageCode,
-                                mode: .selectiveFallback
-                            )
-                        case .fallbackOnly:
-                            result = speechPunctuationService.normalize(
-                                text: result,
-                                language: resolvedStrategy.languageCode,
-                                mode: .fullFallback
-                            )
-                        }
-                    }
                 case -1:
                     result = try await llmHandler!(result)
-                case -2:
-                    result = snippetService.applySnippets(to: result)
-                case -3:
-                    result = dictionaryService.applyCorrections(to: result)
+                case let id where id < 0:
+                    result = applyBuiltInStep(
+                        id,
+                        to: result,
+                        context: context,
+                        dictationContext: dictationContext,
+                        outputFormat: outputFormat,
+                        normalizeNumbers: normalizeNumbers,
+                        deferUsageCountSave: deferUsageCountSaves,
+                        correctionUsage: &correctionUsage
+                    )
                 default:
                     result = try await plugins[step.id].process(text: result, context: context)
                 }
                 let changed = result != before
                 logger.info("Post-processing step '\(name)' finished in \(ContinuousClock.now - stepStart), changed: \(changed)")
-                if changed {
+                if changed, !appliedSteps.contains(name) {
                     appliedSteps.append(name)
                 }
             } catch {
@@ -183,6 +134,198 @@ final class PostProcessingPipeline {
             }
         }
 
+        // Final time-notation pass: a post-processor plugin with a priority above
+        // the built-in steps can still introduce a `20.45 Uhr` after the late
+        // Time Notation step ran.
+        let finalText = TranscriptionNormalizationService.normalizeTimeNotation(
+            result,
+            languages: normalizationLanguages(context: context, dictationContext: dictationContext)
+        )
+        if finalText != result {
+            result = finalText
+            if !appliedSteps.contains("Time Notation") {
+                appliedSteps.append("Time Notation")
+            }
+        }
+
+        dictionaryService.recordUsage(
+            ofCorrectionIDs: correctionUsage.uncountedProvisionalIDs,
+            deferUsageCountSave: deferUsageCountSaves
+        )
         return PostProcessingResult(text: result, appliedSteps: appliedSteps, fallback: nil)
+    }
+
+    /// Whether an installed post-processor plugin can run before the LLM step. Its
+    /// output for a partial transcript can't be reproduced ahead of the final pass.
+    var hasPluginStepsBeforeLLMStep: Bool {
+        PluginManager.shared.postProcessors.contains { $0.priority <= Self.llmStepPriority }
+    }
+
+    /// Applies the built-in steps that `process` runs before the LLM step, so text
+    /// confirmed during recording can be prepared exactly like the final LLM input.
+    /// Plugin post-processors are not applied; see `hasPluginStepsBeforeLLMStep`.
+    func textBeforeLLMStep(
+        _ text: String,
+        context: PostProcessingContext,
+        dictationContext: DictationRuntimeContext?,
+        outputFormat: String?,
+        normalizeNumbers: Bool?
+    ) -> String {
+        // Ordered as for an LLM run so the pre-LLM correction pass is included; the LLM
+        // step itself is excluded by the priority filter.
+        let steps = orderedSteps(includesLLMStep: true, outputFormat: outputFormat, plugins: [])
+        var result = text
+        // Preparation never commits usage; the final `process` run counts the corrections.
+        var correctionUsage = CorrectionUsageLedger()
+        for step in steps where step.priority < Self.llmStepPriority {
+            result = applyBuiltInStep(
+                step.id,
+                to: result,
+                context: context,
+                dictationContext: dictationContext,
+                outputFormat: outputFormat,
+                normalizeNumbers: normalizeNumbers,
+                correctionUsage: &correctionUsage
+            )
+        }
+        return result
+    }
+
+    private static let llmStepPriority = 300
+
+    /// Builds the priority-ordered step list: (priority, id).
+    /// IDs: -1 = LLM, -2 = snippets, -3 = dictionary, -4 = app formatter, -5 = punctuation, -6 = normalization, -7 = time notation (late),
+    /// -8 = dictionary (pre-LLM pass), 0+ = plugin index
+    private func orderedSteps(
+        includesLLMStep: Bool,
+        outputFormat: String?,
+        plugins: [PostProcessorPlugin]
+    ) -> [(priority: Int, id: Int)] {
+        var steps: [(priority: Int, id: Int)] = []
+
+        steps.append((100, -6))
+
+        // App formatter at priority 150 (before LLM at 300)
+        let formattingEnabled = UserDefaults.standard.bool(forKey: UserDefaultsKeys.appFormattingEnabled)
+        if formattingEnabled, outputFormat != nil, appFormatterService != nil {
+            steps.append((150, -4))
+        }
+
+        steps.append((200, -5))
+
+        if includesLLMStep {
+            // Apply dictionary corrections before the LLM sees the text as well as after it.
+            // The LLM otherwise rewrites the raw misrecognition (re-punctuates it, swaps a
+            // hyphen, drops a word) and the exact-match correction at 600 no longer fires.
+            steps.append((250, -8))
+            steps.append((Self.llmStepPriority, -1))
+        }
+        for (index, plugin) in plugins.enumerated() {
+            steps.append((plugin.priority, index))
+        }
+        steps.append((500, -2))
+        steps.append((600, -3))
+        // Time rewrite runs once more at the very end: the LLM step, plugins,
+        // snippets and corrections can all introduce a `20.45 Uhr` that the
+        // early normalization step never saw.
+        steps.append((700, -7))
+        steps.sort { $0.priority < $1.priority }
+        return steps
+    }
+
+    private func normalizationLanguages(
+        context: PostProcessingContext,
+        dictationContext: DictationRuntimeContext?
+    ) -> [String] {
+        TranscriptionNormalizationService.normalizationLanguages(
+            task: .transcribe,
+            detectedLanguage: dictationContext?.detectedLanguage ?? context.language,
+            configuredLanguage: dictationContext?.configuredLanguage ?? context.language,
+            configuredLanguageCandidates: dictationContext?.configuredLanguageCandidates ?? []
+        )
+    }
+
+    private func applyBuiltInStep(
+        _ id: Int,
+        to text: String,
+        context: PostProcessingContext,
+        dictationContext: DictationRuntimeContext?,
+        outputFormat: String?,
+        normalizeNumbers: Bool?,
+        deferUsageCountSave: Bool = false,
+        correctionUsage: inout CorrectionUsageLedger
+    ) -> String {
+        switch id {
+        case -6:
+            return TranscriptionNormalizationService.normalizeText(
+                text,
+                languages: normalizationLanguages(context: context, dictationContext: dictationContext),
+                normalizeNumbers: normalizeNumbers
+            )
+        case -7:
+            return TranscriptionNormalizationService.normalizeTimeNotation(
+                text,
+                languages: normalizationLanguages(context: context, dictationContext: dictationContext)
+            )
+        case -4:
+            return appFormatterService!.format(
+                text: text,
+                bundleId: context.bundleIdentifier,
+                url: context.url,
+                outputFormat: outputFormat
+            )
+        case -5:
+            guard let resolvedStrategy = punctuationStrategyResolver.resolve(
+                engineId: dictationContext?.engineId,
+                modelId: dictationContext?.modelId,
+                configuredLanguage: dictationContext?.configuredLanguage,
+                detectedLanguage: dictationContext?.detectedLanguage ?? context.language
+            ) else {
+                return text
+            }
+            switch resolvedStrategy.strategy {
+            case .nativeOnly:
+                return text
+            case .automatic:
+                return speechPunctuationService.normalize(
+                    text: text,
+                    language: resolvedStrategy.languageCode,
+                    mode: .selectiveFallback
+                )
+            case .fallbackOnly:
+                return speechPunctuationService.normalize(
+                    text: text,
+                    language: resolvedStrategy.languageCode,
+                    mode: .fullFallback
+                )
+            }
+        case -2:
+            return snippetService.applySnippets(to: text, deferUsageCountSave: deferUsageCountSave)
+        case -8:
+            return dictionaryService.previewCorrections(
+                to: text,
+                appliedCorrectionIDs: &correctionUsage.provisionalIDs
+            )
+        case -3:
+            return dictionaryService.applyCorrections(
+                to: text,
+                deferUsageCountSave: deferUsageCountSave,
+                countedCorrectionIDs: &correctionUsage.countedIDs
+            )
+        default:
+            return text
+        }
+    }
+}
+
+/// Correction usage for one post-processing run. The post-LLM pass counts immediately
+/// (`countedIDs`); the pre-LLM pass only records what it applied (`provisionalIDs`), which is
+/// counted once the run completes, minus anything the post-LLM pass already counted.
+struct CorrectionUsageLedger {
+    var countedIDs = Set<UUID>()
+    var provisionalIDs = Set<UUID>()
+
+    var uncountedProvisionalIDs: Set<UUID> {
+        provisionalIDs.subtracting(countedIDs)
     }
 }

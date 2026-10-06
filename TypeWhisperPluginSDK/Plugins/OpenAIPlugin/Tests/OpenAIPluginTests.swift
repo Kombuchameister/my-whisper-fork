@@ -44,6 +44,20 @@ final class OpenAIPluginTests: XCTestCase {
         }
     }
 
+    func testAPIKeyFieldShowsRemoveOnlyForTheStoredKey() {
+        XCTAssertFalse(OpenAIAPIKeyField.showsRemove(storedKey: nil, input: "sk-new", validationResult: nil))
+        XCTAssertFalse(OpenAIAPIKeyField.showsRemove(storedKey: nil, input: "", validationResult: nil))
+        XCTAssertTrue(OpenAIAPIKeyField.showsRemove(storedKey: "sk-old", input: "sk-old", validationResult: nil))
+        XCTAssertTrue(OpenAIAPIKeyField.showsRemove(storedKey: " sk-old\n", input: "sk-old ", validationResult: nil))
+        XCTAssertTrue(OpenAIAPIKeyField.showsRemove(storedKey: "sk-old", input: "  ", validationResult: nil))
+        XCTAssertFalse(OpenAIAPIKeyField.showsRemove(storedKey: "sk-old", input: "sk-new", validationResult: nil))
+    }
+
+    func testAPIKeyFieldOffersSaveAgainAfterAFailedValidation() {
+        XCTAssertFalse(OpenAIAPIKeyField.showsRemove(storedKey: "sk-new", input: "sk-new", validationResult: false))
+        XCTAssertTrue(OpenAIAPIKeyField.showsRemove(storedKey: "sk-new", input: "sk-new", validationResult: true))
+    }
+
     func testOpenAIPluginAdvertisesLiveSTTAndTTSProtocols() {
         let plugin: Any = OpenAIPlugin()
 
@@ -477,8 +491,10 @@ final class OpenAIPluginTests: XCTestCase {
                 XCTFail("Expected HTTP \(statusCode) to fail")
             } catch let error as PluginTranscriptionError {
                 switch (statusCode, error) {
-                case (401, .invalidApiKey), (413, .fileTooLarge), (429, .rateLimited):
+                case (401, .invalidApiKey), (413, .fileTooLarge):
                     break
+                case (429, .apiError(let message)):
+                    XCTAssertEqual(message, "HTTP 429: request failed")
                 default:
                     XCTFail("Unexpected mapping for HTTP \(statusCode): \(error)")
                 }

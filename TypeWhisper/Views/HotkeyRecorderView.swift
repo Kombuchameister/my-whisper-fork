@@ -14,8 +14,17 @@ struct HotkeyRecorderView: View {
     var trailingAccessory: AnyView = AnyView(EmptyView())
     let onRecord: (UnifiedHotkey) -> Void
     let onClear: () -> Void
+    /// The hotkey this editor represents, when editing an existing assignment.
+    /// Used to preload the visual keyboard. Nil when recording a new shortcut.
+    var hotkey: UnifiedHotkey? = nil
+    /// Conflict preview for the visual keyboard. Defaults to a global-slot
+    /// check through the shared hotkey service — the same source of truth the
+    /// recorder validates against on save.
+    var visualKeyboardExistingAssignment: ((UnifiedHotkey) -> String?)? = nil
 
     @State private var isRecording = false
+    @State private var showVisualKeyboard = false
+    @State private var visualKeyboardSession = UUID()
     @State private var pendingModifiers: NSEvent.ModifierFlags = []
     @State private var peakModifiers: NSEvent.ModifierFlags = []
     @State private var pendingModifierKeyCodes: Set<UInt16> = []
@@ -31,13 +40,33 @@ struct HotkeyRecorderView: View {
     @State private var doubleTapTimer: DispatchWorkItem?
 
     var body: some View {
-        switch presentation {
-        case .row:
-            rowBody
-        case .iconButton(let systemName):
-            iconButtonBody(systemName: systemName)
-        case .compactChip:
-            compactChipBody
+        Group {
+            switch presentation {
+            case .row:
+                rowBody
+            case .iconButton(let systemName):
+                iconButtonBody(systemName: systemName)
+            case .compactChip:
+                compactChipBody
+            }
+        }
+        .sheet(isPresented: $showVisualKeyboard) {
+            VisualShortcutKeyboardView(
+                editingHotkey: hotkey,
+                existingAssignmentDescription: visualKeyboardExistingAssignment ?? Self.globalSlotAssignmentDescription(for:),
+                onSave: { newHotkey in
+                    showVisualKeyboard = false
+                    onRecord(newHotkey)
+                },
+                onClear: {
+                    showVisualKeyboard = false
+                    onClear()
+                },
+                onCancel: {
+                    showVisualKeyboard = false
+                }
+            )
+            .id(visualKeyboardSession)
         }
     }
 
@@ -55,6 +84,7 @@ struct HotkeyRecorderView: View {
             recorderControl
 
             if !isRecording {
+                visualKeyboardButton
                 trailingAccessory
             }
         }
@@ -73,16 +103,19 @@ struct HotkeyRecorderView: View {
             .controlSize(.small)
             .accessibilityLabel(String(localized: "Recording shortcut - press a key or Escape to cancel"))
         } else {
-            Button {
-                startRecording()
-            } label: {
-                Image(systemName: systemName)
-                    .imageScale(.medium)
+            HStack(spacing: 4) {
+                Button {
+                    startRecording()
+                } label: {
+                    Image(systemName: systemName)
+                        .imageScale(.medium)
+                }
+                .buttonStyle(.borderless)
+                .controlSize(.small)
+                .help(title)
+                .accessibilityLabel(title)
+                visualKeyboardButton
             }
-            .buttonStyle(.borderless)
-            .controlSize(.small)
-            .help(title)
-            .accessibilityLabel(title)
         }
     }
 
@@ -141,6 +174,7 @@ struct HotkeyRecorderView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(String(localized: "Current shortcut: \(label). Click to change."))
+            visualKeyboardButton
             Button {
                 onClear()
             } label: {
@@ -151,6 +185,51 @@ struct HotkeyRecorderView: View {
             .accessibilityLabel(String(localized: "Clear shortcut"))
         }
         .fixedSize()
+    }
+
+    /// Opens the visual keyboard map. Complements the event-driven recorder:
+    /// saving calls the same `onRecord`, so validation is identical.
+    private var visualKeyboardButton: some View {
+        Button {
+            visualKeyboardSession = UUID()
+            showVisualKeyboard = true
+        } label: {
+            Image(systemName: "keyboard")
+                .imageScale(.medium)
+                .foregroundStyle(.secondary)
+        }
+        .buttonStyle(.plain)
+        .help(String(localized: "Edit with visual keyboard"))
+        .accessibilityLabel(String(localized: "Edit shortcut with visual keyboard"))
+    }
+
+    /// Default conflict preview for the visual keyboard: the global slots, via the
+    /// same hotkey service the recorder validates against on save.
+    static func globalSlotAssignmentDescription(for candidate: UnifiedHotkey) -> String? {
+        guard let slot = ServiceContainer.shared.hotkeyService.isHotkeyAssignedToGlobalSlot(candidate) else {
+            return nil
+        }
+        return assignmentDescription(for: slot)
+    }
+
+    /// Localized name of a conflicting global slot, without an English sentence wrapper.
+    static func assignmentDescription(for slot: HotkeySlotType) -> String {
+        globalSlotDisplayName(slot)
+    }
+
+    private static func globalSlotDisplayName(_ slot: HotkeySlotType) -> String {
+        switch slot {
+        case .hybrid: return String(localized: "Hybrid")
+        case .pushToTalk: return String(localized: "Push-to-Talk")
+        case .toggle: return String(localized: "Toggle")
+        case .promptPalette: return String(localized: "Palette shortcut")
+        case .recentTranscriptions: return String(localized: "Recent transcription shortcut")
+        case .copyLastTranscription: return String(localized: "Copy last transcription shortcut")
+        case .pasteLastTranscription: return String(localized: "Paste last transcription shortcut")
+        case .recorderToggle: return String(localized: "recorder.shortcut.title")
+        case .undoLastDictation: return localizedAppText("Undo Last Dictation", de: "Letztes Diktat rückgängig")
+        case .restoreRawTranscript: return localizedAppText("Restore Raw Transcript", de: "Rohtext wiederherstellen")
+        }
     }
 
     private var recordingLabel: String {
@@ -180,6 +259,13 @@ struct HotkeyRecorderView: View {
         return parts.joined()
     }
 
+#if APPSTORE
+    /// Key codes of F1 to F20.
+    static let functionKeyCodes: Set<UInt16> = [
+        122, 120, 99, 118, 96, 97, 98, 100, 101, 109, 103, 111, 105, 107, 113, 106, 64, 79, 80, 90,
+    ]
+#endif
+
     private func startRecording() {
         if let activeId = Self.activeRecorder, activeId != id {
             return
@@ -199,9 +285,12 @@ struct HotkeyRecorderView: View {
         }
 
         // Global monitor - captures events intercepted by macOS (e.g. Ctrl+Space for input switching)
+        // Global key monitors need Accessibility, which the App Store edition cannot get.
+#if !APPSTORE
         globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.keyDown, .flagsChanged, .otherMouseDown]) { event in
             handleRecorderEvent(event)
         }
+#endif
     }
 
     /// Shared event processing for both local and global monitors.
@@ -331,7 +420,17 @@ struct HotkeyRecorderView: View {
             }
 
             let relevantMask: NSEvent.ModifierFlags = [.command, .option, .control, .shift, .function]
+#if APPSTORE
+            // macOS sets the Fn flag on every F-key event. The App Store edition
+            // registers these keys as Carbon hotkeys, which ignore it, so record
+            // F13 as "F13" rather than "Fn F13".
+            let recordedMask = HotkeyRecorderView.functionKeyCodes.contains(event.keyCode)
+                ? relevantMask.subtracting(.function)
+                : relevantMask
+            let modifiers = event.modifierFlags.intersection(recordedMask).rawValue
+#else
             let modifiers = event.modifierFlags.intersection(relevantMask).rawValue
+#endif
 
             finishRecording(UnifiedHotkey(keyCode: event.keyCode, modifierFlags: modifiers, isFn: false))
             return true

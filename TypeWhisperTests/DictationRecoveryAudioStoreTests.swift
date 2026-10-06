@@ -1,11 +1,13 @@
+import AVFoundation
 import Foundation
+import os
 import XCTest
 @testable import TypeWhisper
 
 final class DictationRecoveryAudioStoreTests: XCTestCase {
     func testSuccessfulRetryBufferKeepsWholeAudioAndOnlyLastThreeWithoutEvictingFailures() throws {
         let directory = makeTemporaryDirectory()
-        let store = DictationRecoveryAudioStore(directory: directory)
+        let store = DictationRecoveryAudioStore(directory: directory, compressor: nil)
         store.startNewRecording()
         store.append([0.2])
         let failure = try XCTUnwrap(store.preserveActiveRecording())
@@ -79,9 +81,52 @@ final class DictationRecoveryAudioStoreTests: XCTestCase {
         XCTAssertNil(store.preserveActiveRecordingResult(successful: true).newlyPreservedURL)
     }
 
+    func testBackgroundPreservationRunsBeforeTheNextRecordingStarts() throws {
+        let directory = makeTemporaryDirectory()
+        let store = DictationRecoveryAudioStore(directory: directory, compressor: nil)
+        store.startNewRecording()
+        store.append([0.1, 0.2, 0.3])
+        let preserved = expectation(description: "background preservation finished")
+
+        store.preserveActiveRecordingResultInBackground(successful: true) { result, urls in
+            XCTAssertNotNil(result.newlyPreservedURL)
+            XCTAssertEqual(urls.count, 1)
+            preserved.fulfill()
+        }
+        // Requested afterwards, so it must not replace the finished recording first.
+        store.startNewRecording()
+        wait(for: [preserved], timeout: 1)
+
+        let url = try XCTUnwrap(store.recoveryURLs.first)
+        XCTAssertEqual(store.recoveryURLs.count, 1)
+        XCTAssertTrue(DictationRecoveryAudioStore.isRecentSuccessfulRecording(url))
+        XCTAssertEqual(readUInt32(try Data(contentsOf: url), at: 40), 6)
+    }
+
+    func testWaitForPendingOperationsFinalizesQueuedBackgroundPreservation() throws {
+        let directory = makeTemporaryDirectory()
+        let store = DictationRecoveryAudioStore(directory: directory, compressor: nil)
+        store.startNewRecording()
+        store.append([0.1, 0.2, 0.3])
+        let completionURLs = OSAllocatedUnfairLock<[URL]?>(initialState: nil)
+
+        store.preserveActiveRecordingResultInBackground(successful: true) { _, urls in
+            completionURLs.withLock { $0 = urls }
+        }
+        store.waitForPendingOperations()
+
+        // Checked without going through the store queue, as after the app terminated.
+        let urls = completionURLs.withLock { $0 }
+        let preservedURL = try XCTUnwrap(urls?.first)
+        XCTAssertEqual(urls?.count, 1)
+        XCTAssertEqual(try fileNames(in: directory), [preservedURL.lastPathComponent])
+        XCTAssertTrue(DictationRecoveryAudioStore.isRecentSuccessfulRecording(preservedURL))
+        XCTAssertEqual(readUInt32(try Data(contentsOf: preservedURL), at: 40), 6)
+    }
+
     func testPreserveWritesWavWithExpectedHeaderAndSamples() throws {
         let directory = makeTemporaryDirectory()
-        let store = DictationRecoveryAudioStore(directory: directory)
+        let store = DictationRecoveryAudioStore(directory: directory, compressor: nil)
         let samples: [Float] = [0, 0.5, -0.5]
 
         store.startNewRecording()
@@ -99,6 +144,64 @@ final class DictationRecoveryAudioStoreTests: XCTestCase {
         XCTAssertEqual(readInt16(data, at: 48), -16_383)
         XCTAssertEqual(store.latestRecoveryURL, url)
         XCTAssertEqual(store.recoveryURLs, [url])
+    }
+
+    func testPreserveCompressesRecordingToReadableM4A() throws {
+        let directory = makeTemporaryDirectory()
+        let store = DictationRecoveryAudioStore(directory: directory)
+        let sampleCount = 16_000 * 30
+        let samples = (0..<sampleCount).map { sin(Float($0) * 0.05) * 0.5 }
+
+        store.startNewRecording()
+        store.append(samples)
+        let url = try XCTUnwrap(store.preserveActiveRecordingResult(successful: true).newlyPreservedURL)
+
+        XCTAssertEqual(url.pathExtension, "m4a")
+        XCTAssertTrue(DictationRecoveryAudioStore.isRecentSuccessfulRecording(url))
+        XCTAssertEqual(try fileNames(in: directory), [url.lastPathComponent])
+        XCTAssertEqual(store.recoveryURLs, [url])
+
+        let file = try AVAudioFile(forReading: url)
+        XCTAssertEqual(file.fileFormat.sampleRate, 16_000)
+        XCTAssertEqual(file.fileFormat.channelCount, 1)
+        XCTAssertLessThanOrEqual(abs(file.length - AVAudioFramePosition(sampleCount)), 4_096)
+
+        let size = try XCTUnwrap(
+            try FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber
+        ).intValue
+        XCTAssertLessThan(size, (44 + sampleCount * 2) / 4)
+    }
+
+    func testPreserveKeepsWavWhenCompressionFails() throws {
+        let directory = makeTemporaryDirectory()
+        let store = DictationRecoveryAudioStore(directory: directory, compressor: { _, destinationURL in
+            try Data([1, 2, 3]).write(to: destinationURL)
+            throw DictationRecoveryAudioCompressorError.lengthMismatch
+        })
+
+        store.startNewRecording()
+        store.append([0.25])
+        let url = try XCTUnwrap(store.preserveActiveRecording())
+
+        XCTAssertEqual(url.pathExtension, "wav")
+        XCTAssertEqual(try Data(contentsOf: url), legacyRecoveryWavData(for: [0.25]))
+        XCTAssertEqual(try fileNames(in: directory), [url.lastPathComponent])
+    }
+
+    func testStoredWavAndM4ARecoveriesAreBothListedAndExpired() throws {
+        let directory = makeTemporaryDirectory()
+        let now = Date()
+        let old = now.addingTimeInterval(-8 * 24 * 60 * 60)
+        let wav = try makeRecoveryFile(in: directory, named: "dictation-recovery-20260921-120000-000-0001.wav", modifiedAt: now.addingTimeInterval(-2))
+        let m4a = try makeRecoveryFile(in: directory, named: "dictation-recovery-20260921-120000-000-0002.m4a", modifiedAt: now.addingTimeInterval(-1))
+        let expired = try makeRecoveryFile(in: directory, named: "dictation-recovery-20260921-120000-000-0003.m4a", modifiedAt: old)
+        _ = try makeRecoveryFile(in: directory, named: "active-dictation-recovery.partial.m4a", modifiedAt: now)
+
+        let store = DictationRecoveryAudioStore(directory: directory, retentionPolicy: .sevenDays, now: { now })
+
+        XCTAssertEqual(store.recoveryURLs.map(\.lastPathComponent), [m4a.lastPathComponent, wav.lastPathComponent])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: expired.path))
+        XCTAssertEqual(Set(try fileNames(in: directory)), [m4a.lastPathComponent, wav.lastPathComponent])
     }
 
     func testPreserveKeepsMultipleTimestampedRecoveries() throws {
@@ -459,6 +562,62 @@ final class DictationRecoveryAudioStoreTests: XCTestCase {
         XCTAssertFalse(fileTranscriptionViewModel.showFilePickerFromMenu)
     }
 
+    func testBatchedAppendsPreserveByteIdenticalWav() throws {
+        let directory = makeTemporaryDirectory()
+        let store = DictationRecoveryAudioStore(directory: directory, compressor: nil)
+        let chunks = makeRecoveryTestChunks(
+            totalSampleCount: DictationRecoveryAudioStore.writeBatchSampleCount * 3 + 1_234
+        )
+
+        store.startNewRecording()
+        for chunk in chunks {
+            store.append(chunk)
+        }
+        let url = try XCTUnwrap(store.preserveActiveRecording())
+
+        let samples = chunks.flatMap { $0 }
+        XCTAssertEqual(try Data(contentsOf: url), legacyRecoveryWavData(for: samples))
+    }
+
+    func testAppendsAreBatchedAndRemainderIsFlushedOnPreserve() throws {
+        let directory = makeTemporaryDirectory()
+        let store = DictationRecoveryAudioStore(directory: directory, compressor: nil)
+        let activeURL = directory.appendingPathComponent("active-dictation-recovery.wav")
+        let batch = DictationRecoveryAudioStore.writeBatchSampleCount
+        let chunks = makeRecoveryTestChunks(totalSampleCount: batch + 3_000, chunkSize: 1_000)
+
+        store.startNewRecording()
+        for chunk in chunks {
+            store.append(chunk)
+        }
+        // `recoveryURLs` runs on the store queue, so every queued append has finished.
+        _ = store.recoveryURLs
+
+        // One write for the first full batch; the rest is still pending in memory.
+        let flushedSampleCount = ((batch + 999) / 1_000) * 1_000
+        let activeSize = try XCTUnwrap(
+            try FileManager.default.attributesOfItem(atPath: activeURL.path)[.size] as? NSNumber
+        ).intValue
+        XCTAssertEqual(activeSize, 44 + flushedSampleCount * 2)
+
+        let url = try XCTUnwrap(store.preserveActiveRecording())
+        XCTAssertEqual(try Data(contentsOf: url), legacyRecoveryWavData(for: chunks.flatMap { $0 }))
+    }
+
+    func testDiscardDropsPendingBatchBeforeNextRecording() throws {
+        let directory = makeTemporaryDirectory()
+        let store = DictationRecoveryAudioStore(directory: directory, compressor: nil)
+
+        store.startNewRecording()
+        store.append([0.9, -0.9, 0.3])
+        store.discardActiveRecording()
+        store.startNewRecording()
+        store.append([0.25])
+        let url = try XCTUnwrap(store.preserveActiveRecording())
+
+        XCTAssertEqual(try Data(contentsOf: url), legacyRecoveryWavData(for: [0.25]))
+    }
+
     private func makeTemporaryDirectory() -> URL {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("DictationRecoveryAudioStoreTests-\(UUID().uuidString)", isDirectory: true)
@@ -479,6 +638,59 @@ final class DictationRecoveryAudioStoreTests: XCTestCase {
         try Data([1, 2, 3]).write(to: url)
         try FileManager.default.setAttributes([.modificationDate: date], ofItemAtPath: url.path)
         return url
+    }
+
+    /// Deterministic samples covering clipping, both signs, zero, and tiny values.
+    private func makeRecoveryTestChunks(totalSampleCount: Int, chunkSize: Int? = nil) -> [[Float]] {
+        let samples = (0..<totalSampleCount).map { index -> Float in
+            switch index % 7 {
+            case 0: return 0
+            case 1: return 1.5
+            case 2: return -1.5
+            case 3: return 1e-6
+            default: return sin(Float(index) * 0.013) * 0.97
+            }
+        }
+        var chunks: [[Float]] = []
+        var start = 0
+        var chunkIndex = 0
+        while start < samples.count {
+            let size = chunkSize ?? [171, 512, 1, 3_333, 160][chunkIndex % 5]
+            let end = min(start + size, samples.count)
+            chunks.append(Array(samples[start..<end]))
+            start = end
+            chunkIndex += 1
+        }
+        return chunks
+    }
+
+    /// The WAV bytes the store produced before writes were batched.
+    private func legacyRecoveryWavData(for samples: [Float]) -> Data {
+        func appendLittleEndian<T: FixedWidthInteger>(_ value: T, to data: inout Data) {
+            var littleEndian = value.littleEndian
+            withUnsafeBytes(of: &littleEndian) { data.append(contentsOf: $0) }
+        }
+
+        let dataByteCount = UInt32(samples.count * 2)
+        var data = Data()
+        data.append(contentsOf: "RIFF".utf8)
+        appendLittleEndian(UInt32(36) + dataByteCount, to: &data)
+        data.append(contentsOf: "WAVE".utf8)
+        data.append(contentsOf: "fmt ".utf8)
+        appendLittleEndian(UInt32(16), to: &data)
+        appendLittleEndian(UInt16(1), to: &data)
+        appendLittleEndian(UInt16(1), to: &data)
+        appendLittleEndian(UInt32(16_000), to: &data)
+        appendLittleEndian(UInt32(32_000), to: &data)
+        appendLittleEndian(UInt16(2), to: &data)
+        appendLittleEndian(UInt16(16), to: &data)
+        data.append(contentsOf: "data".utf8)
+        appendLittleEndian(dataByteCount, to: &data)
+        for sample in samples {
+            let clamped = max(-1, min(1, sample))
+            appendLittleEndian(Int16(clamped * Float(Int16.max)), to: &data)
+        }
+        return data
     }
 
     private func readUInt32(_ data: Data, at offset: Int) -> UInt32 {

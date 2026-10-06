@@ -9,7 +9,7 @@ import MLXAudioSTT
 // MARK: - Plugin Entry Point
 
 @objc(VoxtralPlugin)
-final class VoxtralPlugin: NSObject, TranscriptionEnginePlugin, TranscriptionModelCatalogProviding, DictionaryTermsCapabilityProviding, PluginSettingsActivityReporting, PluginDownloadedModelManaging, PassiveModelRestoreProviding, @unchecked Sendable {
+final class VoxtralPlugin: NSObject, TranscriptionEnginePlugin, TranscriptionModelCatalogProviding, PluginCustomModelImporting, DictionaryTermsCapabilityProviding, PluginSettingsActivityReporting, PluginDownloadedModelManaging, PassiveModelRestoreProviding, @unchecked Sendable {
     static let pluginId = "com.typewhisper.voxtral"
     static let pluginName = "Voxtral"
 
@@ -17,6 +17,13 @@ final class VoxtralPlugin: NSObject, TranscriptionEnginePlugin, TranscriptionMod
     fileprivate var _selectedModelId: String?
     fileprivate var model: VoxtralRealtimeModel?
     fileprivate var loadedModelId: String?
+    private let activationLock = NSRecursiveLock()
+    private var _activationID = UUID()
+    private var activationID: UUID {
+        get { activationLock.withLock { _activationID } }
+        set { activationLock.withLock { _activationID = newValue } }
+    }
+    @MainActor private var isImportingModel = false
     fileprivate var _hfToken: String?
 
     fileprivate var modelState: VoxtralModelState = .notLoaded
@@ -44,7 +51,17 @@ final class VoxtralPlugin: NSObject, TranscriptionEnginePlugin, TranscriptionMod
     private static let modelDownloadPatterns = ["*.safetensors", "*.json", "*.txt", "*.wav"]
 
     private let passiveRestoreController = PluginPassiveModelRestoreController()
-    private let modelLoadGate = PluginLocalInferenceGate()
+    let modelLoadGate = PluginLocalInferenceGate()
+    private var _explicitModelLoadTask: Task<Void, Never>?
+    private(set) var explicitModelLoadTask: Task<Void, Never>? {
+        get { activationLock.withLock { _explicitModelLoadTask } }
+        set { activationLock.withLock { _explicitModelLoadTask = newValue } }
+    }
+    private var _genericModelLoadTask: Task<Void, Never>?
+    private(set) var genericModelLoadTask: Task<Void, Never>? {
+        get { activationLock.withLock { _genericModelLoadTask } }
+        set { activationLock.withLock { _genericModelLoadTask = newValue } }
+    }
 
     func requestPassiveModelRestore() {
         passiveRestoreController.request { [weak self] in
@@ -58,23 +75,108 @@ final class VoxtralPlugin: NSObject, TranscriptionEnginePlugin, TranscriptionMod
     }
 
     func activate(host: HostServices) {
-        self.host = host
-        _selectedModelId = host.userDefault(forKey: "selectedModel") as? String
-            ?? Self.availableModels.first?.id
-        _hfToken = PluginHuggingFaceTokenHelper.loadToken(from: host)
-        cleanupRedundantModelCopies()
+        activationLock.withLock {
+            activationID = UUID()
+            self.host = host
+            if let store = customModelStore {
+                Task.detached(priority: .utility) { try? store.recoverAbandonedImports() }
+            }
+            _selectedModelId = host.userDefault(forKey: "selectedModel") as? String
+                ?? allModelDefinitions.first?.id
+            _hfToken = PluginHuggingFaceTokenHelper.loadToken(from: host)
+            cleanupRedundantModelCopies()
 
-        if shouldRestoreLoadedModelsPassively {
-            requestPassiveModelRestore()
+            if shouldRestoreLoadedModelsPassively {
+                requestPassiveModelRestore()
+            }
         }
     }
 
     func deactivate() {
-        passiveRestoreController.cancel()
-        model = nil
-        loadedModelId = nil
-        modelState = .notLoaded
-        host = nil
+        activationLock.withLock {
+            genericModelLoadTask?.cancel()
+            genericModelLoadTask = nil
+            explicitModelLoadTask?.cancel()
+            explicitModelLoadTask = nil
+            passiveRestoreController.cancel()
+            activationID = UUID()
+            model = nil
+            loadedModelId = nil
+            modelState = .notLoaded
+            host = nil
+        }
+    }
+
+    // Imported files are owned by this plugin, separate from the built-in model cache.
+    fileprivate var customModelStore: PluginCustomModelStore? {
+        host.map { PluginCustomModelStore(directory: $0.pluginDataDirectory.appendingPathComponent("custom-models")) }
+    }
+
+    fileprivate var allModelDefinitions: [VoxtralModelDef] {
+        Self.availableModels + (customModelStore?.models() ?? []).map(Self.importedDefinition)
+    }
+
+    private static func importedDefinition(_ model: PluginCustomModelStore.Model) -> VoxtralModelDef {
+        VoxtralModelDef(id: model.id, displayName: model.displayName, repoId: model.id,
+            sizeDescription: model.sizeDescription, ramRequirement: "—")
+    }
+
+    var supportedImportModelTypes: Set<String> { ["voxtral_realtime"] }
+
+    @MainActor
+    func importModel(_ candidate: PluginModelImportCandidate, token: String?) async throws -> PluginModelInfo {
+        guard !isImportingModel, modelState != .loading else { throw PluginModelImportError.busy }
+        guard let store = customModelStore else { throw PluginTranscriptionError.notConfigured }
+        isImportingModel = true
+        let previousState = modelState
+        let previousLoadedModelID = loadedModelId
+        let previousSelectedModelID = _selectedModelId
+        let previousPersistedLoadedID = host?.userDefault(forKey: "loadedModel") as? String
+        let previousPersistedSelectedID = host?.userDefault(forKey: "selectedModel") as? String
+        let generation = activationID
+        modelState = .loading
+        defer { isImportingModel = false }
+        var importedID: String?
+        do {
+            let imported = try await store.add(candidate, supportedTypes: supportedImportModelTypes,
+                requirements: Self.modelRequirements, token: token ?? _hfToken,
+                validation: { [self] imported in
+                    try await validateImportedModel(imported, generation: generation)
+                })
+            importedID = imported.id
+            host?.notifyCapabilitiesChanged()
+            try Task.checkCancellation()
+            guard generation == activationID, host != nil else { throw CancellationError() }
+            return PluginModelInfo(id: imported.id, displayName: imported.displayName,
+                sizeDescription: imported.sizeDescription, downloaded: true, loaded: true)
+        } catch {
+            if let importedID { try? store.remove(importedID) }
+            if generation == activationID {
+                if loadedModelId != previousLoadedModelID {
+                    // Validation released the old runtime or loaded a model
+                    // whose files rolled back. Leave the engine unloaded.
+                    model = nil
+                    loadedModelId = nil
+                    host?.setUserDefault(nil, forKey: "loadedModel")
+                    modelState = .notLoaded
+                } else {
+                    host?.setUserDefault(previousPersistedLoadedID, forKey: "loadedModel")
+                    modelState = previousState
+                }
+                _selectedModelId = previousSelectedModelID
+                host?.setUserDefault(previousPersistedSelectedID, forKey: "selectedModel")
+                host?.notifyCapabilitiesChanged()
+            }
+            throw error
+        }
+    }
+
+    @MainActor
+    private func validateImportedModel(_ imported: PluginCustomModelStore.Model, generation: UUID) async throws {
+        try Task.checkCancellation()
+        guard generation == activationID, host != nil else { throw CancellationError() }
+        try await loadModel(Self.importedDefinition(imported), notifyHost: false, expectedGeneration: generation)
+        guard generation == activationID, host != nil else { throw CancellationError() }
     }
 
     // MARK: - TranscriptionEnginePlugin
@@ -92,13 +194,13 @@ final class VoxtralPlugin: NSObject, TranscriptionEnginePlugin, TranscriptionMod
 
     var transcriptionModels: [PluginModelInfo] {
         guard let loadedModelId else { return [] }
-        return Self.availableModels
+        return allModelDefinitions
             .filter { $0.id == loadedModelId }
             .map { PluginModelInfo(id: $0.id, displayName: $0.displayName) }
     }
 
     var availableModels: [PluginModelInfo] {
-        Self.availableModels.map { def in
+        allModelDefinitions.map { def in
             PluginModelInfo(
                 id: def.id,
                 displayName: def.displayName,
@@ -110,8 +212,8 @@ final class VoxtralPlugin: NSObject, TranscriptionEnginePlugin, TranscriptionMod
     }
 
     var downloadedModels: [PluginModelInfo] {
-        Self.availableModels
-            .filter { hasDownloadedModel($0) }
+        allModelDefinitions
+            .filter { $0.id.hasPrefix("custom-") || hasDownloadedModel($0) }
             .map { def in
                 PluginModelInfo(
                     id: def.id,
@@ -124,21 +226,34 @@ final class VoxtralPlugin: NSObject, TranscriptionEnginePlugin, TranscriptionMod
     }
 
     func deleteDownloadedModel(_ modelId: String) async throws {
-        guard let modelDef = Self.availableModels.first(where: { $0.id == modelId }) else { return }
+        try activationLock.withLock {
+            guard modelState != .loading else { throw PluginModelImportError.busy }
+            guard let modelDef = allModelDefinitions.first(where: { $0.id == modelId }) else { return }
 
-        if loadedModelId == modelId {
-            unloadModel(clearPersistence: true)
-        }
-        if _selectedModelId == modelId {
-            _selectedModelId = nil
-            host?.setUserDefault(nil, forKey: "selectedModel")
-        }
-        if host?.userDefault(forKey: "loadedModel") as? String == modelId {
-            host?.setUserDefault(nil, forKey: "loadedModel")
-        }
+            if _selectedModelId == modelId || host?.userDefault(forKey: "loadedModel") as? String == modelId {
+                // A task queued on modelLoadGate has not set .loading yet.
+                // Invalidate it before removing files it could redownload.
+                activationID = UUID()
+                genericModelLoadTask?.cancel()
+                genericModelLoadTask = nil
+                explicitModelLoadTask?.cancel()
+                explicitModelLoadTask = nil
+                passiveRestoreController.cancel()
+            }
+            if loadedModelId == modelId {
+                unloadModel(clearPersistence: true)
+            }
+            if _selectedModelId == modelId {
+                _selectedModelId = nil
+                host?.setUserDefault(nil, forKey: "selectedModel")
+            }
+            if host?.userDefault(forKey: "loadedModel") as? String == modelId {
+                host?.setUserDefault(nil, forKey: "loadedModel")
+            }
 
-        try deleteModelFiles(modelDef)
-        host?.notifyCapabilitiesChanged()
+            try deleteModelFiles(modelDef)
+            host?.notifyCapabilitiesChanged()
+        }
     }
 
     var supportedLanguages: [String] {
@@ -151,8 +266,24 @@ final class VoxtralPlugin: NSObject, TranscriptionEnginePlugin, TranscriptionMod
     var selectedModelId: String? { _selectedModelId }
 
     func selectModel(_ modelId: String) {
-        _selectedModelId = modelId
-        host?.setUserDefault(modelId, forKey: "selectedModel")
+        activationLock.withLock {
+            if _selectedModelId != modelId || (loadedModelId != nil && loadedModelId != modelId) {
+                unloadModel(clearPersistence: true)
+            }
+            _selectedModelId = modelId
+            host?.setUserDefault(modelId, forKey: "selectedModel")
+            guard loadedModelId != modelId, modelState != .loading,
+                  let definition = allModelDefinitions.first(where: { $0.id == modelId }),
+                  hasDownloadedModel(definition) else { return }
+            // Override cleanup restores selection synchronously. Advertise the
+            // cached restore immediately so a generic request cannot replace it.
+            modelState = .loading
+            let generation = activationID
+            genericModelLoadTask = Task {
+                guard !Task.isCancelled, generation == activationID, host != nil else { return }
+                try? await loadModel(definition, expectedGeneration: generation)
+            }
+        }
     }
 
     var supportsTranslation: Bool { false }
@@ -165,17 +296,19 @@ final class VoxtralPlugin: NSObject, TranscriptionEnginePlugin, TranscriptionMod
         translate: Bool,
         prompt: String?
     ) async throws -> PluginTranscriptionResult {
-        guard let model else {
-            throw PluginTranscriptionError.notConfigured
+        try await PluginLocalInferenceGate.shared.withLock { [self] in
+            guard let model else {
+                throw PluginTranscriptionError.notConfigured
+            }
+
+            let audioArray = MLXArray(audio.samples)
+            let params = Self.makeParams(Self.defaultParams, language: language ?? "en")
+
+            let output = model.generate(audio: audioArray, generationParameters: params)
+            let text = Self.normalizeTranscript(output.text)
+
+            return PluginTranscriptionResult(text: text, detectedLanguage: language)
         }
-
-        let audioArray = MLXArray(audio.samples)
-        let params = Self.makeParams(Self.defaultParams, language: language ?? "en")
-
-        let output = model.generate(audio: audioArray, generationParameters: params)
-        let text = Self.normalizeTranscript(output.text)
-
-        return PluginTranscriptionResult(text: text, detectedLanguage: language)
     }
 
     func transcribe(
@@ -185,48 +318,58 @@ final class VoxtralPlugin: NSObject, TranscriptionEnginePlugin, TranscriptionMod
         prompt: String?,
         onProgress: @Sendable @escaping (String) -> Bool
     ) async throws -> PluginTranscriptionResult {
-        guard let model else {
-            throw PluginTranscriptionError.notConfigured
-        }
-
-        let audioArray = MLXArray(audio.samples)
-        let params = Self.makeParams(Self.defaultParams, language: language ?? "en")
-
-        var accumulated = ""
-        let stream = model.generateStream(audio: audioArray, generationParameters: params)
-
-        for try await generation in stream {
-            switch generation {
-            case .token(let token):
-                accumulated += token
-                let shouldContinue = onProgress(Self.normalizeTranscript(accumulated))
-                if !shouldContinue { break }
-            case .info:
-                break
-            case .result(let output):
-                accumulated = output.text
+        try await PluginLocalInferenceGate.shared.withLock { [self] in
+            guard let model else {
+                throw PluginTranscriptionError.notConfigured
             }
-        }
 
-        let text = Self.normalizeTranscript(accumulated)
-        return PluginTranscriptionResult(text: text, detectedLanguage: language)
+            let audioArray = MLXArray(audio.samples)
+            let params = Self.makeParams(Self.defaultParams, language: language ?? "en")
+
+            var accumulated = ""
+            let stream = model.generateStream(audio: audioArray, generationParameters: params)
+
+            generationLoop: for try await generation in stream {
+                switch generation {
+                case .token(let token):
+                    accumulated += token
+                    let shouldContinue = onProgress(Self.normalizeTranscript(accumulated))
+                    if !shouldContinue { break generationLoop }
+                case .info:
+                    break
+                case .result(let output):
+                    accumulated = output.text
+                }
+            }
+
+            let text = Self.normalizeTranscript(accumulated)
+            return PluginTranscriptionResult(text: text, detectedLanguage: language)
+        }
     }
 
     // MARK: - Model Management
 
-    fileprivate func loadModel(_ modelDef: VoxtralModelDef, passively: Bool = false) async throws {
+    fileprivate func loadModel(_ modelDef: VoxtralModelDef, passively: Bool = false,
+                               notifyHost: Bool = true, expectedGeneration: UUID? = nil) async throws {
+        let generation = expectedGeneration ?? activationID
         try await modelLoadGate.withLock { [self] in
-            guard host != nil else { return }
+            try Task.checkCancellation()
+            guard generation == activationID, host != nil else { throw CancellationError() }
             if passively {
                 guard host?.shouldRestoreLoadedModelsPassively == true, !isConfigured else { return }
             }
             guard !(isConfigured && loadedModelId == modelDef.id) else { return }
-            try await performModelLoad(modelDef, allowDownloads: !passively)
+            try await performModelLoad(modelDef, allowDownloads: !passively, notifyHost: notifyHost, generation: generation)
         }
     }
 
-    private func performModelLoad(_ modelDef: VoxtralModelDef, allowDownloads: Bool) async throws {
-        modelState = .loading
+    private func performModelLoad(_ modelDef: VoxtralModelDef, allowDownloads: Bool,
+                                  notifyHost: Bool, generation: UUID) async throws {
+        try activationLock.withLock {
+            try Task.checkCancellation()
+            guard generation == activationID, host != nil else { throw CancellationError() }
+            modelState = .loading
+        }
         do {
             let modelsDir = host?.pluginDataDirectory.appendingPathComponent("models")
                 ?? FileManager.default.temporaryDirectory
@@ -240,6 +383,9 @@ final class VoxtralPlugin: NSObject, TranscriptionEnginePlugin, TranscriptionMod
                     modelState = .notLoaded
                     return
                 }
+                guard !modelDef.id.hasPrefix("custom-") else {
+                    throw PluginModelImportError.invalidModel("Imported files are missing. Remove and import the model again.")
+                }
                 removeIncompleteModelIfNeeded(modelDef, modelsDirectory: modelsDir)
                 guard let repoID = Repo.ID(rawValue: modelDef.repoId) else {
                     throw NSError(
@@ -247,6 +393,18 @@ final class VoxtralPlugin: NSObject, TranscriptionEnginePlugin, TranscriptionMod
                         userInfo: [NSLocalizedDescriptionKey: "Invalid repository ID: \(modelDef.repoId)"]
                     )
                 }
+                let spaceReservation = try await PluginDownloadDiskSpace.reserveHuggingFaceDownload(
+                    repositoryID: modelDef.repoId,
+                    matching: Self.modelDownloadPatterns,
+                    token: _hfToken,
+                    destination: modelsDir,
+                    trackedDirectory: PluginHuggingFaceModelStore(modelsDirectory: modelsDir)
+                        .repositoryCacheDirectory(for: modelDef.repoId),
+                    // HubClient downloads through URLSession's temporary directory.
+                    stagingDirectory: FileManager.default.temporaryDirectory,
+                    modelName: modelDef.displayName
+                )
+                defer { spaceReservation?.release() }
                 let client = HubClient(
                     host: HubClient.defaultHost,
                     bearerToken: PluginHuggingFaceTokenHelper.normalizedToken(_hfToken),
@@ -272,55 +430,118 @@ final class VoxtralPlugin: NSObject, TranscriptionEnginePlugin, TranscriptionMod
                 }
             }
 
+            // Release the previous runtime before constructing its replacement.
+            // Keep its files and selection so a failed import can be retried.
+            try activationLock.withLock {
+                try Task.checkCancellation()
+                guard generation == activationID, host != nil else { throw CancellationError() }
+                model = nil
+                loadedModelId = nil
+            }
+            try await PluginLocalInferenceGate.shared.withLock {
+                try Task.checkCancellation()
+                Stream.gpu.synchronize()
+                Memory.clearCache()
+            }
+            try Task.checkCancellation()
+            guard generation == activationID, host != nil else { throw CancellationError() }
             let loaded = try VoxtralRealtimeModel.fromDirectory(modelDirectory)
 
-            try Task.checkCancellation()
-            guard host != nil else { return }
-            model = loaded
-            loadedModelId = modelDef.id
-            _selectedModelId = modelDef.id
-            host?.setUserDefault(modelDef.id, forKey: "selectedModel")
-            host?.setUserDefault(modelDef.id, forKey: "loadedModel")
-            modelState = .ready(modelDef.id)
-            host?.notifyCapabilitiesChanged()
+            try activationLock.withLock {
+                try Task.checkCancellation()
+                guard generation == activationID, host != nil else { throw CancellationError() }
+                model = loaded
+                loadedModelId = modelDef.id
+                _selectedModelId = modelDef.id
+                host?.setUserDefault(modelDef.id, forKey: "selectedModel")
+                host?.setUserDefault(modelDef.id, forKey: "loadedModel")
+                modelState = .ready(modelDef.id)
+                if notifyHost { host?.notifyCapabilitiesChanged() }
+            }
         } catch is CancellationError {
-            if host != nil {
+            if generation == activationID, host != nil {
                 modelState = loadedModelId.map { .ready($0) } ?? .notLoaded
             }
             throw CancellationError()
         } catch {
-            modelState = .error("\(error)")
+            if generation == activationID { modelState = .error(error.localizedDescription) }
             throw error
         }
     }
 
     @objc func triggerAutoUnload() { unloadModel(clearPersistence: false) }
-    @objc func triggerRestoreModel() { Task { await restoreLoadedModel(allowDownloads: true) } }
+    @objc func triggerRestoreModel() {
+        activationLock.withLock {
+            guard !isConfigured, modelState != .loading, explicitModelLoadTask == nil else { return }
+            genericModelLoadTask?.cancel()
+            let generation = activationID
+            genericModelLoadTask = Task {
+                guard !Task.isCancelled, generation == activationID, host != nil else { return }
+                await restoreLoadedModel(allowDownloads: true, expectedGeneration: generation)
+            }
+        }
+    }
     @objc(triggerRestoreModelForModel:)
     func triggerRestoreModel(forModel modelId: NSString?) {
-        guard let modelId = modelId.map(String.init),
-              let modelDef = Self.availableModels.first(where: { $0.id == modelId }) else {
-            return
+        activationLock.withLock {
+            guard let modelId = modelId.map(String.init),
+                  let modelDef = allModelDefinitions.first(where: { $0.id == modelId }) else {
+                return
+            }
+            if loadedModelId != nil, loadedModelId != modelId {
+                unloadModel(clearPersistence: true)
+            }
+            if loadedModelId == nil,
+               host?.userDefault(forKey: "loadedModel") as? String != modelId {
+                host?.setUserDefault(nil, forKey: "loadedModel")
+            }
+            _selectedModelId = modelId
+            host?.setUserDefault(modelId, forKey: "selectedModel")
+            // Supersede the previous request synchronously, before either task runs.
+            genericModelLoadTask?.cancel()
+            genericModelLoadTask = nil
+            explicitModelLoadTask?.cancel()
+            activationID = UUID()
+            if isConfigured, loadedModelId == modelId {
+                // Superseding an import can keep this already-loaded runtime.
+                modelState = .ready(modelId)
+            }
+            let generation = activationID
+            explicitModelLoadTask = Task {
+                defer {
+                    activationLock.withLock {
+                        if generation == activationID { explicitModelLoadTask = nil }
+                    }
+                }
+                guard !Task.isCancelled, generation == activationID, host != nil else { return }
+                try? await loadModel(modelDef, expectedGeneration: generation)
+            }
         }
-        if loadedModelId != nil, loadedModelId != modelId {
-            unloadModel(clearPersistence: true)
-        }
-        _selectedModelId = modelId
-        host?.setUserDefault(modelId, forKey: "selectedModel")
-        Task { try? await loadModel(modelDef) }
     }
 
     func unloadModel(clearPersistence: Bool = true) {
-        model = nil
-        loadedModelId = nil
-        modelState = .notLoaded
-        if clearPersistence {
-            host?.setUserDefault(nil, forKey: "loadedModel")
+        activationLock.withLock {
+            // Reject pending imports and loads before they can repopulate an unloaded engine.
+            activationID = UUID()
+            genericModelLoadTask?.cancel()
+            genericModelLoadTask = nil
+            explicitModelLoadTask?.cancel()
+            explicitModelLoadTask = nil
+            model = nil
+            loadedModelId = nil
+            modelState = .notLoaded
+            if clearPersistence {
+                host?.setUserDefault(nil, forKey: "loadedModel")
+            }
+            host?.notifyCapabilitiesChanged()
         }
-        host?.notifyCapabilitiesChanged()
     }
 
     fileprivate func deleteModelFiles(_ modelDef: VoxtralModelDef) throws {
+        if modelDef.id.hasPrefix("custom-") {
+            try customModelStore?.remove(modelDef.id)
+            return
+        }
         guard let modelsDir = host?.pluginDataDirectory.appendingPathComponent("models") else { return }
         try PluginHuggingFaceModelStore(modelsDirectory: modelsDir).deleteModelFiles(
             for: modelDef.repoId,
@@ -329,17 +550,26 @@ final class VoxtralPlugin: NSObject, TranscriptionEnginePlugin, TranscriptionMod
         )
     }
 
-    func restoreLoadedModel(allowDownloads: Bool = true, passively: Bool = false) async {
-        guard !Task.isCancelled else { return }
+    func restoreLoadedModel(allowDownloads: Bool = true, passively: Bool = false, expectedGeneration: UUID? = nil) async {
+        let generation = expectedGeneration ?? activationID
+        guard !Task.isCancelled, generation == activationID else { return }
         if passively {
             guard host?.shouldRestoreLoadedModelsPassively == true, !isConfigured else { return }
         }
         guard let savedId = host?.userDefault(forKey: "loadedModel") as? String,
-              let modelDef = Self.availableModels.first(where: { $0.id == savedId }) else {
+              let modelDef = allModelDefinitions.first(where: { $0.id == savedId }) else {
             return
         }
         guard allowDownloads || hasDownloadedModel(modelDef) else { return }
-        try? await loadModel(modelDef, passively: passively)
+        try? await loadModel(modelDef, passively: passively, expectedGeneration: generation)
+    }
+
+    /// The downloaded model the host loads on demand, see `HostServices.modelIdLoadedOnDemand`.
+    fileprivate var modelIdLoadedOnDemand: String? {
+        guard let modelId = host?.modelIdLoadedOnDemand,
+              let modelDef = allModelDefinitions.first(where: { $0.id == modelId }),
+              hasDownloadedModel(modelDef) else { return nil }
+        return modelId
     }
 
     private func hasDownloadedModel(_ modelDef: VoxtralModelDef) -> Bool {
@@ -348,6 +578,12 @@ final class VoxtralPlugin: NSObject, TranscriptionEnginePlugin, TranscriptionMod
     }
 
     private func usableModelDirectory(for modelDef: VoxtralModelDef, modelsDirectory: URL) -> URL? {
+        if modelDef.id.hasPrefix("custom-") {
+            guard let directory = customModelStore?.modelDirectory(for: modelDef.id),
+                  PluginHuggingFaceModelStore(modelsDirectory: directory).isUsableModelDirectory(
+                    directory, requirements: Self.modelRequirements) else { return nil }
+            return directory
+        }
         let store = PluginHuggingFaceModelStore(modelsDirectory: modelsDirectory)
         if let current = store.usableModelDirectory(
             for: modelDef.repoId,
@@ -512,6 +748,7 @@ private struct VoxtralSettingsView: View {
     @State private var modelState: VoxtralModelState = .notLoaded
     @State private var selectedModelId: String = ""
     @State private var isPolling = false
+    @State private var onDemandModelId: String?
     @State private var hfTokenInput = ""
     @State private var showHfToken = false
     @State private var isValidatingToken = false
@@ -612,11 +849,16 @@ private struct VoxtralSettingsView: View {
             Divider()
 
             VStack(alignment: .leading, spacing: 8) {
-                Text("Model", bundle: bundle)
-                    .font(.subheadline)
-                    .fontWeight(.medium)
+                HStack {
+                    Text("Model", bundle: bundle)
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                    Spacer()
+                    PluginModelImportButton(importer: plugin, bundle: bundle)
+                        .disabled(modelState == .loading)
+                }
 
-                ForEach(VoxtralPlugin.availableModels) { modelDef in
+                ForEach(plugin.allModelDefinitions) { modelDef in
                     modelRow(modelDef)
                 }
             }
@@ -634,7 +876,8 @@ private struct VoxtralSettingsView: View {
         .padding()
         .onAppear {
             modelState = plugin.modelState
-            selectedModelId = plugin.selectedModelId ?? VoxtralPlugin.availableModels.first?.id ?? ""
+            selectedModelId = plugin.selectedModelId ?? plugin.allModelDefinitions.first?.id ?? ""
+            onDemandModelId = plugin.modelIdLoadedOnDemand
             if let token = plugin._hfToken, !token.isEmpty {
                 hfTokenInput = token
             }
@@ -648,7 +891,12 @@ private struct VoxtralSettingsView: View {
             }
         }
         .onReceive(pollTimer) { _ in
-            guard isPolling else { return }
+            onDemandModelId = plugin.modelIdLoadedOnDemand
+            guard isPolling else {
+                modelState = plugin.modelState
+                selectedModelId = plugin.selectedModelId ?? selectedModelId
+                return
+            }
             let pluginState = plugin.modelState
             if pluginState != .notLoaded {
                 modelState = pluginState
@@ -686,14 +934,18 @@ private struct VoxtralSettingsView: View {
                         .foregroundStyle(.green)
                     Button(String(localized: "Unload", bundle: bundle)) {
                         plugin.unloadModel()
-                        try? plugin.deleteModelFiles(modelDef)
+                        if !modelDef.id.hasPrefix("custom-") {
+                            try? plugin.deleteModelFiles(modelDef)
+                        }
                         modelState = plugin.modelState
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
                 }
+            } else if modelDef.id == onDemandModelId, modelState == .notLoaded {
+                PluginModelLoadsOnDemandStatus(bundle: bundle)
             } else {
-                Button(String(localized: "Download & Load", bundle: bundle)) {
+                Button(modelDef.id.hasPrefix("custom-") ? String(localized: "Load", bundle: bundle) : String(localized: "Download & Load", bundle: bundle)) {
                     selectedModelId = modelDef.id
                     modelState = .loading
                     isPolling = true

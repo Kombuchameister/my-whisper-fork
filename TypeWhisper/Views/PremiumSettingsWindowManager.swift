@@ -248,7 +248,7 @@ private final class PremiumSettingsWindowDelegate: NSObject, NSWindowDelegate {
 }
 
 @MainActor
-private struct PremiumCalendarMeetingSettingsWindow: View {
+struct PremiumCalendarMeetingSettingsWindow: View {
     @ObservedObject private var license: LicenseService
     @ObservedObject private var premiumAccount: PremiumAccountService
     private let controllerFactory: @MainActor () -> CalendarMeetingAutomationController
@@ -274,15 +274,26 @@ private struct PremiumCalendarMeetingSettingsWindow: View {
             CalendarMeetingSettingsSection(controller: controllerFactory())
         } else {
             PremiumLockedDetailView(
-                message: String(localized: "premium.window.calendar.locked"),
+                message: lockedMessage,
                 onManageAccess: onManageAccess
             )
         }
     }
+
+    private var lockedMessage: String {
+        #if APPSTORE
+        localizedAppText(
+            "Meeting Automation requires TypeWhisper Premium.",
+            de: "Meeting-Automation benötigt TypeWhisper Premium."
+        )
+        #else
+        String(localized: "premium.window.calendar.locked")
+        #endif
+    }
 }
 
 @MainActor
-private struct PremiumCloudSyncSettingsWindow: View {
+struct PremiumCloudSyncSettingsWindow: View {
     @ObservedObject private var license: LicenseService
     @ObservedObject private var premiumAccount: PremiumAccountService
     @ObservedObject private var syncController: CloudFolderSyncController
@@ -301,9 +312,7 @@ private struct PremiumCloudSyncSettingsWindow: View {
     }
 
     var body: some View {
-        if premiumAccount.isSignedIn,
-           premiumAccount.hasPremiumEntitlement,
-           syncController.canUseSync {
+        if isAvailable {
             CloudFolderSyncSettingsView(controller: syncController)
         } else {
             PremiumLockedDetailView(
@@ -313,12 +322,60 @@ private struct PremiumCloudSyncSettingsWindow: View {
         }
     }
 
+    private var isAvailable: Bool {
+        #if APPSTORE
+        syncController.canUseSync
+        #else
+        premiumAccount.isSignedIn && premiumAccount.hasPremiumEntitlement && syncController.canUseSync
+        #endif
+    }
+
     private var lockedMessage: String {
+        #if APPSTORE
+        if license.hasCommercialLicense, !premiumAccount.isSignedIn {
+            return localizedAppText(
+                "Sign in with Apple to sync your dictionary and snippets across your devices.",
+                de: "Melde dich mit Apple an, um Wörterbuch und Snippets auf deinen Geräten zu synchronisieren."
+            )
+        }
+        return localizedAppText(
+            "Cloud sync requires TypeWhisper Premium and sign-in with Apple.",
+            de: "Cloud-Sync benötigt TypeWhisper Premium und eine Anmeldung mit Apple."
+        )
+        #else
         if license.hasCommercialLicense,
            premiumAccount.isSignedIn,
            !premiumAccount.hasPremiumEntitlement {
             return String(localized: "premium.window.sync.linkRequired")
         }
         return String(localized: "premium.window.sync.locked")
+        #endif
+    }
+}
+
+/// A Premium feature's settings inside the Settings page where the feature
+/// is used, with the way back to that page.
+struct SettingsPremiumPart<Content: View>: View {
+    let backTitle: String
+    let onBack: () -> Void
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                Button(action: onBack) {
+                    Label(backTitle, systemImage: "chevron.left")
+                        .font(.callout.weight(.medium))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Color.accentColor)
+                .keyboardShortcut(.cancelAction)
+
+                content
+            }
+            .padding(SettingsLayoutMetrics.pagePadding)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }

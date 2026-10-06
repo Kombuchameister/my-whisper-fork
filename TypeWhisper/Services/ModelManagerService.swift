@@ -3,28 +3,48 @@ import Combine
 import TypeWhisperPluginSDK
 
 enum TranscriptionEngineError: LocalizedError {
+    case noEngineSelected
+    case engineUnavailable(engineName: String?, reason: String?)
     case modelNotLoaded
     case appleSpeechModelNotLoaded
-    case unsupportedTask(String)
     case transcriptionFailed(String)
     case modelLoadFailed(String)
     case modelDownloadFailed(String)
 
     var errorDescription: String? {
         switch self {
+        case .noEngineSelected:
+            "No transcription engine selected. Choose one in Settings > Dictation > Engine, or install one in Integrations."
+        case .engineUnavailable(let engineName, let reason):
+            [
+                "\(engineName ?? "The selected transcription engine") is not available.",
+                Self.sentence(reason),
+                "Check its setup in Integrations or choose another engine in Settings > Dictation.",
+            ].compactMap { $0 }.joined(separator: " ")
         case .modelNotLoaded:
-            "No model loaded. Please download and select a model first."
+            "The selected model is not ready yet. Download or load it in Integrations, or choose another model in Settings > Dictation."
         case .appleSpeechModelNotLoaded:
             "Apple Speech needs a language model. Open Integrations > Apple Speech and select a language model, or choose a specific transcription language."
-        case .unsupportedTask(let detail):
-            "Unsupported task: \(detail)"
         case .transcriptionFailed(let detail):
-            "Transcription failed: \(detail)"
+            ["Transcription failed.", Self.sentence(detail), "Please try again."]
+                .compactMap { $0 }.joined(separator: " ")
         case .modelLoadFailed(let detail):
-            "Failed to load model: \(detail)"
+            [
+                "Failed to load the selected model.",
+                Self.sentence(detail),
+                "Try again, or choose another model in Settings > Dictation.",
+            ].compactMap { $0 }.joined(separator: " ")
         case .modelDownloadFailed(let detail):
-            "Failed to download model: \(detail)"
+            ["Failed to download the model.", Self.sentence(detail), "Check your connection and try again."]
+                .compactMap { $0 }.joined(separator: " ")
         }
+    }
+
+    private static func sentence(_ text: String?) -> String? {
+        guard let trimmed = text?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else { return nil }
+        guard let last = trimmed.last, !".!?".contains(last) else { return trimmed }
+        return trimmed + "."
     }
 }
 
@@ -51,11 +71,27 @@ enum ModelLifecycleError: LocalizedError {
     }
 }
 
+private let supportedLanguagesForModelSelector = NSSelectorFromString("supportedLanguagesForModelId:")
+
 extension TranscriptionEnginePlugin {
     var acceptsLanguageHints: Bool {
         self is LanguageHintTranscriptionEnginePlugin
             || self is StructuredLanguageHintTranscriptionEnginePlugin
             || self is LiveLanguageHintTranscriptionCapablePlugin
+    }
+
+    /// Languages of a specific model, for flows that override the plugin's selected model.
+    /// Plugins opt in through the Objective-C selector `supportedLanguagesForModelId:`;
+    /// otherwise, and without a model override, the plugin's current list applies.
+    func supportedLanguages(forModel modelId: String?) -> [String] {
+        guard let modelId,
+              let object = self as? NSObject,
+              object.responds(to: supportedLanguagesForModelSelector),
+              let languages = object.perform(supportedLanguagesForModelSelector, with: modelId)?
+                .takeUnretainedValue() as? [String] else {
+            return supportedLanguages
+        }
+        return languages
     }
 }
 
@@ -71,6 +107,10 @@ enum ModelAutoUnloadPolicy {
 
     static func shouldRestoreLoadedModelsPassively(defaults: UserDefaults = .standard) -> Bool {
         effectiveSeconds(defaults: defaults) == 0
+    }
+
+    static func unloadsModelsImmediatelyAfterUse(defaults: UserDefaults = .standard) -> Bool {
+        effectiveSeconds(defaults: defaults) == -1
     }
 
     static func policyName(seconds: Int) -> String {
@@ -94,6 +134,14 @@ enum TranscriptionEngineReadiness {
         defaults: UserDefaults = .standard
     ) -> Bool {
         defaults.object(forKey: "plugin.\(pluginId).loadedModel") != nil
+    }
+
+    /// The model ID local plugins persist after a successful load and restore from.
+    static func persistedRestorableModelId(
+        pluginId: String,
+        defaults: UserDefaults = .standard
+    ) -> String? {
+        defaults.string(forKey: "plugin.\(pluginId).loadedModel")
     }
 
     /// A selected engine is actionable when authentication is available and it
@@ -175,6 +223,9 @@ final class ModelManagerService: ObservableObject {
     }
 
     @Published private(set) var selectedProviderId: String?
+    /// True while the dictation engine is still loading its model during a recording or
+    /// its transcription, so the indicator can say why nothing happens yet.
+    @Published private(set) var isDictationModelLoading = false
 
     @Published var autoUnloadSeconds: Int {
         didSet {
@@ -192,8 +243,12 @@ final class ModelManagerService: ObservableObject {
     private var pluginConfiguredWaitAttempts = 300
     private var pluginRestoreBusyWaitAttempts = 5_700
     private var pluginConfiguredPollInterval: Duration = .milliseconds(100)
+    /// A warm model loads in well under a second; reporting that would only flash a label.
+    private var dictationModelLoadingRevealDelay: Duration = .milliseconds(750)
 
     private var passiveRestoreSelection: (providerId: String, instance: ObjectIdentifier)?
+    private var dictationPrewarm: (key: ObjectIdentifier, plugin: any TranscriptionEnginePlugin)?
+    private var dictationModelLoadMonitor: Task<Void, Never>?
     private let providerKey = UserDefaultsKeys.selectedEngine
     private let modelKey = UserDefaultsKeys.selectedModelId
 
@@ -212,21 +267,42 @@ final class ModelManagerService: ObservableObject {
         pluginRestoreBusyWaitAttempts = max(0, busyAttempts)
         pluginConfiguredPollInterval = pollInterval
     }
+
+    func setDictationModelLoadingRevealDelayForTesting(_ delay: Duration) {
+        dictationModelLoadingRevealDelay = delay
+    }
     #endif
 
     // MARK: - Public API
 
     var isModelReady: Bool {
-        guard let providerId = selectedProviderId else { return false }
+        isTranscriptionEngineReady(engineOverrideId: nil)
+    }
+
+    /// Whether the engine a dictation uses is ready without restoring its model first.
+    func isTranscriptionEngineReady(engineOverrideId: String?) -> Bool {
+        guard let providerId = engineOverrideId ?? selectedProviderId else { return false }
         return PluginManager.shared.transcriptionEngine(for: providerId)?.isConfigured ?? false
     }
 
     /// True when the selected engine plugin exists. The actual model readiness check
     /// happens in transcribe() which handles restoration via triggerRestoreModel().
     var canTranscribe: Bool {
-        guard let providerId = selectedProviderId,
-              let engine = PluginManager.shared.transcriptionEngine(for: providerId) else { return false }
-        return canUseForTranscription(engine)
+        transcriptionReadinessError(providerId: selectedProviderId) == nil
+    }
+
+    /// Explains why the given engine cannot start a transcription, before any model preparation.
+    /// Returns nil when the engine exists and is usable; model readiness is checked in transcribe().
+    func transcriptionReadinessError(providerId: String?) -> TranscriptionEngineError? {
+        guard let providerId else { return .noEngineSelected }
+        guard let engine = PluginManager.shared.transcriptionEngine(for: providerId) else {
+            return .engineUnavailable(engineName: nil, reason: "It is not installed or is disabled.")
+        }
+        let authStatus = transcriptionAuthStatus(for: engine)
+        guard authStatus.isAvailable else {
+            return .engineUnavailable(engineName: engine.providerDisplayName, reason: authStatus.unavailableReason)
+        }
+        return nil
     }
 
     var activeEngineName: String? {
@@ -301,7 +377,9 @@ final class ModelManagerService: ObservableObject {
             throw ModelLifecycleError.modelNotFound(engineId: providerId, modelId: modelId)
         }
 
-        if pluginConfiguredState(
+        // A configured runtime can coexist with an import. Still deliver an
+        // explicit request so the plugin can supersede that pending operation.
+        if pluginSettingsActivity(plugin) == nil, pluginConfiguredState(
             plugin,
             selectedModelId: modelId,
             stopOnMismatchedSelection: true
@@ -440,6 +518,17 @@ final class ModelManagerService: ObservableObject {
         return (plugin as? any TranscriptPreviewFallbackPolicyProviding)?.allowsTranscriptPreviewFallback ?? true
     }
 
+    /// Whether the dictation engine opted in to delivering its final result through a
+    /// live session, so dictation should stream even when no transcript preview is shown.
+    func prefersLiveSessionForDictation(engineOverrideId: String? = nil, selectedProviderId: String? = nil) -> Bool {
+        guard let providerId = engineOverrideId ?? selectedProviderId ?? self.selectedProviderId,
+              PluginManager.shared.transcriptionEngine(for: providerId) is any LiveTranscriptionCapablePlugin,
+              let loadedPlugin = PluginManager.shared.loadedTranscriptionPlugin(for: providerId) else {
+            return false
+        }
+        return loadedPlugin.manifest.supportsCapability(.liveDictation)
+    }
+
     func transcriptionAuthStatus(for engine: TranscriptionEnginePlugin) -> PluginAuthRoleStatus {
         // Legacy plugins may use isConfigured for loaded-model state, so absence of the
         // optional auth-role protocol should not make auto-unloaded local engines unselectable.
@@ -538,7 +627,10 @@ final class ModelManagerService: ObservableObject {
                 || passiveRestoreSelection?.instance != identity else { return }
         guard canUseForTranscription(engine) else { return }
         passiveRestoreSelection = (providerId, identity)
-        (plugin.instance as? any PassiveModelRestoreProviding)?.requestPassiveModelRestore()
+        if let restoreProvider = plugin.instance as? any PassiveModelRestoreProviding {
+            LaunchSignposts.signposter.emitEvent("Model.passiveRestoreRequested")
+            restoreProvider.requestPassiveModelRestore()
+        }
     }
 
     // MARK: - Transcription
@@ -623,15 +715,9 @@ final class ModelManagerService: ObservableObject {
     ) async throws -> LiveTranscriptionSessionHandle? {
         let providerId = engineOverrideId ?? selectedProviderId
         guard let providerId,
-              let plugin = PluginManager.shared.transcriptionEngine(for: providerId) else {
-            throw TranscriptionEngineError.modelNotLoaded
-        }
-
-        let authStatus = transcriptionAuthStatus(for: plugin)
-        guard authStatus.isAvailable else {
-            throw TranscriptionEngineError.unsupportedTask(
-                authStatus.unavailableReason ?? "Transcription is not available for this engine."
-            )
+              let plugin = PluginManager.shared.transcriptionEngine(for: providerId),
+              canUseForTranscription(plugin) else {
+            throw transcriptionReadinessError(providerId: providerId) ?? TranscriptionEngineError.noEngineSelected
         }
 
         beginAutoUnloadProtectedUse(of: plugin)
@@ -642,10 +728,10 @@ final class ModelManagerService: ObservableObject {
             }
         }
 
-        let runtimeSelection = runtimeLanguageSelection(for: languageSelection, plugin: plugin)
+        let preparationSelection = runtimeLanguageSelection(for: languageSelection, plugin: plugin)
         let preparationLanguage = preparationRequestedLanguage(
             for: languageSelection,
-            runtimeSelection: runtimeSelection,
+            runtimeSelection: preparationSelection,
             plugin: plugin
         )
         let overrideRestoreId = try await prepareEngineForTranscription(
@@ -658,6 +744,10 @@ final class ModelManagerService: ObservableObject {
             restoreCloudModelOverride(plugin: plugin, previousId: overrideRestoreId)
             throw modelNotLoadedError(for: plugin)
         }
+
+        // A cloud model override can change the supported languages, so normalize
+        // against the model that will actually transcribe.
+        let runtimeSelection = runtimeLanguageSelection(for: languageSelection, plugin: plugin)
 
         guard let livePlugin = plugin as? LiveTranscriptionCapablePlugin else {
             restoreCloudModelOverride(plugin: plugin, previousId: overrideRestoreId)
@@ -795,15 +885,9 @@ final class ModelManagerService: ObservableObject {
     ) async throws -> TranscriptionResult {
         let providerId = engineOverrideId ?? selectedProviderId
         guard let providerId,
-              let plugin = PluginManager.shared.transcriptionEngine(for: providerId) else {
-            throw TranscriptionEngineError.modelNotLoaded
-        }
-
-        let authStatus = transcriptionAuthStatus(for: plugin)
-        guard authStatus.isAvailable else {
-            throw TranscriptionEngineError.unsupportedTask(
-                authStatus.unavailableReason ?? "Transcription is not available for this engine."
-            )
+              let plugin = PluginManager.shared.transcriptionEngine(for: providerId),
+              canUseForTranscription(plugin) else {
+            throw transcriptionReadinessError(providerId: providerId) ?? TranscriptionEngineError.noEngineSelected
         }
 
         beginAutoUnloadProtectedUse(of: plugin)
@@ -813,10 +897,10 @@ final class ModelManagerService: ObservableObject {
             endAutoUnloadProtectedUse(of: plugin)
         }
 
-        let runtimeSelection = runtimeLanguageSelection(for: languageSelection, plugin: plugin)
+        let preparationSelection = runtimeLanguageSelection(for: languageSelection, plugin: plugin)
         let preparationLanguage = preparationRequestedLanguage(
             for: languageSelection,
-            runtimeSelection: runtimeSelection,
+            runtimeSelection: preparationSelection,
             plugin: plugin
         )
         overrideRestoreId = try await prepareEngineForTranscription(
@@ -828,6 +912,10 @@ final class ModelManagerService: ObservableObject {
         guard plugin.isConfigured else {
             throw modelNotLoadedError(for: plugin)
         }
+
+        // A cloud model override can change the supported languages, so normalize
+        // against the model that will actually transcribe.
+        let runtimeSelection = runtimeLanguageSelection(for: languageSelection, plugin: plugin)
 
         let startTime = CFAbsoluteTimeGetCurrent()
         let audio = await Self.makeAudioData(from: audioSamples)
@@ -951,15 +1039,9 @@ final class ModelManagerService: ObservableObject {
     ) async throws -> TranscriptionResult {
         let providerId = engineOverrideId ?? selectedProviderId
         guard let providerId,
-              let plugin = PluginManager.shared.transcriptionEngine(for: providerId) else {
-            throw TranscriptionEngineError.modelNotLoaded
-        }
-
-        let authStatus = transcriptionAuthStatus(for: plugin)
-        guard authStatus.isAvailable else {
-            throw TranscriptionEngineError.unsupportedTask(
-                authStatus.unavailableReason ?? "Transcription is not available for this engine."
-            )
+              let plugin = PluginManager.shared.transcriptionEngine(for: providerId),
+              canUseForTranscription(plugin) else {
+            throw transcriptionReadinessError(providerId: providerId) ?? TranscriptionEngineError.noEngineSelected
         }
 
         beginAutoUnloadProtectedUse(of: plugin)
@@ -969,10 +1051,10 @@ final class ModelManagerService: ObservableObject {
             endAutoUnloadProtectedUse(of: plugin)
         }
 
-        let runtimeSelection = runtimeLanguageSelection(for: languageSelection, plugin: plugin)
+        let preparationSelection = runtimeLanguageSelection(for: languageSelection, plugin: plugin)
         let preparationLanguage = preparationRequestedLanguage(
             for: languageSelection,
-            runtimeSelection: runtimeSelection,
+            runtimeSelection: preparationSelection,
             plugin: plugin
         )
         overrideRestoreId = try await prepareEngineForTranscription(
@@ -984,6 +1066,10 @@ final class ModelManagerService: ObservableObject {
         guard plugin.isConfigured else {
             throw modelNotLoadedError(for: plugin)
         }
+
+        // A cloud model override can change the supported languages, so normalize
+        // against the model that will actually transcribe.
+        let runtimeSelection = runtimeLanguageSelection(for: languageSelection, plugin: plugin)
 
         let startTime = CFAbsoluteTimeGetCurrent()
         let audio = await Self.makeAudioData(from: audioSamples)
@@ -1017,6 +1103,98 @@ final class ModelManagerService: ObservableObject {
             task: task,
             normalizeNumbers: normalizeNumbers
         )
+    }
+
+    // MARK: - Dictation Prewarm
+
+    /// Protects the dictation engine from auto-unload for the whole recording and starts
+    /// restoring an auto-unloaded local model right away, so the load overlaps with speaking
+    /// instead of delaying the transcript after the stop. Ends with `endDictationModelPrewarm()`.
+    func beginDictationModelPrewarm(engineOverrideId: String? = nil, cloudModelOverride: String? = nil) {
+        guard let providerId = engineOverrideId ?? selectedProviderId,
+              let plugin = PluginManager.shared.transcriptionEngine(for: providerId),
+              let nsPlugin = plugin as? NSObject else {
+            endDictationModelPrewarm()
+            return
+        }
+        let key = ObjectIdentifier(nsPlugin)
+        guard dictationPrewarm?.key != key else { return }
+        endDictationModelPrewarm()
+
+        beginAutoUnloadProtectedUse(of: plugin)
+        dictationPrewarm = (key, plugin)
+
+        // A model override goes through selectModel() at transcription time, and Apple
+        // Speech prepares per language; both keep their existing on-demand path.
+        let restoreSelector = NSSelectorFromString("triggerRestoreModel")
+        if cloudModelOverride == nil,
+           plugin.providerId != AppleSpeechModelSelection.providerId,
+           !plugin.isConfigured,
+           canPrepareForTranscription(plugin),
+           pluginSettingsActivity(plugin) == nil,
+           nsPlugin.responds(to: restoreSelector) {
+            _ = nsPlugin.perform(restoreSelector)
+        }
+
+        monitorDictationModelLoad(of: plugin, key: key, followsModelOverride: cloudModelOverride != nil)
+    }
+
+    func endDictationModelPrewarm() {
+        dictationModelLoadMonitor?.cancel()
+        dictationModelLoadMonitor = nil
+        isDictationModelLoading = false
+        guard let prewarm = dictationPrewarm else { return }
+        dictationPrewarm = nil
+        endAutoUnloadProtectedUse(of: prewarm.plugin)
+    }
+
+    /// Follows the protected engine until its model is ready. A load can start with the
+    /// prewarm above or later with the transcription, and plugins only report it through
+    /// their settings activity, which has no change notification. Loads that finish within
+    /// the reveal delay are never reported. A model override switches models at transcription
+    /// time while the engine still reports the previous model as configured, so its monitor
+    /// follows the whole session.
+    private func monitorDictationModelLoad(
+        of plugin: any TranscriptionEnginePlugin,
+        key: ObjectIdentifier,
+        followsModelOverride: Bool
+    ) {
+        guard followsModelOverride || !plugin.isConfigured else { return }
+        dictationModelLoadMonitor = Task { @MainActor [weak self] in
+            var loadingSince: ContinuousClock.Instant?
+            while !Task.isCancelled {
+                guard let self, self.dictationPrewarm?.key == key else { return }
+                if self.isDictationPrewarmInFlight(for: plugin)
+                    && (followsModelOverride || !plugin.isConfigured) {
+                    loadingSince = loadingSince ?? .now
+                } else {
+                    loadingSince = nil
+                }
+                let isLoading = loadingSince.map {
+                    ContinuousClock.now - $0 >= self.dictationModelLoadingRevealDelay
+                } ?? false
+                if self.isDictationModelLoading != isLoading {
+                    self.isDictationModelLoading = isLoading
+                }
+                if plugin.isConfigured && !followsModelOverride { return }
+                do {
+                    try await Task.sleep(for: self.pluginConfiguredPollInterval)
+                } catch {
+                    return
+                }
+            }
+        }
+    }
+
+    /// True while a restore for the protected engine is visibly running, so the
+    /// transcription can wait for it instead of asking the plugin to restore a second time.
+    private func isDictationPrewarmInFlight(for plugin: TranscriptionEnginePlugin) -> Bool {
+        guard let nsPlugin = plugin as? NSObject,
+              dictationPrewarm?.key == ObjectIdentifier(nsPlugin),
+              let activity = pluginSettingsActivity(plugin) else {
+            return false
+        }
+        return !activity.isError
     }
 
     // MARK: - Auto-Unload
@@ -1640,7 +1818,10 @@ final class ModelManagerService: ObservableObject {
                     throw modelNotLoadedError(for: plugin)
                 }
             } else if !plugin.isConfigured {
-                let restoreResult = await triggerRestoreModel(plugin)
+                let restoreResult = await triggerRestoreModel(
+                    plugin,
+                    joiningInFlightRestore: isDictationPrewarmInFlight(for: plugin)
+                )
                 if case .failed(let message) = restoreResult {
                     throw TranscriptionEngineError.modelLoadFailed(message)
                 }
@@ -1705,20 +1886,23 @@ final class ModelManagerService: ObservableObject {
     /// with dynamically loaded plugin bundles) and poll until ready.
     private func triggerRestoreModel(
         _ plugin: TranscriptionEnginePlugin,
-        preferredModelId: String? = nil
+        preferredModelId: String? = nil,
+        joiningInFlightRestore: Bool = false
     ) async -> PluginRestoreResult {
         guard let nsPlugin = plugin as? NSObject else {
             return .unavailable
         }
 
-        let preferredRestoreSelector = NSSelectorFromString("triggerRestoreModelForModel:")
-        let genericRestoreSelector = NSSelectorFromString("triggerRestoreModel")
-        if let preferredModelId, nsPlugin.responds(to: preferredRestoreSelector) {
-            _ = nsPlugin.perform(preferredRestoreSelector, with: preferredModelId as NSString)
-        } else if nsPlugin.responds(to: genericRestoreSelector) {
-            _ = nsPlugin.perform(genericRestoreSelector)
-        } else {
-            return .unavailable
+        if !joiningInFlightRestore {
+            let preferredRestoreSelector = NSSelectorFromString("triggerRestoreModelForModel:")
+            let genericRestoreSelector = NSSelectorFromString("triggerRestoreModel")
+            if let preferredModelId, nsPlugin.responds(to: preferredRestoreSelector) {
+                _ = nsPlugin.perform(preferredRestoreSelector, with: preferredModelId as NSString)
+            } else if nsPlugin.responds(to: genericRestoreSelector) {
+                _ = nsPlugin.perform(genericRestoreSelector)
+            } else {
+                return .unavailable
+            }
         }
 
         let identityCheckModelId = plugin.selectedModelId == nil ? nil : preferredModelId

@@ -481,10 +481,116 @@ class PromptProcessingService: ObservableObject {
     }
 
     static func requiresProcessActivityBudget(for plugin: any LLMProviderPlugin) -> Bool {
+        isLocalLLMProvider(plugin)
+    }
+
+    /// Plugins that need no external credentials run their model on this Mac.
+    static func isLocalLLMProvider(_ plugin: any LLMProviderPlugin) -> Bool {
         guard let setupStatus = plugin as? any LLMProviderSetupStatusProviding else {
             return false
         }
         return !setupStatus.requiresExternalCredentials
+    }
+
+    /// Prewarms Apple Intelligence when a workflow request with `providerOverride` tries it
+    /// first, so its model loads while recording instead of after the stop.
+    func prewarmWorkflowLLMProvider(providerOverride: String?) {
+        guard let first = candidates(providerOverride: providerOverride, cloudModelOverride: nil, effortOverride: nil).first,
+              normalizeProviderId(first.providerId) == Self.appleIntelligenceId,
+              let provider = appleIntelligenceProvider, provider.isAvailable else {
+            return
+        }
+        provider.prewarm()
+    }
+
+#if DEBUG
+    func testingSetAppleIntelligenceProvider(_ provider: LLMProvider?) {
+        appleIntelligenceProvider = provider
+    }
+#endif
+
+    /// Whether workflow requests with `providerOverride` can reach an on-device model.
+    /// Without an override any entry of the LLM fallback list may handle the
+    /// request, so one local entry is enough. Unresolvable providers count as remote.
+    func workflowUsesLocalLLMProvider(providerOverride: String?) -> Bool {
+        candidates(providerOverride: providerOverride, cloudModelOverride: nil, effortOverride: nil)
+            .contains { isLocalLLMProviderId($0.providerId) }
+    }
+
+    private func isLocalLLMProviderId(_ providerId: String) -> Bool {
+        let normalizedId = normalizeProviderId(providerId)
+        if normalizedId == Self.appleIntelligenceId {
+            return true
+        }
+        guard let plugin = PluginManager.shared?.llmProvider(for: normalizedId) else {
+            return false
+        }
+        return Self.isLocalLLMProvider(plugin)
+    }
+
+    /// The provider, model, and effort attempts a workflow request with these
+    /// overrides resolves to right now. Without a provider override this is a
+    /// snapshot of the mutable global LLM fallback list.
+    func workflowProviderResolution(
+        providerOverride: String?,
+        cloudModelOverride: String?,
+        effortOverride: String?
+    ) -> WorkflowLLMProviderResolution {
+        let attempts = candidates(
+            providerOverride: providerOverride,
+            cloudModelOverride: cloudModelOverride,
+            effortOverride: effortOverride
+        ).map { candidate in
+            let providerId = normalizeProviderId(candidate.providerId)
+            let modelId = PluginManager.shared?.llmProvider(for: providerId).map {
+                resolvedModelHint(for: $0, providerId: providerId, requestedModelId: candidate.modelId)
+            } ?? Self.normalizedModelId(candidate.modelId)
+            return WorkflowLLMProviderResolution.Attempt(
+                providerId: providerId,
+                modelId: modelId,
+                effortId: Self.normalizedEffortId(candidate.effortId)
+            )
+        }
+        return WorkflowLLMProviderResolution(
+            attempts: attempts,
+            isLocal: attempts.contains { isLocalLLMProviderId($0.providerId) }
+        )
+    }
+
+    /// The attempts `execute` makes: the explicit provider, or the fallback list.
+    /// A workflow effort or temperature overrides each fallback entry's own setting.
+    private func candidates(
+        providerOverride: String?,
+        cloudModelOverride: String?,
+        effortOverride: String?,
+        temperatureDirective: PluginLLMTemperatureDirective = .inheritProviderSetting
+    ) -> [LLMFallbackPriorityItem] {
+        if let explicitProviderId = Self.trimmedOrNil(providerOverride) {
+            return [
+                LLMFallbackPriorityItem(
+                    providerId: normalizeProviderId(explicitProviderId),
+                    modelId: Self.normalizedModelId(cloudModelOverride),
+                    effortId: Self.normalizedEffortId(effortOverride),
+                    temperatureModeRaw: temperatureDirective.mode.rawValue,
+                    temperatureValue: temperatureDirective.customValue
+                )
+            ]
+        }
+        let normalizedWorkflowEffort = Self.normalizedEffortId(effortOverride)
+        let workflowOverridesTemperature = temperatureDirective != .inheritProviderSetting
+        return fallbackPriorityList.map { candidate in
+            let effectiveTemperature = workflowOverridesTemperature
+                ? temperatureDirective
+                : candidate.temperatureDirective
+            return LLMFallbackPriorityItem(
+                id: candidate.id,
+                providerId: candidate.providerId,
+                modelId: candidate.modelId,
+                effortId: normalizedWorkflowEffort ?? candidate.effortId,
+                temperatureModeRaw: effectiveTemperature.mode.rawValue,
+                temperatureValue: effectiveTemperature.customValue
+            )
+        }
     }
 
     func process(
@@ -533,36 +639,13 @@ class PromptProcessingService: ObservableObject {
             logger.info("Prompt memory retrieval skipped")
         }
 
-        let explicitProviderId = Self.trimmedOrNil(providerOverride)
-        let usesFallbackList = explicitProviderId == nil
-        let candidates: [LLMFallbackPriorityItem]
-        if let explicitProviderId {
-            candidates = [
-                LLMFallbackPriorityItem(
-                    providerId: normalizeProviderId(explicitProviderId),
-                    modelId: Self.normalizedModelId(cloudModelOverride),
-                    effortId: Self.normalizedEffortId(effortOverride),
-                    temperatureModeRaw: temperatureDirective.mode.rawValue,
-                    temperatureValue: temperatureDirective.customValue
-                )
-            ]
-        } else {
-            let normalizedWorkflowEffort = Self.normalizedEffortId(effortOverride)
-            let workflowOverridesTemperature = temperatureDirective != .inheritProviderSetting
-            candidates = fallbackPriorityList.map { candidate in
-                let effectiveTemperature = workflowOverridesTemperature
-                    ? temperatureDirective
-                    : candidate.temperatureDirective
-                return LLMFallbackPriorityItem(
-                    id: candidate.id,
-                    providerId: candidate.providerId,
-                    modelId: candidate.modelId,
-                    effortId: normalizedWorkflowEffort ?? candidate.effortId,
-                    temperatureModeRaw: effectiveTemperature.mode.rawValue,
-                    temperatureValue: effectiveTemperature.customValue
-                )
-            }
-        }
+        let usesFallbackList = Self.trimmedOrNil(providerOverride) == nil
+        let candidates = self.candidates(
+            providerOverride: providerOverride,
+            cloudModelOverride: cloudModelOverride,
+            effortOverride: effortOverride,
+            temperatureDirective: temperatureDirective
+        )
 
         guard !candidates.isEmpty else {
             throw LLMFallbackExhaustedError(failures: [])

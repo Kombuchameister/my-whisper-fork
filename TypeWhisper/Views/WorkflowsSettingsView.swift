@@ -1182,7 +1182,6 @@ private struct WorkflowEditorPage: View {
     @ObservedObject private var workflowService = ServiceContainer.shared.workflowService
     @ObservedObject private var hotkeyService = ServiceContainer.shared.hotkeyService
     @ObservedObject private var profilesViewModel = ServiceContainer.shared.profilesViewModel
-    @ObservedObject private var historyService = ServiceContainer.shared.historyService
     @ObservedObject private var promptProcessingService = ServiceContainer.shared.promptProcessingService
     @ObservedObject private var settingsViewModel = SettingsViewModel.shared
     @ObservedObject private var pluginManager = PluginManager.shared
@@ -1195,6 +1194,7 @@ private struct WorkflowEditorPage: View {
     @State private var showingExcludedAppPicker = false
     @State private var websiteInput = ""
     @State private var excludedWebsiteInput = ""
+    @StateObject private var websiteSuggestionStore = WorkflowWebsiteSuggestionStore()
 
     init(workflow: Workflow?) {
         self.workflow = workflow
@@ -1372,6 +1372,12 @@ private struct WorkflowEditorPage: View {
 
                                 Divider()
 
+                                if draft.supportsSegmentedPostProcessing {
+                                    workflowSegmentedPostProcessingSection
+
+                                    Divider()
+                                }
+
                                 VStack(alignment: .leading, spacing: 6) {
                                     Text(localizedAppText("Output Format", de: "Ausgabeformat"))
                                         .font(.subheadline.weight(.semibold))
@@ -1405,7 +1411,7 @@ private struct WorkflowEditorPage: View {
                                     localizedAppText("Press Enter after inserting", de: "Nach dem Einfügen Enter drücken"),
                                     selection: $draft.autoEnterMode
                                 ) {
-                                    ForEach(WorkflowAutoEnterMode.allCases) { mode in
+                                    ForEach(WorkflowAutoEnterMode.allCases.filter { $0.isAvailable || $0 == draft.autoEnterMode }) { mode in
                                         Text(mode.displayName)
                                             .tag(mode)
                                     }
@@ -1614,6 +1620,31 @@ private struct WorkflowEditorPage: View {
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
         }
+    }
+
+    private var workflowSegmentedPostProcessingSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Toggle(
+                String(localized: "Process long dictations in segments"),
+                isOn: workflowSegmentedPostProcessingBinding
+            )
+
+            Text(
+                String(
+                    localized: "Speeds up long dictations by processing the text in parts. With a streaming engine and live preview, finished sentences are processed while you speak; otherwise, with cloud providers, the parts run in parallel after recording. Uses more requests. Not suitable for workflows that need the whole text at once, such as summaries or JSON."
+                )
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var workflowSegmentedPostProcessingBinding: Binding<Bool> {
+        Binding(
+            get: { draft.segmentedPostProcessingEnabled ?? false },
+            set: { draft.segmentedPostProcessingEnabled = $0 }
+        )
     }
 
     private var workflowInlineCommandsBinding: Binding<Bool> {
@@ -2003,6 +2034,9 @@ private struct WorkflowEditorPage: View {
                 appTriggerEditor
             }
 
+            // The sandboxed App Store edition cannot read browser URLs, so a
+            // website trigger would never match.
+            #if !APPSTORE
             Divider()
 
             triggerComponentEditor(
@@ -2011,6 +2045,7 @@ private struct WorkflowEditorPage: View {
             ) {
                 websiteTriggerEditor
             }
+            #endif
 
             Divider()
 
@@ -2137,6 +2172,9 @@ private struct WorkflowEditorPage: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
+        .task {
+            await websiteSuggestionStore.loadIfNeeded()
+        }
     }
 
     private var hotkeyTriggerEditor: some View {
@@ -2188,7 +2226,20 @@ private struct WorkflowEditorPage: View {
                 onRecord: { hotkey in
                     addRecordedHotkey(hotkey)
                 },
-                onClear: {}
+                onClear: {},
+                visualKeyboardExistingAssignment: { candidate in
+                    if draft.containsEquivalentHotkey(candidate) {
+                        return localizedAppText("this workflow", de: "diesem Workflow")
+                    }
+                    if let workflowId = hotkeyService.isHotkeyAssignedToWorkflow(
+                        candidate,
+                        excludingWorkflowId: workflow?.id
+                    ),
+                        let conflictWorkflow = workflowService.workflow(id: workflowId) {
+                        return String(localized: "the “\(conflictWorkflow.name)” workflow shortcut")
+                    }
+                    return HotkeyRecorderView.globalSlotAssignmentDescription(for: candidate)
+                }
             )
         }
     }
@@ -2279,16 +2330,7 @@ private struct WorkflowEditorPage: View {
     }
 
     private var websiteSuggestions: [String] {
-        let query = workflowNormalizedDomain(websiteInput)
-        let source = historyService.uniqueDomains(limit: 8)
-
-        if query.isEmpty {
-            return source.filter { !draft.websitePatterns.contains($0) }
-        }
-
-        return source.filter { domain in
-            !draft.websitePatterns.contains(domain) && domain.localizedCaseInsensitiveContains(query)
-        }
+        websiteSuggestionStore.suggestions(for: websiteInput, excluding: draft.websitePatterns)
     }
 
     private func save() {
@@ -2943,6 +2985,52 @@ enum WorkflowMicrophoneBoostOverride: String, CaseIterable, Hashable, Identifiab
     }
 }
 
+/// Loads the most frequent history domains once per workflow editor and filters that cached
+/// list while typing, instead of scanning the complete history on every render.
+@MainActor
+final class WorkflowWebsiteSuggestionStore: ObservableObject {
+    static let domainLimit = 8
+
+    @Published private(set) var domains: [String] = []
+    private let loadDomains: @MainActor () async -> [String]
+    private var hasLoadedDomains = false
+    private var loadGeneration = 0
+
+    init(
+        loadDomains: @escaping @MainActor () async -> [String] = {
+            await ServiceContainer.shared.historyService.uniqueDomainsInBackground(
+                limit: WorkflowWebsiteSuggestionStore.domainLimit
+            )
+        }
+    ) {
+        self.loadDomains = loadDomains
+    }
+
+    /// Loads the domains unless an earlier load finished. A load whose task was cancelled, such
+    /// as when the editor disappears, stops its scan and leaves the next appearance to load again.
+    func loadIfNeeded() async {
+        guard !hasLoadedDomains else { return }
+        loadGeneration &+= 1
+        let generation = loadGeneration
+        let loaded = await loadDomains()
+        guard !Task.isCancelled, generation == loadGeneration else { return }
+        hasLoadedDomains = true
+        domains = loaded
+    }
+
+    func suggestions(for input: String, excluding websitePatterns: [String]) -> [String] {
+        let query = workflowNormalizedDomain(input)
+
+        if query.isEmpty {
+            return domains.filter { !websitePatterns.contains($0) }
+        }
+
+        return domains.filter { domain in
+            !websitePatterns.contains(domain) && domain.localizedCaseInsensitiveContains(query)
+        }
+    }
+}
+
 struct WorkflowDraft {
     var name: String
     var isEnabled: Bool
@@ -2969,6 +3057,7 @@ struct WorkflowDraft {
     var transcriptionModelId: String?
     var microphoneBoostOverride: Bool?
     var inlineCommandsEnabled: Bool?
+    var segmentedPostProcessingEnabled: Bool?
 
     private var preservedBehaviorSettings: [String: String]
     var providerId: String?
@@ -3013,6 +3102,7 @@ struct WorkflowDraft {
         self.transcriptionModelId = nil
         self.microphoneBoostOverride = nil
         self.inlineCommandsEnabled = nil
+        self.segmentedPostProcessingEnabled = nil
         self.preservedBehaviorSettings = [:]
         self.providerId = nil
         self.cloudModel = nil
@@ -3047,6 +3137,7 @@ struct WorkflowDraft {
         self.transcriptionModelId = workflow.template == .dictation ? behavior.transcriptionModelId : nil
         self.microphoneBoostOverride = behavior.microphoneBoostOverride
         self.inlineCommandsEnabled = workflow.template == .dictation ? behavior.inlineCommandsEnabled : nil
+        self.segmentedPostProcessingEnabled = behavior.segmentedPostProcessingEnabled
         self.hotkeyBehavior = .startDictation
         self.preservedBehaviorSettings = behavior.settings
         self.providerId = behavior.providerId
@@ -3112,6 +3203,12 @@ struct WorkflowDraft {
 
     var usesLLMProcessing: Bool {
         !usesAppleTranslate && (template != .dictation || inlineCommandsEnabled == true)
+    }
+
+    /// Mirrors `Workflow.supportsSegmentedPostProcessing`: a per-sentence
+    /// prompt template that is not processed by Apple Translate.
+    var supportsSegmentedPostProcessing: Bool {
+        template.allowsSegmentedPostProcessing && !usesAppleTranslate
     }
 
     var reviewText: String {
@@ -3405,7 +3502,10 @@ struct WorkflowDraft {
             microphoneBoostOverride: microphoneBoostOverride,
             inlineCommandsEnabled: template == .dictation ? inlineCommandsEnabled : nil,
             temperatureModeRaw: temperatureModeRaw,
-            temperatureValue: temperatureValue
+            temperatureValue: temperatureValue,
+            segmentedPostProcessingEnabled: supportsSegmentedPostProcessing && segmentedPostProcessingEnabled == true
+                ? true
+                : nil
         )
     }
 
@@ -3607,7 +3707,7 @@ private func workflowOutputRouteSentence(targetActionPluginId: String?) -> Strin
     )
 }
 
-private func workflowInputLanguageSummary(for selection: LanguageSelection) -> String {
+func workflowInputLanguageSummary(for selection: LanguageSelection) -> String {
     switch selection {
     case .inheritGlobal:
         return localizedAppText("Global Setting", de: "Globale Einstellung")

@@ -15,6 +15,15 @@ final class ClaudePluginTests: XCTestCase {
         super.tearDown()
     }
 
+    func testScreenshotAutomationSkipsAutomaticModelRefresh() {
+        XCTAssertFalse(
+            ClaudeAutomaticRefreshPolicy.allowsRefreshOnAppear(
+                arguments: ["TypeWhisper", "--store-screenshots"]
+            )
+        )
+        XCTAssertTrue(ClaudeAutomaticRefreshPolicy.allowsRefreshOnAppear(arguments: ["TypeWhisper"]))
+    }
+
     // MARK: - Existing selection behavior
 
     func testPreferredModelIdReflectsSelectedLLMModel() throws {
@@ -393,6 +402,32 @@ final class ClaudePluginTests: XCTestCase {
     }
 
     // MARK: - Selection preservation
+
+    func testProcessThrowsWhenReplyStoppedAtMaxTokens() async throws {
+        let host = try PluginTestHostServices(secrets: ["api-key": "claude-key"])
+        let plugin = ClaudePlugin()
+        plugin.activate(host: host)
+
+        let store = PluginHTTPClientSessionStore()
+        PluginHTTPClientTestHarness.configure { _ in
+            store.makeSession(outcomes: [
+                .success(
+                    Data(#"{"content":[{"type":"text","text":"half a sen"}],"stop_reason":"max_tokens"}"#.utf8),
+                    Self.httpResponse(url: Self.messagesURL, statusCode: 200)
+                ),
+            ])
+        }
+
+        do {
+            _ = try await plugin.process(systemPrompt: "sys", userText: "hi", model: "claude-sonnet-4-6")
+            XCTFail("Expected the truncated reply to throw")
+        } catch let error as PluginChatError {
+            guard case .apiError(let message) = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+            XCTAssertTrue(message.contains("cut off"), message)
+        }
+    }
 
     func testSelectedModelIsPreservedWhenNotInList() throws {
         let host = try PluginTestHostServices(

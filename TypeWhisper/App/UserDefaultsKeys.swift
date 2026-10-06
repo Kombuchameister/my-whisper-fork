@@ -11,6 +11,7 @@ enum UserDefaultsKeys {
     static let soundTranscriptionSuccess = "soundTranscriptionSuccess"
     static let soundError = "soundError"
     static let indicatorStyle = "indicatorStyle"
+    static let indicatorTheme = "indicatorTheme"
     static let indicatorVisibleInScreenCaptures = "indicatorVisibleInScreenCaptures"
     static let indicatorTranscriptPreviewEnabled = "indicatorTranscriptPreviewEnabled"
     static let liveFieldTranscriptEnabled = "liveFieldTranscriptEnabled"
@@ -34,6 +35,8 @@ enum UserDefaultsKeys {
     static let copyLastTranscriptionHotkey = "copyLastTranscriptionHotkey"
     static let pasteLastTranscriptionHotkey = "pasteLastTranscriptionHotkey"
     static let recorderToggleHotkey = "recorderToggleHotkey"
+    static let undoLastDictationHotkey = "undoLastDictationHotkey"
+    static let restoreRawTranscriptHotkey = "restoreRawTranscriptHotkey"
 
     // MARK: - Hotkeys (JSON-encoded [UnifiedHotkey] per slot)
     static let hybridHotkeys = "hybridHotkeys"
@@ -44,6 +47,8 @@ enum UserDefaultsKeys {
     static let copyLastTranscriptionHotkeys = "copyLastTranscriptionHotkeys"
     static let pasteLastTranscriptionHotkeys = "pasteLastTranscriptionHotkeys"
     static let recorderToggleHotkeys = "recorderToggleHotkeys"
+    static let undoLastDictationHotkeys = "undoLastDictationHotkeys"
+    static let restoreRawTranscriptHotkeys = "restoreRawTranscriptHotkeys"
 
     // MARK: - Model / Engine
     static let selectedEngine = "selectedEngine"
@@ -68,10 +73,16 @@ enum UserDefaultsKeys {
     static let selectedInputDeviceUID = "selectedInputDeviceUID"
     static let inputDevicePriorityList = "inputDevicePriorityList"
     static let airPodsInstantStartEnabled = "airPodsInstantStartEnabled"
+    /// Keeps a built-in or wired/USB input running between dictations and prepends the last
+    /// half second to the next recording. Default off; the macOS microphone indicator stays on.
+    static let microphonePrerollEnabled = "microphonePrerollEnabled"
 
     // MARK: - Home / Setup
     static let setupWizardCompleted = "setupWizardCompleted"
     static let setupWizardCurrentStep = "setupWizardCurrentStep"
+    /// Exact provider/model selections tested through the real dictation path.
+    /// Older provider-only records cannot establish which model was tested.
+    static let setupWizardTestedSelections = "setupWizardTestedSelections"
     /// Dev-tool launch mode that defers startup reads of privacy-protected app data.
     static let devPrivacyQuietMode = "devPrivacyQuietMode"
 
@@ -80,12 +91,16 @@ enum UserDefaultsKeys {
     static let activatedTermPackStates = "activatedTermPackStates"
     static let termPackRegistryLastUpdateCheck = "termPackRegistryLastUpdateCheck"
     static let selectedIndustryPreset = "selectedIndustryPreset"
+    static let dismissedDictionaryTermsSettingSuggestions = "dismissedDictionaryTermsSettingSuggestions"
     static let targetAppCorrectionLearningEnabled = "targetAppCorrectionLearningEnabled"
     static let targetAppCorrectionLearningLatestAttempt = "targetAppCorrectionLearningLatestAttempt"
+    static let targetAppCorrectionLearningRequiredObservations = "targetAppCorrectionLearningRequiredObservations"
+    static let targetAppCorrectionLearningPendingObservations = "targetAppCorrectionLearningPendingObservations"
 
     // MARK: - Calendar Meeting Automation (machine-local; intentionally not synced/exported)
     static let calendarMeetingStartMode = "calendarMeetingStartMode"
     static let calendarMeetingAutoStopEnabled = "calendarMeetingAutoStopEnabled"
+    static let calendarMeetingDetectAdHoc = "calendarMeetingDetectAdHoc"
     static let calendarMeetingSelectedCalendarIDs = "calendarMeetingSelectedCalendarIDs"
     static let calendarMeetingCalendarSelectionInitialized = "calendarMeetingCalendarSelectionInitialized"
     static let calendarMeetingEnabledProviderIDs = "calendarMeetingEnabledProviderIDs"
@@ -120,6 +135,7 @@ enum UserDefaultsKeys {
 
     // MARK: - Formatting
     static let appFormattingEnabled = "appFormattingEnabled"
+    static let stripFinalPeriodFromStandaloneValuesEnabled = "stripFinalPeriodFromStandaloneValuesEnabled"
     static let transcriptionNumberNormalizationEnabled = "transcriptionNumberNormalizationEnabled"
     static let transcriptionNumberNormalizationMinimumValue = "transcriptionNumberNormalizationMinimumValue"
     static let dictationPunctuationProfiles = "dictationPunctuationProfiles"
@@ -130,7 +146,6 @@ enum UserDefaultsKeys {
 
     // MARK: - Plugin Registry
     static let pluginRegistryLastFetch = "pluginRegistryLastFetch"
-    static let selectedIntegrationTab = "selectedIntegrationTab"
     static let improveTypeWhisperCaptureEnabled = "plugin.com.typewhisper.improve.collectCorrections"
 
     // MARK: - Recorder

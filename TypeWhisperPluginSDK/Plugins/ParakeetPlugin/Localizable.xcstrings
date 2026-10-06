@@ -1,6 +1,28 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "Load": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読み込む"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Laden"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "加载"
+          }
+        }
+      }
+    },
     "CTC model (~100 MB) - downloads automatically on first use, or:": {
       "localizations": {
         "de": {
@@ -481,6 +503,94 @@
           "stringUnit": {
             "state": "translated",
             "value": "词汇增强"
+          }
+        }
+      }
+    },
+    "Moondream Parakeet Ultra - Parakeet TDT v3 trained further for higher accuracy. 25 European languages, no API key required.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moondream Parakeet Ultra - weitertrainiertes Parakeet TDT v3 mit höherer Genauigkeit. 25 europäische Sprachen, kein API-Schlüssel nötig."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moondream Parakeet Ultra - Parakeet TDT v3を追加学習し、精度を高めたモデルです。25のヨーロッパ語、APIキー不要。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moondream Parakeet Ultra - 在 Parakeet TDT v3 基础上继续训练，准确率更高。支持 25 种欧洲语言，无需 API 密钥。"
+          }
+        }
+      }
+    },
+    "Loads on demand": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wird bei Bedarf geladen"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "必要時に読み込み"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按需加载"
+          }
+        }
+      }
+    },
+    "Auto-unload model is set to Immediate.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„Modell automatisch entladen“ steht auf „Sofort“."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「モデルを自動でアンロード」が「すぐに」に設定されています。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“自动卸载模型”已设为“立即”。"
+          }
+        }
+      }
+    },
+    "Parakeet recognizes your terms better with Vocabulary Boosting (about 100 MB download).": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parakeet erkennt deine Begriffe mit Vokabel-Boosting besser (ca. 100 MB Download)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "語彙ブーストを使うと、Parakeetが用語をより正確に認識します（約100 MBのダウンロード）。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "启用词汇增强后，Parakeet 能更准确地识别你的词条（需下载约 100 MB）。"
           }
         }
       }

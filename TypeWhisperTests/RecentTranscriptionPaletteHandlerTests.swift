@@ -191,6 +191,78 @@ final class RecentTranscriptionPaletteHandlerTests: XCTestCase {
         XCTAssertEqual(pasteboard.string(forType: .string), "Newest transcription")
     }
 
+    func testInsertLatestReportsInsertionOnlyWhenFocusedTextChangesOrIsUnreadable() async throws {
+        enum FocusedField { case changesOnPaste, staysUnchanged, unreadable, unreadableAfterPaste, exposesNoText }
+        let cases: [(FocusedField, String, String)] = [
+            (.changesOnPaste, "Text inserted", "checkmark.circle.fill"),
+            (.staysUnchanged, "Text may not have been inserted", "exclamationmark.circle.fill"),
+            (.unreadable, "Text inserted", "checkmark.circle.fill"),
+            (.unreadableAfterPaste, "Text inserted", "checkmark.circle.fill"),
+            (.exposesNoText, "Text inserted", "checkmark.circle.fill"),
+        ]
+
+        for (field, expectedKey, expectedIcon) in cases {
+            let appSupportDirectory = try TestSupport.makeTemporaryDirectory()
+            defer { TestSupport.remove(appSupportDirectory) }
+
+            let textInsertionService = TextInsertionService()
+            textInsertionService.accessibilityGrantedOverride = true
+            textInsertionService.pasteboardProvider = { NSPasteboard.withUniqueName() }
+            textInsertionService.captureActiveAppOverride = { ("Discord", "com.hnc.Discord", nil) }
+            textInsertionService.pasteVerificationAttempts = 1
+            textInsertionService.pasteVerificationPollingDelay = .milliseconds(1)
+            var pasteCount = 0
+            textInsertionService.pasteSimulatorOverride = { pasteCount += 1 }
+            let element = AXUIElementCreateSystemWide()
+            textInsertionService.focusedTextElementOverride = { field == .unreadable ? nil : element }
+            textInsertionService.focusedTextStateOverride = { _ in
+                if field == .changesOnPaste, pasteCount > 0 {
+                    return (value: "Newest", selectedText: nil, selectedRange: NSRange(location: 6, length: 0))
+                }
+                if field == .unreadableAfterPaste, pasteCount > 0 {
+                    return nil
+                }
+                if field == .exposesNoText {
+                    return (value: nil, selectedText: nil, selectedRange: nil)
+                }
+                return (value: "", selectedText: nil, selectedRange: NSRange(location: 0, length: 0))
+            }
+
+            let store = RecentTranscriptionStore()
+            store.recordTranscription(
+                id: UUID(),
+                finalText: "Newest",
+                timestamp: Date(),
+                appName: "Discord",
+                appBundleIdentifier: "com.hnc.Discord"
+            )
+            let handler = RecentTranscriptionPaletteHandler(
+                textInsertionService: textInsertionService,
+                historyService: HistoryService(appSupportDirectory: appSupportDirectory),
+                recentTranscriptionStore: store,
+                paletteController: SelectionPaletteControllerSpy()
+            )
+            let feedbackShown = expectation(description: "feedback for \(field)")
+            var feedback: (message: String, icon: String, isError: Bool)?
+            handler.onShowNotchFeedback = { message, icon, _, isError, _ in
+                feedback = (message, icon, isError)
+                feedbackShown.fulfill()
+            }
+
+            handler.insertLatest(currentState: .idle)
+            await fulfillment(of: [feedbackShown], timeout: 1.0)
+
+            XCTAssertEqual(pasteCount, 1, "\(field)")
+            XCTAssertEqual(
+                feedback?.message,
+                try TestSupport.localizedCatalogValueForCurrentLocale(for: expectedKey),
+                "\(field)"
+            )
+            XCTAssertEqual(feedback?.icon, expectedIcon, "\(field)")
+            XCTAssertEqual(feedback?.isError, false, "\(field)")
+        }
+    }
+
     func testInsertLatestIgnoresRapidRepeatUntilClipboardIsRestored() async throws {
         let appSupportDirectory = try TestSupport.makeTemporaryDirectory()
         defer { TestSupport.remove(appSupportDirectory) }
@@ -879,6 +951,69 @@ final class PromptPaletteHandlerTests: XCTestCase {
         XCTAssertEqual(insertionPasteboard.string(forType: .string), "Insert recovered text")
     }
 
+    func testWorkflowPaletteRecentSelectionDoesNotReportInsertionWhenFocusedTextStaysUnchanged() async throws {
+        let appSupportDirectory = try TestSupport.makeTemporaryDirectory()
+        defer { TestSupport.remove(appSupportDirectory) }
+
+        let textInsertionService = TextInsertionService()
+        textInsertionService.accessibilityGrantedOverride = true
+        textInsertionService.captureActiveAppOverride = { ("Messages", "com.apple.MobileSMS", nil) }
+        textInsertionService.textSelectionOverride = { nil }
+        textInsertionService.textSelectionViaCopyOverride = { nil }
+        textInsertionService.pasteboardProvider = { NSPasteboard.withUniqueName() }
+        textInsertionService.pasteVerificationAttempts = 1
+        textInsertionService.pasteVerificationPollingDelay = .milliseconds(1)
+        textInsertionService.pasteSimulatorOverride = {}
+        let element = AXUIElementCreateSystemWide()
+        textInsertionService.focusedTextElementOverride = { element }
+        textInsertionService.focusedTextStateOverride = { _ in
+            (value: "", selectedText: nil, selectedRange: NSRange(location: 0, length: 0))
+        }
+
+        let generalPasteboard = NSPasteboard.general
+        let savedClipboard = textInsertionService.saveClipboard(from: generalPasteboard)
+        defer { textInsertionService.restoreClipboard(savedClipboard, to: generalPasteboard) }
+        generalPasteboard.clearContents()
+
+        let recentTranscriptionStore = RecentTranscriptionStore()
+        let recentID = UUID()
+        recentTranscriptionStore.recordTranscription(
+            id: recentID,
+            finalText: "Insert recovered text",
+            timestamp: Date(),
+            appName: "Messages",
+            appBundleIdentifier: "com.apple.MobileSMS"
+        )
+
+        let controller = PromptPaletteControllerSpy()
+        let handler = PromptPaletteHandler(
+            textInsertionService: textInsertionService,
+            workflowService: WorkflowService(appSupportDirectory: appSupportDirectory),
+            historyService: HistoryService(appSupportDirectory: appSupportDirectory),
+            recentTranscriptionStore: recentTranscriptionStore,
+            promptProcessingService: PromptProcessingService(),
+            soundService: SoundService(),
+            accessibilityAnnouncementService: AccessibilityAnnouncementService(),
+            promptPaletteController: controller
+        )
+        let feedbackShown = expectation(description: "insertion feedback")
+        var feedbackMessage: String?
+        handler.onShowNotchFeedback = { message, _, _, _, _ in
+            feedbackMessage = message
+            feedbackShown.fulfill()
+        }
+
+        handler.triggerSelection(currentState: .idle, soundFeedbackEnabled: false)
+        try await Task.sleep(for: .milliseconds(50))
+        controller.selectRecent(id: recentID)
+        await fulfillment(of: [feedbackShown], timeout: 1.0)
+
+        XCTAssertEqual(
+            feedbackMessage,
+            try TestSupport.localizedCatalogValueForCurrentLocale(for: "Text may not have been inserted")
+        )
+    }
+
     func testWorkflowPaletteWorkflowSelectionProcessesOriginalTextContext() async throws {
         let appSupportDirectory = try TestSupport.makeTemporaryDirectory()
         defer { TestSupport.remove(appSupportDirectory) }
@@ -1059,6 +1194,17 @@ final class TranslationHostWindowTests: XCTestCase {
 
         XCTAssertEqual(hostingView.sizingOptions, [])
     }
+
+    func testOffscreenHostWindowStaysAtOrAboveMinimumWindowLevel() {
+        let window = TranslationHostWindow(translationService: TranslationService())
+        defer { window.orderOut(nil) }
+
+        XCTAssertGreaterThanOrEqual(
+            window.level.rawValue,
+            Int(CGWindowLevelForKey(.minimumWindow))
+        )
+        XCTAssertTrue(window.isVisible)
+    }
 }
 #endif
 
@@ -1144,6 +1290,80 @@ final class SelectionPaletteInteractionModelTests: XCTestCase {
         XCTAssertEqual(dismissCount, 1)
     }
 
+    func testUpdateSwapsLevelInPlace() throws {
+        let model = SelectionPaletteInteractionModel(
+            configuration: SelectionPaletteConfiguration(emptyStateTitle: "Empty"),
+            items: [SelectionPaletteItem(id: UUID(), title: "First")],
+            onSelect: { _ in },
+            onDismiss: {}
+        )
+
+        var selectedID: UUID?
+        let secondLevelItems = [
+            SelectionPaletteItem(id: UUID(), title: "Alpha"),
+            SelectionPaletteItem(id: UUID(), title: "Beta"),
+        ]
+        model.update(
+            configuration: SelectionPaletteConfiguration(
+                emptyStateTitle: "Empty",
+                initialSelectedIndex: 1
+            ),
+            items: secondLevelItems,
+            onSelect: { selectedID = $0.id },
+            onDismiss: {}
+        )
+
+        XCTAssertEqual(model.filteredItems.map(\.title), ["Alpha", "Beta"])
+        XCTAssertEqual(model.selectedIndex, 1)
+        XCTAssertEqual(model.searchText, "")
+
+        XCTAssertTrue(model.handleKeyDown(try keyEvent(keyCode: 36, characters: "\r")))
+        XCTAssertEqual(selectedID, secondLevelItems[1].id)
+    }
+
+    func testUpdateClampsOutOfRangeInitialSelectedIndex() {
+        let model = SelectionPaletteInteractionModel(
+            configuration: SelectionPaletteConfiguration(emptyStateTitle: "Empty"),
+            items: [SelectionPaletteItem(id: UUID(), title: "First")],
+            onSelect: { _ in },
+            onDismiss: {}
+        )
+
+        model.update(
+            configuration: SelectionPaletteConfiguration(
+                emptyStateTitle: "Empty",
+                initialSelectedIndex: 99
+            ),
+            items: [SelectionPaletteItem(id: UUID(), title: "Only")],
+            onSelect: { _ in },
+            onDismiss: {}
+        )
+
+        XCTAssertEqual(model.selectedIndex, 0)
+    }
+
+    func testSecondaryItemsJoinSearchResults() throws {
+        let model = SelectionPaletteInteractionModel(
+            configuration: SelectionPaletteConfiguration(
+                searchPrompt: "Search",
+                emptyStateTitle: "Empty",
+                secondaryItems: [
+                    SelectionPaletteItem(id: UUID(), title: "hello world"),
+                    SelectionPaletteItem(id: UUID(), title: "unrelated"),
+                ]
+            ),
+            items: [SelectionPaletteItem(id: UUID(), title: "Summarize")],
+            onSelect: { _ in },
+            onDismiss: {}
+        )
+
+        // Without typing, secondary items stay hidden.
+        XCTAssertEqual(model.filteredItems.map(\.title), ["Summarize"])
+
+        XCTAssertTrue(model.handleKeyDown(try keyEvent(keyCode: 4, characters: "h")))
+        XCTAssertEqual(model.filteredItems.map(\.title), ["hello world"])
+    }
+
     private func keyEvent(
         keyCode: UInt16,
         characters: String,
@@ -1226,7 +1446,8 @@ private final class SelectionPaletteControllerSpy: SelectionPaletteControlling {
     func show(
         configuration: SelectionPaletteConfiguration,
         items: [SelectionPaletteItem],
-        onSelect: @escaping (SelectionPaletteItem) -> Void
+        onSelect: @escaping (SelectionPaletteItem) -> Void,
+        onEscape: (() -> Void)?
     ) {
         isVisible = true
         lastConfiguration = configuration

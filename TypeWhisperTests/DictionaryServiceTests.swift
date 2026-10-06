@@ -1,3 +1,4 @@
+import Combine
 import XCTest
 import TypeWhisperPluginSDK
 @testable import TypeWhisper
@@ -54,6 +55,7 @@ private final class UnsupportedDictionaryEnginePlugin: NSObject, TranscriptionEn
     static let pluginId = "com.typewhisper.tests.unsupported-dictionary-engine"
     static let pluginName = "Unsupported Dictionary Engine"
     var providerIdValue = "unsupported"
+    var supportValue: DictionaryTermsSupport = .unsupported
 
     required override init() {}
 
@@ -65,12 +67,216 @@ private final class UnsupportedDictionaryEnginePlugin: NSObject, TranscriptionEn
     var isConfigured: Bool { true }
     var transcriptionModels: [PluginModelInfo] { [] }
     var selectedModelId: String? { nil }
-    var dictionaryTermsSupport: DictionaryTermsSupport { .unsupported }
+    var dictionaryTermsSupport: DictionaryTermsSupport { supportValue }
     func selectModel(_ modelId: String) {}
     var supportsTranslation: Bool { false }
 
     func transcribe(audio: AudioData, language: String?, translate: Bool, prompt: String?) async throws -> PluginTranscriptionResult {
         PluginTranscriptionResult(text: "ok", detectedLanguage: language)
+    }
+}
+
+private struct SettingEnablingTestError: LocalizedError {
+    var errorDescription: String? { "Download failed" }
+}
+
+private final class SettingEnablingDictionaryEnginePlugin: NSObject, TranscriptionEnginePlugin, DictionaryTermsSettingEnabling, @unchecked Sendable {
+    static let pluginId = "com.typewhisper.tests.setting-enabling-dictionary-engine"
+    static let pluginName = "Setting Enabling Dictionary Engine"
+    var isSettingEnabled = false
+    var failsToEnable = false
+    private(set) var enableCallCount = 0
+
+    required override init() {}
+
+    func activate(host: HostServices) {}
+    func deactivate() {}
+
+    var providerId: String { "setting-enabling" }
+    var providerDisplayName: String { "Setting Enabling Mock" }
+    var isConfigured: Bool { true }
+    var transcriptionModels: [PluginModelInfo] { [] }
+    var selectedModelId: String? { nil }
+    func selectModel(_ modelId: String) {}
+    var supportsTranslation: Bool { false }
+    var dictionaryTermsSupport: DictionaryTermsSupport { isSettingEnabled ? .supported : .requiresPluginSetting }
+    var dictionaryTermsSettingSummary: String { "Recognizes terms better (about 100 MB download)." }
+
+    func enableDictionaryTermsSetting() async throws {
+        enableCallCount += 1
+        // Like Parakeet: the setting turns on before its model download can fail.
+        isSettingEnabled = true
+        if failsToEnable {
+            throw SettingEnablingTestError()
+        }
+    }
+
+    func transcribe(audio: AudioData, language: String?, translate: Bool, prompt: String?) async throws -> PluginTranscriptionResult {
+        PluginTranscriptionResult(text: "ok", detectedLanguage: language)
+    }
+}
+
+final class DictionaryTermsSettingSuggestionTests: XCTestCase {
+    private var defaults: UserDefaults!
+    private var suiteName: String!
+
+    override func setUp() {
+        super.setUp()
+        suiteName = "DictionaryTermsSettingSuggestionTests-\(UUID().uuidString)"
+        defaults = UserDefaults(suiteName: suiteName)
+    }
+
+    override func tearDown() {
+        defaults.removePersistentDomain(forName: suiteName)
+        PluginManager.shared = nil
+        super.tearDown()
+    }
+
+    func testPolicySuggestsOnlyForAddedTermsOnEnablableEnginesNeedingTheSetting() {
+        typealias Policy = DictionaryTermsSettingSuggestionPolicy
+
+        XCTAssertTrue(Policy.shouldSuggest(afterAdding: .term, support: .requiresPluginSetting, canEnable: true, isDismissed: false))
+        XCTAssertFalse(Policy.shouldSuggest(afterAdding: .correction, support: .requiresPluginSetting, canEnable: true, isDismissed: false))
+        XCTAssertFalse(Policy.shouldSuggest(afterAdding: .term, support: .requiresPluginSetting, canEnable: false, isDismissed: false))
+        XCTAssertFalse(Policy.shouldSuggest(afterAdding: .term, support: .requiresPluginSetting, canEnable: true, isDismissed: true))
+        XCTAssertFalse(Policy.shouldSuggest(afterAdding: .term, support: .supported, canEnable: true, isDismissed: false))
+        XCTAssertFalse(Policy.shouldSuggest(afterAdding: .term, support: .unsupported, canEnable: true, isDismissed: false))
+        XCTAssertFalse(Policy.shouldSuggest(afterAdding: .term, support: nil, canEnable: true, isDismissed: false))
+    }
+
+    func testPolicyKeepsSuggestionVisibleWhileEnablingOrAfterFailure() {
+        typealias Policy = DictionaryTermsSettingSuggestionPolicy
+
+        XCTAssertTrue(Policy.isVisible(support: .requiresPluginSetting, canEnable: true, isDismissed: false, activation: nil))
+        XCTAssertFalse(Policy.isVisible(support: .supported, canEnable: true, isDismissed: false, activation: nil))
+        XCTAssertTrue(Policy.isVisible(support: .supported, canEnable: true, isDismissed: false, activation: .enabling))
+        XCTAssertTrue(Policy.isVisible(support: .supported, canEnable: true, isDismissed: false, activation: .failed("x")))
+        XCTAssertFalse(Policy.isVisible(support: .requiresPluginSetting, canEnable: true, isDismissed: true, activation: nil))
+        XCTAssertFalse(Policy.isVisible(support: .requiresPluginSetting, canEnable: false, isDismissed: false, activation: nil))
+    }
+
+    @MainActor
+    func testAddingTermSuggestsSettingAndEnablingHidesSuggestion() async throws {
+        let appSupportDirectory = try TestSupport.makeTemporaryDirectory()
+        defer { TestSupport.remove(appSupportDirectory) }
+        let plugin = SettingEnablingDictionaryEnginePlugin()
+        let viewModel = makeViewModel(selecting: plugin, appSupportDirectory: appSupportDirectory)
+
+        addEntry(.correction, "teh", to: viewModel)
+        XCTAssertNil(viewModel.visibleTermsSettingSuggestion)
+
+        addEntry(.term, "Kubernetes", to: viewModel)
+        let suggestion = try XCTUnwrap(viewModel.visibleTermsSettingSuggestion)
+        XCTAssertEqual(suggestion.providerId, plugin.providerId)
+        XCTAssertEqual(suggestion.engineName, "Setting Enabling Mock")
+        XCTAssertEqual(suggestion.summary, plugin.dictionaryTermsSettingSummary)
+        XCTAssertNil(suggestion.activation)
+
+        let finished = expectation(description: "Enabling finished")
+        let observation = viewModel.$termsSettingActivations
+            .dropFirst()
+            .sink { activations in
+                if activations.isEmpty { finished.fulfill() }
+            }
+        viewModel.enableSuggestedTermsSetting()
+        XCTAssertEqual(viewModel.visibleTermsSettingSuggestion?.activation, .enabling)
+        await fulfillment(of: [finished], timeout: 5)
+        observation.cancel()
+
+        XCTAssertEqual(plugin.enableCallCount, 1)
+        XCTAssertNil(viewModel.visibleTermsSettingSuggestion)
+        XCTAssertNil(viewModel.termsSettingSuggestionProviderId)
+
+        // Turning the setting off elsewhere does not bring the old suggestion back.
+        plugin.isSettingEnabled = false
+        XCTAssertNil(viewModel.visibleTermsSettingSuggestion)
+    }
+
+    @MainActor
+    func testFailedEnablingStaysVisibleAndNotNowIsRememberedPerEngine() async throws {
+        let appSupportDirectory = try TestSupport.makeTemporaryDirectory()
+        defer { TestSupport.remove(appSupportDirectory) }
+        let plugin = SettingEnablingDictionaryEnginePlugin()
+        plugin.failsToEnable = true
+        let viewModel = makeViewModel(selecting: plugin, appSupportDirectory: appSupportDirectory)
+
+        addEntry(.term, "Kubernetes", to: viewModel)
+        let failed = expectation(description: "Enabling failed")
+        let observation = viewModel.$termsSettingActivations
+            .sink { activations in
+                if case .failed = activations[plugin.providerId] { failed.fulfill() }
+            }
+        viewModel.enableSuggestedTermsSetting()
+        await fulfillment(of: [failed], timeout: 5)
+        observation.cancel()
+
+        XCTAssertEqual(viewModel.visibleTermsSettingSuggestion?.activation, .failed("Download failed"))
+
+        viewModel.dismissTermsSettingSuggestion()
+        XCTAssertNil(viewModel.visibleTermsSettingSuggestion)
+        XCTAssertNil(viewModel.termsSettingActivations[plugin.providerId])
+        XCTAssertEqual(
+            defaults.stringArray(forKey: UserDefaultsKeys.dismissedDictionaryTermsSettingSuggestions),
+            [plugin.providerId]
+        )
+
+        plugin.isSettingEnabled = false
+        let reloadedDirectory = try TestSupport.makeTemporaryDirectory()
+        defer { TestSupport.remove(reloadedDirectory) }
+        let reloadedViewModel = makeViewModel(selecting: plugin, appSupportDirectory: reloadedDirectory)
+        addEntry(.term, "Kustomize", to: reloadedViewModel)
+        XCTAssertNil(reloadedViewModel.visibleTermsSettingSuggestion)
+    }
+
+    @MainActor
+    func testEnginesWithoutEnableActionDoNotRaiseSuggestion() throws {
+        let appSupportDirectory = try TestSupport.makeTemporaryDirectory()
+        defer { TestSupport.remove(appSupportDirectory) }
+        let plugin = UnsupportedDictionaryEnginePlugin()
+        plugin.supportValue = .requiresPluginSetting
+        let viewModel = makeViewModel(selecting: plugin, appSupportDirectory: appSupportDirectory)
+
+        addEntry(.term, "Kubernetes", to: viewModel)
+
+        XCTAssertNil(viewModel.termsSettingSuggestionProviderId)
+        XCTAssertNil(viewModel.visibleTermsSettingSuggestion)
+    }
+
+    @MainActor
+    private func makeViewModel(
+        selecting plugin: any TranscriptionEnginePlugin,
+        appSupportDirectory: URL
+    ) -> DictionaryViewModel {
+        PluginManager.shared = PluginManager(appSupportDirectory: appSupportDirectory)
+        PluginManager.shared.loadedPlugins = [
+            LoadedPlugin(
+                manifest: PluginManifest(
+                    id: "com.typewhisper.tests.\(plugin.providerId)",
+                    name: plugin.providerDisplayName,
+                    version: "1.0.0",
+                    principalClass: "DictionaryTermsSettingSuggestionTestsPlugin"
+                ),
+                instance: plugin,
+                bundle: Bundle.main,
+                sourceURL: appSupportDirectory,
+                isEnabled: true
+            )
+        ]
+        return DictionaryViewModel(
+            dictionaryService: DictionaryService(appSupportDirectory: appSupportDirectory),
+            defaults: defaults,
+            selectedTranscriptionEngine: { plugin }
+        )
+    }
+
+    @MainActor
+    private func addEntry(_ type: DictionaryEntryType, _ original: String, to viewModel: DictionaryViewModel) {
+        viewModel.startCreating(type: type)
+        viewModel.editOriginal = original
+        if type == .correction {
+            viewModel.editReplacement = "the"
+        }
+        viewModel.saveEditing()
     }
 }
 
@@ -111,6 +317,142 @@ final class DictionaryServiceTests: XCTestCase {
 
         service.learnCorrection(original: "langauge", replacement: "language")
         XCTAssertEqual(service.correctionsCount, 2)
+    }
+
+    @MainActor
+    func testDeferredCorrectionUsageCountsAreSavedOnlyWhenRequested() throws {
+        let appSupportDirectory = try TestSupport.makeTemporaryDirectory()
+        defer { TestSupport.remove(appSupportDirectory) }
+
+        let service = DictionaryService(appSupportDirectory: appSupportDirectory)
+        service.addEntry(type: .correction, original: "teh", replacement: "the")
+
+        XCTAssertEqual(service.applyCorrections(to: "teh", deferUsageCountSave: true), "the")
+        XCTAssertEqual(service.applyCorrections(to: "teh", deferUsageCountSave: true), "the")
+        XCTAssertEqual(service.corrections.first?.usageCount, 2)
+        XCTAssertEqual(DictionaryService(appSupportDirectory: appSupportDirectory).corrections.first?.usageCount, 0)
+
+        service.saveDeferredUsageCounts()
+
+        XCTAssertEqual(DictionaryService(appSupportDirectory: appSupportDirectory).corrections.first?.usageCount, 2)
+    }
+
+    @MainActor
+    func testLongerCorrectionOriginalsApplyBeforeShorterPrefixes() throws {
+        let appSupportDirectory = try TestSupport.makeTemporaryDirectory()
+        defer { TestSupport.remove(appSupportDirectory) }
+
+        let service = DictionaryService(appSupportDirectory: appSupportDirectory)
+        // Alphabetical order would apply "clawed" first and leave "Claude code".
+        service.addEntry(type: .correction, original: "clawed", replacement: "Claude")
+        service.addEntry(type: .correction, original: "clawed code", replacement: "Claude Code")
+
+        XCTAssertEqual(service.corrections.map(\.original), ["clawed", "clawed code"])
+        XCTAssertEqual(service.correctionsForApplication.map(\.original), ["clawed code", "clawed"])
+        XCTAssertEqual(
+            service.applyCorrections(to: "Clawed code is not Clawed desktop"),
+            "Claude Code is not Claude desktop"
+        )
+    }
+
+    @MainActor
+    func testCorrectionIsNotReappliedInsideItsOwnReplacement() throws {
+        let appSupportDirectory = try TestSupport.makeTemporaryDirectory()
+        defer { TestSupport.remove(appSupportDirectory) }
+
+        let service = DictionaryService(appSupportDirectory: appSupportDirectory)
+        // Boundary matching: the period after "GitHub" is a word boundary.
+        service.addEntry(type: .correction, original: "GitHub", replacement: "GitHub.com")
+        // Substring matching: the original has no word characters.
+        service.addEntry(type: .correction, original: "--", replacement: "---")
+
+        XCTAssertEqual(service.applyCorrections(to: "Visit GitHub"), "Visit GitHub.com")
+        XCTAssertEqual(service.applyCorrections(to: "Visit GitHub.com"), "Visit GitHub.com")
+        XCTAssertEqual(service.applyCorrections(to: "GitHub and GitHub.com"), "GitHub.com and GitHub.com")
+        XCTAssertEqual(service.applyCorrections(to: "a -- b"), "a --- b")
+        XCTAssertEqual(service.applyCorrections(to: "a --- b"), "a --- b")
+        XCTAssertEqual(service.applyCorrections(to: service.applyCorrections(to: "a -- b and -- c")), "a --- b and --- c")
+    }
+
+    @MainActor
+    func testCaseFoldedReplacementIsNotReexpandedAndFullCaseFoldCorrectionsStillApply() throws {
+        let appSupportDirectory = try TestSupport.makeTemporaryDirectory()
+        defer { TestSupport.remove(appSupportDirectory) }
+
+        let service = DictionaryService(appSupportDirectory: appSupportDirectory)
+        // `Strasse` matches the `Straße` inside its own replacement (ß folds to ss).
+        service.addEntry(type: .correction, original: "Strasse", replacement: "Straße.")
+        // Here the folded match spans the whole replacement, like a case-only correction.
+        service.addEntry(type: .correction, original: "gasse", replacement: "Gaße")
+
+        XCTAssertEqual(service.applyCorrections(to: "Die Strasse"), "Die Straße.")
+        XCTAssertEqual(service.applyCorrections(to: "Die Straße."), "Die Straße.")
+        XCTAssertEqual(service.applyCorrections(to: "die gasse"), "die Gaße")
+        XCTAssertEqual(service.applyCorrections(to: service.applyCorrections(to: "die gasse")), "die Gaße")
+    }
+
+    @MainActor
+    func testReplacementContextIsMatchedAcrossCaseFoldedLengthDifferences() throws {
+        let appSupportDirectory = try TestSupport.makeTemporaryDirectory()
+        defer { TestSupport.remove(appSupportDirectory) }
+
+        let service = DictionaryService(appSupportDirectory: appSupportDirectory)
+        // The replacement's prefix `ß` is spelled `ss` in the text: one Character versus two.
+        service.addEntry(type: .correction, original: "--", replacement: "ß--.")
+
+        XCTAssertEqual(service.applyCorrections(to: "a -- b"), "a ß--. b")
+        XCTAssertEqual(service.applyCorrections(to: "a ß--. b"), "a ß--. b")
+        XCTAssertEqual(service.applyCorrections(to: "a ss--. b"), "a ss--. b")
+        XCTAssertEqual(service.applyCorrections(to: service.applyCorrections(to: "a -- b")), "a ß--. b")
+    }
+
+    @MainActor
+    func testRunsThatAlreadyReadAsTheReplacementAreNotExpanded() throws {
+        let appSupportDirectory = try TestSupport.makeTemporaryDirectory()
+        defer { TestSupport.remove(appSupportDirectory) }
+
+        let service = DictionaryService(appSupportDirectory: appSupportDirectory)
+        service.addEntry(type: .correction, original: "--", replacement: "---")
+
+        // Two corrected runs back to back: a match straddling their seam is still part of
+        // an existing replacement, so a repeated pass leaves the six hyphens alone.
+        XCTAssertEqual(service.applyCorrections(to: "a ------ b"), "a ------ b")
+        XCTAssertEqual(service.applyCorrections(to: service.applyCorrections(to: "a ------ b")), "a ------ b")
+        // Policy: text that already reads as the replacement is treated as corrected, even
+        // when it was dictated that way (two raw originals back to back contain `---`).
+        XCTAssertEqual(service.applyCorrections(to: "a ---- b"), "a ---- b")
+    }
+
+    @MainActor
+    func testPreviewCorrectionsDoesNotCountUsage() throws {
+        let appSupportDirectory = try TestSupport.makeTemporaryDirectory()
+        defer { TestSupport.remove(appSupportDirectory) }
+
+        let service = DictionaryService(appSupportDirectory: appSupportDirectory)
+        service.addEntry(type: .correction, original: "clawed", replacement: "Claude")
+        service.addEntry(type: .correction, original: "clawed code", replacement: "Claude Code")
+
+        XCTAssertEqual(service.previewCorrections(to: "clawed code and clawed"), "Claude Code and Claude")
+        XCTAssertEqual(service.corrections.map(\.usageCount), [0, 0])
+    }
+
+    @MainActor
+    func testVocabularyForPromptMergesTermsAndCorrectionTargets() throws {
+        let appSupportDirectory = try TestSupport.makeTemporaryDirectory()
+        defer { TestSupport.remove(appSupportDirectory) }
+
+        let service = DictionaryService(appSupportDirectory: appSupportDirectory)
+        service.addEntry(type: .term, original: "Wikipeadia")
+        service.addEntry(type: .term, original: "Claude")
+        service.addEntry(type: .correction, original: "dev and think", replacement: "DEVONthink")
+        service.addEntry(type: .correction, original: "claw", replacement: "claude")
+        service.addEntry(type: .correction, original: "um", replacement: "")
+        service.addEntry(type: .term, original: "Disabled Term")
+        let disabledTerm = try XCTUnwrap(service.terms.first { $0.original == "Disabled Term" })
+        service.setEntryEnabled(disabledTerm, enabled: false)
+
+        XCTAssertEqual(service.vocabularyForPrompt(), ["Claude", "DEVONthink", "Wikipeadia"])
+        XCTAssertEqual(service.vocabularyForPrompt(limit: 2), ["Claude", "DEVONthink"])
     }
 
     @MainActor
@@ -494,6 +836,24 @@ final class DictionaryServiceTests: XCTestCase {
         installPlugins([plugin], appSupportDirectory: appSupportDirectory)
 
         XCTAssertNil(service.getTermsForPrompt(providerId: plugin.providerId))
+    }
+
+    @MainActor
+    func testGetTermsForPromptReturnsNilUntilPluginSettingEnablesTerms() throws {
+        let appSupportDirectory = try TestSupport.makeTemporaryDirectory()
+        defer { TestSupport.remove(appSupportDirectory) }
+
+        let service = DictionaryService(appSupportDirectory: appSupportDirectory)
+        service.setTerms(["Alpha", "Beta"], replaceExisting: true)
+
+        let plugin = UnsupportedDictionaryEnginePlugin()
+        plugin.supportValue = .requiresPluginSetting
+        installPlugins([plugin], appSupportDirectory: appSupportDirectory)
+
+        XCTAssertNil(service.getTermsForPrompt(providerId: plugin.providerId))
+
+        plugin.supportValue = .supported
+        XCTAssertEqual(service.getTermsForPrompt(providerId: plugin.providerId), "Alpha, Beta")
     }
 
     @MainActor

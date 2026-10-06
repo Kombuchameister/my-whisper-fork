@@ -119,6 +119,37 @@ private enum PluginLoadError: LocalizedError {
     }
 }
 
+/// Maps an enabled plugin bundle's executable and resolves its principal class.
+///
+/// Production always uses `.bundleExecutable`. Tests inject in-process classes so the
+/// launch scan, activation order and change publication can be exercised without
+/// compiled plugin bundles.
+struct PluginRuntimeLoader {
+    let principalClass: @MainActor (_ bundle: Bundle, _ manifest: PluginManifest) throws -> TypeWhisperPlugin.Type
+
+    static var bundleExecutable: PluginRuntimeLoader {
+        PluginRuntimeLoader { bundle, manifest in
+            let bundleName = bundle.bundleURL.lastPathComponent
+            do {
+                try bundle.loadAndReturnError()
+            } catch {
+                logger.error("Failed to load bundle \(bundleName): \(error.localizedDescription)")
+                throw error
+            }
+
+            guard let pluginClass = NSClassFromString(manifest.principalClass) as? TypeWhisperPlugin.Type else {
+                let error = PluginLoadError.missingPrincipalClass(
+                    className: manifest.principalClass,
+                    bundleName: bundleName
+                )
+                logger.error("\(error.localizedDescription, privacy: .public)")
+                throw error
+            }
+            return pluginClass
+        }
+    }
+}
+
 // MARK: - Loaded Plugin
 
 private final class UnloadedPluginPlaceholder: NSObject, TypeWhisperPlugin, @unchecked Sendable {
@@ -143,8 +174,14 @@ struct LoadedPlugin: Identifiable {
     var id: String { manifest.id }
 
     var isBundled: Bool {
+        #if APPSTORE
+        // App Store plugins ship inside the app but are installed and
+        // uninstalled like downloaded plugins (see AppStorePluginCatalog).
+        return false
+        #else
         guard let builtInURL = Bundle.main.builtInPlugInsURL else { return false }
         return sourceURL.path.hasPrefix(builtInURL.path)
+        #endif
     }
 
     var isRuntimeLoaded: Bool {
@@ -252,14 +289,27 @@ struct PluginUserInterfaceContribution {
 final class PluginManager: ObservableObject {
     nonisolated(unsafe) static var shared: PluginManager!
 
-    @Published var loadedPlugins: [LoadedPlugin] = []
-    @Published private(set) var incompatibleExternalBundles: [String: IncompatibleExternalBundle] = [:]
+    // Registry mutations publish through `registryRevision` (like `@Published`, but a
+    // bulk scan coalesces them; see `coalescingRegistryChangeNotifications`).
+    var loadedPlugins: [LoadedPlugin] = [] {
+        willSet { publishRegistryChange() }
+    }
+    private(set) var incompatibleExternalBundles: [String: IncompatibleExternalBundle] = [:] {
+        willSet { publishRegistryChange() }
+    }
+    /// Advances whenever `loadedPlugins` or `incompatibleExternalBundles` change.
+    @Published private(set) var registryRevision = 0
     @Published private(set) var readinessRevision = 0
 
     let pluginsDirectory: URL
+    private let runtimeLoader: PluginRuntimeLoader
     private var ruleNamesProvider: @MainActor () -> [String] = { [] }
     private var workflowProvider: @MainActor () -> [PluginWorkflowInfo] = { [] }
     private var deletingModelPluginIds = Set<String>()
+    /// Uninstalled bundles whose code is still mapped into this process.
+    private var bundlesRemovedAfterRelaunch = Set<URL>()
+    private var registryNotificationBatchDepth = 0
+    private var registryChangedDuringBatch = false
 
     var userInterfaceContributions: [PluginUserInterfaceContribution] {
         loadedPlugins.compactMap { plugin in
@@ -489,25 +539,75 @@ final class PluginManager: ObservableObject {
         incompatibleExternalBundles.removeValue(forKey: pluginId)
     }
 
-    init(appSupportDirectory: URL = AppConstants.appSupportDirectory) {
+    init(
+        appSupportDirectory: URL = AppConstants.appSupportDirectory,
+        runtimeLoader: PluginRuntimeLoader = .bundleExecutable
+    ) {
         self.pluginsDirectory = appSupportDirectory
             .appendingPathComponent("Plugins", isDirectory: true)
+        self.runtimeLoader = runtimeLoader
 
         try? FileManager.default.createDirectory(at: pluginsDirectory, withIntermediateDirectories: true)
+    }
+
+    // MARK: - Registry Change Publication
+
+    private func publishRegistryChange() {
+        guard registryNotificationBatchDepth == 0 else {
+            registryChangedDuringBatch = true
+            return
+        }
+        registryRevision &+= 1
+    }
+
+    /// Runs `body` with registry change notifications coalesced into at most one
+    /// `registryRevision` step (and so one `objectWillChange`), sent after the batch.
+    ///
+    /// Every `objectWillChange` fans out to the services and view models observing
+    /// this manager, and each of them re-reconciles its engine/LLM selection on the
+    /// main queue. Without coalescing, a launch scan queues one such pass per
+    /// observer for every registry mutation (roughly two per bundle), all of which
+    /// run after the scan and see the same final registry. Mutations still apply in
+    /// place, so `loadedPlugins` is current throughout the batch.
+    func coalescingRegistryChangeNotifications<Result>(_ body: () throws -> Result) rethrows -> Result {
+        registryNotificationBatchDepth += 1
+        defer {
+            registryNotificationBatchDepth -= 1
+            if registryNotificationBatchDepth == 0, registryChangedDuringBatch {
+                registryChangedDuringBatch = false
+                registryRevision &+= 1
+            }
+        }
+        return try body()
     }
 
     // MARK: - Plugin Loading
 
     func scanAndLoadPlugins() {
-        logger.info("Scanning plugins directory: \(self.pluginsDirectory.path)")
+        let signposter = LaunchSignposts.signposter
+        let scanState = signposter.beginInterval("Plugin.scan")
+        defer { signposter.endInterval("Plugin.scan", scanState) }
+        coalescingRegistryChangeNotifications {
+            loadAllPluginBundles()
+        }
+    }
+
+    private func loadAllPluginBundles() {
         incompatibleExternalBundles = [:]
 
         let fm = FileManager.default
         // Built-in plugins from app bundle
         if let builtInURL = Bundle.main.builtInPlugInsURL,
            let builtIn = try? fm.contentsOfDirectory(at: builtInURL, includingPropertiesForKeys: nil) {
+            #if APPSTORE
+            let candidateBundles = builtIn.filter {
+                $0.pathExtension == "bundle" && AppStorePluginCatalog.shouldLoadBundledPlugin(at: $0)
+            }
+            #else
+            let candidateBundles = builtIn.filter { $0.pathExtension == "bundle" }
+            #endif
             let builtInBundles = sortedPluginBundleURLs(
-                builtIn.filter { $0.pathExtension == "bundle" },
+                candidateBundles,
                 isBundledSource: true
             )
             logger.info("Found \(builtInBundles.count) built-in plugin bundle(s)")
@@ -520,13 +620,15 @@ final class PluginManager: ObservableObject {
             }
         }
 
+        #if !APPSTORE
+        logger.info("Scanning plugins directory: \(self.pluginsDirectory.path)")
         guard let contents = try? fm.contentsOfDirectory(at: pluginsDirectory, includingPropertiesForKeys: nil) else {
             logger.info("No external plugins directory or empty")
             return
         }
 
         let bundles = sortedPluginBundleURLs(
-            contents.filter { $0.pathExtension == "bundle" },
+            contents.filter { $0.pathExtension == "bundle" && !isPendingRemoval($0) },
             isBundledSource: false
         )
         logger.info("Found \(bundles.count) external plugin bundle(s)")
@@ -538,6 +640,7 @@ final class PluginManager: ObservableObject {
                 logger.error("Failed to load plugin at \(bundleURL.lastPathComponent): \(error.localizedDescription)")
             }
         }
+        #endif
     }
 
     func sortedPluginBundleURLs(_ urls: [URL], isBundledSource: Bool) -> [URL] {
@@ -689,23 +792,15 @@ final class PluginManager: ObservableObject {
             throw PluginLoadError.failedToCreateBundle(bundleName: url.lastPathComponent)
         }
 
-        do {
-            try bundle.loadAndReturnError()
-        } catch {
-            logger.error("Failed to load bundle \(url.lastPathComponent): \(error.localizedDescription)")
-            throw error
+        // Mapping the executable dominates launch cost for large local-model bundles.
+        let signposter = LaunchSignposts.signposter
+        let instance = try signposter.withIntervalSignpost(
+            "Plugin.load",
+            id: signposter.makeSignpostID(),
+            "\(manifest.id, privacy: .public)"
+        ) {
+            try runtimeLoader.principalClass(bundle, manifest).init()
         }
-
-        guard let pluginClass = NSClassFromString(manifest.principalClass) as? TypeWhisperPlugin.Type else {
-            let error = PluginLoadError.missingPrincipalClass(
-                className: manifest.principalClass,
-                bundleName: url.lastPathComponent
-            )
-            logger.error("\(error.localizedDescription, privacy: .public)")
-            throw error
-        }
-
-        let instance = pluginClass.init()
 
         let loaded = LoadedPlugin(
             manifest: manifest, instance: instance, bundle: bundle, sourceURL: url, isEnabled: isEnabled
@@ -779,6 +874,14 @@ final class PluginManager: ObservableObject {
     }
 
     private func activatePlugin(_ plugin: LoadedPlugin) {
+        let signposter = LaunchSignposts.signposter
+        let activationState = signposter.beginInterval(
+            "Plugin.activate",
+            id: signposter.makeSignpostID(),
+            "\(plugin.manifest.id, privacy: .public)"
+        )
+        defer { signposter.endInterval("Plugin.activate", activationState) }
+
         let host = HostServicesImpl(
             pluginId: plugin.manifest.id,
             eventBus: EventBus.shared,
@@ -1000,6 +1103,42 @@ final class PluginManager: ObservableObject {
         }
         loadedPlugins.remove(at: index)
         logger.info("Removed plugin from runtime registry: \(pluginId)")
+    }
+
+    /// Removes the files of an uninstalled bundle, or defers that to the next launch when
+    /// the bundle's code already ran in this process. Plugin work can outlive `deactivate()`
+    /// and still read bundle resources (MLX looks up its Metal library lazily), and missing
+    /// files then abort the app.
+    func removeUninstalledBundle(at bundleURL: URL, codeIsLoaded: Bool) {
+        let fm = FileManager.default
+        guard codeIsLoaded else {
+            logger.info("Removing installed plugin bundle at \(bundleURL.path, privacy: .public)")
+            try? fm.removeItem(at: bundleURL)
+            return
+        }
+
+        bundlesRemovedAfterRelaunch.insert(bundleURL.standardizedFileURL)
+        let markerURL = bundleURL.appendingPathComponent(Self.pendingRemovalMarkerName)
+        if fm.createFile(atPath: markerURL.path, contents: nil) {
+            logger.info("Deferring removal of loaded plugin bundle until relaunch: \(bundleURL.path, privacy: .public)")
+        } else {
+            // Keeping the files is safer than deleting them under running code; the
+            // bundle then loads again on the next launch.
+            logger.error("Failed to mark loaded plugin bundle for removal, keeping it: \(bundleURL.path, privacy: .public)")
+        }
+    }
+
+    static let pendingRemovalMarkerName = ".typewhisper-pending-removal"
+
+    /// Deletes bundles marked by a previous session and skips those marked in this one.
+    private func isPendingRemoval(_ bundleURL: URL) -> Bool {
+        let markerURL = bundleURL.appendingPathComponent(Self.pendingRemovalMarkerName)
+        guard FileManager.default.fileExists(atPath: markerURL.path) else { return false }
+        guard !bundlesRemovedAfterRelaunch.contains(bundleURL.standardizedFileURL) else { return true }
+
+        logger.info("Removing plugin bundle uninstalled in a previous session: \(bundleURL.path, privacy: .public)")
+        try? FileManager.default.removeItem(at: bundleURL)
+        return true
     }
 
     func bundleURL(for pluginId: String) -> URL? {

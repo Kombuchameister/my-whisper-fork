@@ -1,262 +1,5 @@
 import SwiftUI
 
-struct IndicatorPreviewView: View {
-    @ObservedObject private var dictation = DictationViewModel.shared
-    private let previewNotchWidth: CGFloat = 185
-    private let notchPreviewBaseHeight: CGFloat = 110
-    private let notchPreviewBaseBodyHeight: CGFloat = 38
-    private let notchPreviewBaseFontSize: CGFloat = 11
-    private let overlayPreviewCollapsedHeight: CGFloat = 82
-    private let overlayPreviewBaseHeight: CGFloat = 110
-    private let overlayPreviewBaseFontSize: CGFloat = 12
-    private let notchPreviewRecordingDuration: TimeInterval = 83
-    private let notchPreviewActiveRuleName = "Workflow"
-
-    private let streamingText = String(localized: "Hello, this is a live preview of the streaming text...")
-    private var showTranscriptPreview: Bool {
-        dictation.indicatorTranscriptPreviewEnabled && dictation.indicatorStyle.supportsTranscriptPreview
-    }
-    private var notchClosedWidth: CGFloat {
-        NotchIndicatorLayout.recordingClosedWidth(
-            hasNotch: true,
-            notchWidth: previewNotchWidth,
-            leftContent: dictation.notchIndicatorLeftContent,
-            rightContent: dictation.notchIndicatorRightContent,
-            recordingDuration: notchPreviewRecordingDuration,
-            activeRuleName: notchPreviewActiveRuleName
-        )
-    }
-    private var notchHeight: CGFloat {
-        NotchIndicatorLayout.closedHeight(hasNotch: true)
-    }
-    private var notchPreviewMode: NotchExpansionMode {
-        showTranscriptPreview ? .transcript : .closed
-    }
-    private var notchPreviewWidth: CGFloat {
-        NotchIndicatorLayout.containerWidth(closedWidth: notchClosedWidth, mode: notchPreviewMode)
-    }
-    private var notchBottomCornerRadius: CGFloat {
-        switch notchPreviewMode {
-        case .closed:
-            return 14
-        case .processing:
-            return 18
-        case .transcript, .feedback:
-            return 24
-        }
-    }
-    private var previewHeight: CGFloat {
-        switch dictation.indicatorStyle {
-        case .notch:
-            return showTranscriptPreview ? notchPreviewBaseHeight + (notchPreviewBodyHeight - notchPreviewBaseBodyHeight) : notchPreviewBaseHeight
-        case .overlay:
-            return showTranscriptPreview ? scaledPreviewMetric(overlayPreviewBaseHeight, for: .overlay) : overlayPreviewCollapsedHeight
-        case .minimal:
-            return 72
-        }
-    }
-
-    private var notchPreviewBodyHeight: CGFloat {
-        showTranscriptPreview ? scaledPreviewMetric(notchPreviewBaseBodyHeight, for: .notch) : 0
-    }
-
-    private var notchPreviewFontSize: CGFloat {
-        scaledPreviewMetric(notchPreviewBaseFontSize, for: .notch)
-    }
-
-    private var overlayPreviewFontSize: CGFloat {
-        scaledPreviewMetric(overlayPreviewBaseFontSize, for: .overlay)
-    }
-
-    private var notchPreviewLeftSpacing: CGFloat {
-        let leftContentWidth = NotchIndicatorLayout.recordingContentWidth(
-            dictation.notchIndicatorLeftContent,
-            recordingDuration: notchPreviewRecordingDuration,
-            activeRuleName: notchPreviewActiveRuleName
-        )
-        return leftContentWidth > 0 ? NotchIndicatorLayout.leftContentSpacing : 0
-    }
-
-    var body: some View {
-        ZStack(alignment: .top) {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color(white: 0.15))
-
-            Group {
-                if dictation.indicatorStyle == .notch {
-                    notchPreview
-                } else if dictation.indicatorStyle == .overlay {
-                    overlayPreview
-                } else {
-                    minimalPreview
-                }
-            }
-            .environment(\.colorScheme, .dark)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        }
-        .frame(height: previewHeight)
-        .animation(.easeInOut(duration: 0.2), value: dictation.indicatorStyle)
-        .animation(.easeInOut(duration: 0.2), value: dictation.notchIndicatorLeftContent)
-        .animation(.easeInOut(duration: 0.2), value: dictation.notchIndicatorRightContent)
-        .animation(.easeInOut(duration: 0.2), value: dictation.indicatorTranscriptPreviewEnabled)
-        .animation(.easeInOut(duration: 0.2), value: dictation.indicatorTranscriptPreviewFontSizeOffset)
-        .accessibilityHidden(true)
-    }
-
-    // MARK: - Notch Preview
-
-    @ViewBuilder
-    private var notchPreview: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            notchPreviewCap
-
-            notchPreviewBody
-        }
-        .frame(width: notchPreviewWidth)
-        .background(.black)
-        .clipShape(NotchShape(bottomCornerRadius: notchBottomCornerRadius))
-        .frame(maxHeight: .infinity, alignment: .top)
-    }
-
-    private var notchPreviewCap: some View {
-        HStack(spacing: 0) {
-            HStack(spacing: notchPreviewLeftSpacing) {
-                appIconPlaceholder(size: 14, cornerRadius: 3)
-                contentLabel(dictation.notchIndicatorLeftContent, size: 9)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-            .padding(.leading, NotchIndicatorLayout.leadingInset)
-
-            Color.clear
-                .frame(width: previewNotchWidth)
-
-            contentLabel(dictation.notchIndicatorRightContent, size: 9)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
-                .padding(.trailing, NotchIndicatorLayout.trailingInset)
-        }
-        .frame(width: notchPreviewWidth, height: notchHeight)
-        .frame(maxWidth: .infinity)
-    }
-
-    private var notchPreviewBody: some View {
-        Text(streamingText)
-            .font(.system(size: notchPreviewFontSize))
-            .foregroundStyle(.white.opacity(0.7))
-            .lineLimit(2)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 28)
-            .padding(.vertical, 8)
-            .frame(height: notchPreviewBodyHeight, alignment: .top)
-            .clipped()
-            .opacity(showTranscriptPreview ? 1 : 0)
-    }
-
-    // MARK: - Overlay Preview
-
-    @ViewBuilder
-    private var overlayPreview: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                appIconPlaceholder(size: 18, cornerRadius: 4)
-                contentLabel(dictation.notchIndicatorLeftContent, size: 11)
-                Spacer()
-                contentLabel(dictation.notchIndicatorRightContent, size: 11)
-            }
-            .padding(.horizontal, 20)
-            .frame(height: 42)
-
-            if showTranscriptPreview {
-                Text(streamingText)
-                    .font(.system(size: overlayPreviewFontSize))
-                    .foregroundStyle(.white.opacity(0.7))
-                    .lineLimit(2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 10)
-            }
-        }
-        .frame(width: showTranscriptPreview ? 320 : 280)
-        .background(.black.opacity(0.85), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(Color.white.opacity(0.15), lineWidth: 1)
-        )
-    }
-
-    @ViewBuilder
-    private var minimalPreview: some View {
-        HStack(spacing: 8) {
-            appIconPlaceholder(size: 14, cornerRadius: 3)
-            if dictation.notchIndicatorRightContent != .none {
-                contentLabel(dictation.notchIndicatorRightContent, size: 11)
-            }
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(.black.opacity(0.85), in: Capsule())
-        .overlay(
-            Capsule()
-                .stroke(Color.white.opacity(0.14), lineWidth: 1)
-        )
-    }
-
-    // MARK: - App Icon Placeholder
-
-    private func appIconPlaceholder(size: CGFloat, cornerRadius: CGFloat) -> some View {
-        RoundedRectangle(cornerRadius: cornerRadius)
-            .fill(.white.opacity(0.15))
-            .frame(width: size, height: size)
-            .overlay(
-                Image(systemName: "app.fill")
-                    .font(.system(size: size * 0.6))
-                    .foregroundStyle(.white.opacity(0.4))
-            )
-    }
-
-    // MARK: - Content Label (for preview)
-
-    @ViewBuilder
-    private func contentLabel(_ content: NotchIndicatorContent, size: CGFloat) -> some View {
-        switch content {
-        case .indicator:
-            Circle()
-                .fill(Color.red)
-                .frame(width: size * 0.7, height: size * 0.7)
-        case .timer:
-            Text(formatDuration(notchPreviewRecordingDuration))
-                .font(.system(size: size, weight: .medium).monospacedDigit())
-                .foregroundStyle(.white.opacity(0.6))
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
-        case .waveform:
-            HStack(spacing: 1.5) {
-                ForEach(0..<5, id: \.self) { i in
-                    RoundedRectangle(cornerRadius: 1)
-                        .fill(.white)
-                        .frame(width: 2.5, height: [4, 8, 12, 7, 5][i])
-                }
-            }
-            .frame(height: 14)
-        case .profile:
-            Text(notchPreviewActiveRuleName)
-                .font(.system(size: size * 0.85, weight: .medium))
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .padding(.horizontal, 5)
-                .padding(.vertical, 2)
-                .frame(maxWidth: NotchIndicatorLayout.profileChipMaxWidth, alignment: .leading)
-        case .none:
-            Color.clear.frame(width: 0)
-        }
-    }
-
-    private func scaledPreviewMetric(_ baseMetric: CGFloat, for style: IndicatorStyle) -> CGFloat {
-        let fontSize = dictation.indicatorTranscriptPreviewFontSize(for: style)
-        return style.scaledTranscriptPreviewMetric(baseMetric, fontSize: fontSize)
-    }
-}
-
 #if DEBUG
 struct ScreenshotIndicatorShowcaseView: View {
     @ObservedObject private var dictation = DictationViewModel.shared
@@ -284,6 +27,90 @@ struct ScreenshotIndicatorShowcaseView: View {
     }
 }
 #endif
+
+// MARK: - Option Tile
+
+/// Selectable tile shared by the style and theme pickers.
+struct IndicatorOptionTile<Icon: View>: View {
+    let label: String
+    let isSelected: Bool
+    let action: () -> Void
+    @ViewBuilder let icon: () -> Icon
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 6) {
+                icon()
+                    .frame(height: 36)
+                Text(label)
+                    .font(.caption)
+                    .foregroundStyle(isSelected ? .primary : .secondary)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(isSelected ? Color.accentColor.opacity(0.1) : Color.secondary.opacity(0.05))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(isSelected ? Color.accentColor : Color.secondary.opacity(0.2), lineWidth: isSelected ? 2 : 1)
+            )
+        }
+        .frame(maxWidth: .infinity)
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityValue(isSelected ? String(localized: "Selected") : "")
+    }
+}
+
+// MARK: - Theme Tile Picker
+
+struct IndicatorThemePicker: View {
+    @ObservedObject private var dictation = DictationViewModel.shared
+    @Environment(\.colorScheme) private var systemColorScheme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(String(localized: "Theme"))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: 8) {
+                ForEach(IndicatorTheme.allCases, id: \.self) { theme in
+                    IndicatorOptionTile(
+                        label: theme.title,
+                        isSelected: dictation.indicatorTheme == theme,
+                        action: { dictation.indicatorTheme = theme }
+                    ) {
+                        themeSwatch(theme)
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func themeSwatch(_ theme: IndicatorTheme) -> some View {
+        HStack(spacing: 4) {
+            RoundedRectangle(cornerRadius: 1.5)
+                .fill(Color.primary.opacity(0.45))
+                .frame(width: 5, height: 5)
+            Text("1:23")
+                .font(.system(size: 7, weight: .medium).monospacedDigit())
+                .foregroundStyle(Color.primary.opacity(0.65))
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+        }
+        .padding(.horizontal, 8)
+        .frame(width: 56, height: 20)
+        .indicatorSurface(theme: theme, shape: Capsule())
+        .environment(\.colorScheme, theme.preferredColorScheme ?? systemColorScheme)
+        .padding(6)
+        .background(Color(white: 0.15), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+    }
+}
 
 // MARK: - Style Tile Picker
 
@@ -349,35 +176,17 @@ struct IndicatorStylePicker: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    @ViewBuilder
-    private func styleTile<Content: View>(_ style: IndicatorStyle, label: String, @ViewBuilder icon: () -> Content) -> some View {
-        let isSelected = dictation.indicatorStyle == style
-        Button {
-            dictation.indicatorStyle = style
-        } label: {
-            VStack(spacing: 6) {
-                icon()
-                    .frame(height: 36)
-                Text(label)
-                    .font(.caption)
-                    .foregroundStyle(isSelected ? .primary : .secondary)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 8)
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(isSelected ? Color.accentColor.opacity(0.1) : Color.secondary.opacity(0.05))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(isSelected ? Color.accentColor : Color.secondary.opacity(0.2), lineWidth: isSelected ? 2 : 1)
-            )
-        }
-        .frame(maxWidth: .infinity)
-        .buttonStyle(.plain)
-        .accessibilityLabel(label)
-        .accessibilityAddTraits(.isButton)
-        .accessibilityValue(isSelected ? String(localized: "Selected") : "")
+    private func styleTile<Content: View>(
+        _ style: IndicatorStyle,
+        label: String,
+        @ViewBuilder icon: @escaping () -> Content
+    ) -> some View {
+        IndicatorOptionTile(
+            label: label,
+            isSelected: dictation.indicatorStyle == style,
+            action: { dictation.indicatorStyle = style },
+            icon: icon
+        )
     }
 
     private func tileStatusIndicator(size: CGFloat, cornerRadius: CGFloat) -> some View {

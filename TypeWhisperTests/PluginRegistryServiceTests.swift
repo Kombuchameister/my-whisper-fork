@@ -329,6 +329,51 @@ final class PluginRegistryServiceTests: XCTestCase {
         XCTAssertTrue(plugin15.supportsCapability(.sourceFootageProgress))
     }
 
+    func testRegistrySelectsImportCapabilityReleaseForUpdatedHost() throws {
+        let data = Data(
+            """
+            {
+              "schemaVersion": 2,
+              "plugins": [
+                {
+                  "id": "com.typewhisper.multi",
+                  "name": "Multi Plugin",
+                  "author": "TypeWhisper",
+                  "description": "Multi-release entry",
+                  "category": "transcription",
+                  "releases": [
+                    {
+                      "version": "1.0.6",
+                      "minHostVersion": "1.7.0",
+                      "sdkCompatibilityVersion": "v1-model-import",
+                      "size": 12,
+                      "downloadURL": "https://github.com/Kombuchameister/my-whisper-fork/releases/download/test/model-import.zip"
+                    },
+                    {
+                      "version": "1.0.5",
+                      "minHostVersion": "1.7.0",
+                      "sdkCompatibilityVersion": "v1",
+                      "size": 10,
+                      "downloadURL": "https://github.com/Kombuchameister/my-whisper-fork/releases/download/test/legacy-v1.zip"
+                    }
+                  ]
+                }
+              ]
+            }
+            """.utf8
+        )
+
+        let response = try JSONDecoder().decode(PluginRegistryResponse.self, from: data)
+        let plugins = response.resolvedPlugins(
+            appVersion: "1.7.0",
+            sdkCompatibilityVersion: sdkCompatibilityVersion
+        )
+
+        XCTAssertEqual(plugins.count, 1)
+        XCTAssertEqual(plugins.first?.version, "1.0.6")
+        XCTAssertEqual(plugins.first?.downloadURL, "https://github.com/Kombuchameister/my-whisper-fork/releases/download/test/model-import.zip")
+    }
+
     func testMultiReleaseRegistryRejectsReleaseWithMismatchedSDKCompatibilityVersionAtSameHostVersion() throws {
         let data = Data(
             """
@@ -524,6 +569,83 @@ final class PluginRegistryServiceTests: XCTestCase {
         XCTAssertEqual(local.resolvedHosting, .local)
     }
 
+    func testDiscoverHostingFilterAllKeepsLocalAndCloudPlugins() {
+        let filter = DiscoverPluginFilter(hosting: .all)
+
+        XCTAssertEqual(
+            filter.apply(to: Self.discoverFilterPlugins).map(\.id),
+            ["whisper", "deepgram", "community-llm", "community-tts", "memory"]
+        )
+    }
+
+    func testDiscoverHostingFilterLocalKeepsOnlyLocalPlugins() {
+        let filter = DiscoverPluginFilter(hosting: .local)
+
+        XCTAssertEqual(
+            filter.apply(to: Self.discoverFilterPlugins).map(\.id),
+            ["whisper", "community-llm", "memory"]
+        )
+    }
+
+    func testDiscoverHostingFilterCloudKeepsOnlyCloudPlugins() {
+        let filter = DiscoverPluginFilter(hosting: .cloud)
+
+        XCTAssertEqual(
+            filter.apply(to: Self.discoverFilterPlugins).map(\.id),
+            ["deepgram", "community-tts"]
+        )
+    }
+
+    func testDiscoverHostingFilterCombinesWithCapabilityFilter() {
+        let plugins = Self.discoverFilterPlugins
+
+        XCTAssertEqual(
+            DiscoverPluginFilter(hosting: .all, capabilities: [.transcription]).apply(to: plugins).map(\.id),
+            ["whisper", "deepgram"]
+        )
+        XCTAssertEqual(
+            DiscoverPluginFilter(hosting: .local, capabilities: [.transcription]).apply(to: plugins).map(\.id),
+            ["whisper"]
+        )
+        XCTAssertEqual(
+            DiscoverPluginFilter(hosting: .cloud, capabilities: [.transcription, .tts]).apply(to: plugins).map(\.id),
+            ["deepgram", "community-tts"]
+        )
+        XCTAssertTrue(DiscoverPluginFilter(hosting: .cloud, capabilities: [.memory]).apply(to: plugins).isEmpty)
+    }
+
+    func testDiscoverHostingFilterCombinesWithCommunityToggle() {
+        let plugins = Self.discoverFilterPlugins
+
+        XCTAssertEqual(
+            DiscoverPluginFilter(includeCommunityPlugins: false, hosting: .all).apply(to: plugins).map(\.id),
+            ["whisper", "deepgram", "memory"]
+        )
+        XCTAssertEqual(
+            DiscoverPluginFilter(includeCommunityPlugins: false, hosting: .local).apply(to: plugins).map(\.id),
+            ["whisper", "memory"]
+        )
+        XCTAssertEqual(
+            DiscoverPluginFilter(includeCommunityPlugins: false, hosting: .cloud).apply(to: plugins).map(\.id),
+            ["deepgram"]
+        )
+        XCTAssertEqual(
+            DiscoverPluginFilter(includeCommunityPlugins: false, hosting: .local, capabilities: [.llm])
+                .apply(to: plugins)
+                .map(\.id),
+            []
+        )
+    }
+
+    func testDiscoverScopeIgnoresCapabilityFilterForCapabilityOptions() {
+        let filter = DiscoverPluginFilter(hosting: .local, capabilities: [.transcription])
+
+        XCTAssertEqual(
+            filter.scoped(Self.discoverFilterPlugins).map(\.id),
+            ["whisper", "community-llm", "memory"]
+        )
+    }
+
     @MainActor
     func testAvailableUpdatePluginsIncludesMarketplaceUpdatesInNameOrder() throws {
         let appSupportDirectory = try TestSupport.makeTemporaryDirectory(prefix: "PluginBulkUpdateSelection")
@@ -664,7 +786,9 @@ final class PluginRegistryServiceTests: XCTestCase {
         XCTAssertEqual(service.availableUpdatesCount, 0)
         XCTAssertTrue(service.availableUpdatePlugins().isEmpty)
         XCTAssertTrue(pluginManager.loadedPlugins.isEmpty)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: bundleURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: bundleURL.appendingPathComponent(PluginManager.pendingRemovalMarkerName).path
+        ))
         XCTAssertNil(PluginSettingsWindowManager.shared.managedWindow(for: pluginId))
 
         var installerWasCalled = false
@@ -674,6 +798,113 @@ final class PluginRegistryServiceTests: XCTestCase {
         }
         XCTAssertEqual(result, .empty)
         XCTAssertFalse(installerWasCalled)
+    }
+
+    @MainActor
+    func testUninstallingLoadedPluginKeepsBundleUntilNextLaunch() throws {
+        let appSupportDirectory = try TestSupport.makeTemporaryDirectory(prefix: "PluginDeferredUninstall")
+        let cacheDirectory = try TestSupport.makeTemporaryDirectory(prefix: "PluginDeferredUninstallCache")
+        let pluginId = "com.typewhisper.deferred-uninstall"
+        let enabledKey = "plugin.\(pluginId).enabled"
+        defer {
+            TestSupport.remove(appSupportDirectory)
+            TestSupport.remove(cacheDirectory)
+            UserDefaults.standard.removeObject(forKey: enabledKey)
+        }
+        // A scan that wrongly picked the bundle up would register it without mapping code.
+        UserDefaults.standard.set(false, forKey: enabledKey)
+
+        let previousPluginManager = PluginManager.shared
+        let pluginManager = PluginManager(appSupportDirectory: appSupportDirectory)
+        PluginManager.shared = pluginManager
+        defer { PluginManager.shared = previousPluginManager }
+
+        let bundleURL = pluginManager.pluginsDirectory
+            .appendingPathComponent("DeferredUninstallPlugin.bundle", isDirectory: true)
+        try Self.makePluginBundle(
+            at: bundleURL,
+            pluginId: pluginId,
+            pluginName: "Deferred Uninstall Plugin",
+            version: "1.0.0"
+        )
+        pluginManager.loadedPlugins = [
+            Self.makeLoadedPlugin(
+                id: pluginId,
+                name: "Deferred Uninstall Plugin",
+                version: "1.0.0",
+                sourceURL: bundleURL
+            ),
+        ]
+
+        let service = PluginRegistryService(
+            registryBaseURL: URL(string: "https://example.com")!,
+            cacheDirectory: cacheDirectory,
+            deleteCredentials: { _ in },
+            fetchData: { _ in throw URLError(.badServerResponse) }
+        )
+        try service.uninstallPlugin(pluginId)
+
+        // Plugin work that outlives deactivate() may still read the bundle's resources.
+        XCTAssertTrue(FileManager.default.fileExists(atPath: bundleURL.path))
+        XCTAssertTrue(pluginManager.loadedPlugins.isEmpty)
+
+        pluginManager.scanAndLoadPlugins()
+        XCTAssertTrue(FileManager.default.fileExists(atPath: bundleURL.path))
+        XCTAssertFalse(pluginManager.loadedPlugins.contains { $0.manifest.id == pluginId })
+
+        let relaunchedPluginManager = PluginManager(appSupportDirectory: appSupportDirectory)
+        relaunchedPluginManager.scanAndLoadPlugins()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: bundleURL.path))
+        XCTAssertFalse(relaunchedPluginManager.loadedPlugins.contains { $0.manifest.id == pluginId })
+    }
+
+    @MainActor
+    func testUninstallingPluginWhoseCodeNeverLoadedRemovesBundleImmediately() throws {
+        let appSupportDirectory = try TestSupport.makeTemporaryDirectory(prefix: "PluginUnloadedUninstall")
+        let cacheDirectory = try TestSupport.makeTemporaryDirectory(prefix: "PluginUnloadedUninstallCache")
+        let pluginId = "com.typewhisper.unloaded-uninstall"
+        let enabledKey = "plugin.\(pluginId).enabled"
+        defer {
+            TestSupport.remove(appSupportDirectory)
+            TestSupport.remove(cacheDirectory)
+            UserDefaults.standard.removeObject(forKey: enabledKey)
+        }
+
+        let previousPluginManager = PluginManager.shared
+        let pluginManager = PluginManager(appSupportDirectory: appSupportDirectory)
+        PluginManager.shared = pluginManager
+        defer { PluginManager.shared = previousPluginManager }
+
+        let bundleURL = pluginManager.pluginsDirectory
+            .appendingPathComponent("UnloadedUninstallPlugin.bundle", isDirectory: true)
+        try Self.makePluginBundle(
+            at: bundleURL,
+            pluginId: pluginId,
+            pluginName: "Unloaded Uninstall Plugin",
+            version: "1.0.0"
+        )
+        try pluginManager.registerUnloadedPlugin(
+            manifest: PluginManifest(
+                id: pluginId,
+                name: "Unloaded Uninstall Plugin",
+                version: "1.0.0",
+                sdkCompatibilityVersion: PluginSDKCompatibility.currentVersion,
+                principalClass: "RuntimeUpdatePlugin"
+            ),
+            sourceURL: bundleURL,
+            isEnabled: false
+        )
+
+        let service = PluginRegistryService(
+            registryBaseURL: URL(string: "https://example.com")!,
+            cacheDirectory: cacheDirectory,
+            deleteCredentials: { _ in },
+            fetchData: { _ in throw URLError(.badServerResponse) }
+        )
+        try service.uninstallPlugin(pluginId)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: bundleURL.path))
+        XCTAssertTrue(pluginManager.loadedPlugins.isEmpty)
     }
 
     @MainActor
@@ -899,6 +1130,81 @@ final class PluginRegistryServiceTests: XCTestCase {
         XCTAssertEqual(registeredPlugin.sourceURL, existingURL)
         XCTAssertTrue(registeredPlugin.isEnabled)
         XCTAssertFalse(registeredPlugin.isRuntimeLoaded)
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(atPath: pluginManager.pluginsDirectory.path),
+            ["RuntimeUpdatePlugin.bundle"]
+        )
+    }
+
+    @MainActor
+    func testFailedUpdateRestoresExistingBundleInPlace() async throws {
+        let appSupportDirectory = try TestSupport.makeTemporaryDirectory(prefix: "PluginFailedUpdate")
+        let incomingDirectory = try TestSupport.makeTemporaryDirectory(prefix: "PluginFailedUpdateIncoming")
+        let cacheDirectory = try TestSupport.makeTemporaryDirectory(prefix: "PluginFailedUpdateCache")
+        let pluginId = "com.typewhisper.failed-update"
+        let enabledKey = "plugin.\(pluginId).enabled"
+        defer {
+            TestSupport.remove(appSupportDirectory)
+            TestSupport.remove(incomingDirectory)
+            TestSupport.remove(cacheDirectory)
+            UserDefaults.standard.removeObject(forKey: enabledKey)
+        }
+
+        let previousPluginManager = PluginManager.shared
+        let pluginManager = PluginManager(appSupportDirectory: appSupportDirectory)
+        PluginManager.shared = pluginManager
+        defer { PluginManager.shared = previousPluginManager }
+
+        let existingURL = pluginManager.pluginsDirectory
+            .appendingPathComponent("FailedUpdatePlugin.bundle", isDirectory: true)
+        try Self.makePluginBundle(
+            at: existingURL,
+            pluginId: pluginId,
+            pluginName: "Failed Update Plugin",
+            version: "1.0.0"
+        )
+        try pluginManager.registerUnloadedPlugin(
+            manifest: PluginManifest(
+                id: pluginId,
+                name: "Failed Update Plugin",
+                version: "1.0.0",
+                sdkCompatibilityVersion: PluginSDKCompatibility.currentVersion,
+                principalClass: "RuntimeUpdatePlugin"
+            ),
+            sourceURL: existingURL,
+            isEnabled: false
+        )
+
+        // Loading the new bundle fails after it has been swapped into place.
+        let incomingURL = incomingDirectory
+            .appendingPathComponent("FailedUpdatePlugin.bundle", isDirectory: true)
+        try Self.makePluginBundle(
+            at: incomingURL,
+            pluginId: pluginId,
+            pluginName: "Failed Update Plugin",
+            version: "1.0.1",
+            minHostVersion: "999.0"
+        )
+
+        let service = PluginRegistryService(
+            registryBaseURL: URL(string: "https://example.com")!,
+            cacheDirectory: cacheDirectory,
+            fetchData: { _ in throw URLError(.badServerResponse) }
+        )
+
+        do {
+            _ = try await service.installFromFile(incomingURL)
+            XCTFail("Expected install to fail")
+        } catch {}
+
+        let manifestData = try Data(contentsOf: existingURL.appendingPathComponent("Contents/Resources/manifest.json"))
+        XCTAssertEqual(try JSONDecoder().decode(PluginManifest.self, from: manifestData).version, "1.0.0")
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(atPath: pluginManager.pluginsDirectory.path),
+            ["FailedUpdatePlugin.bundle"]
+        )
+        let registeredPlugin = try XCTUnwrap(pluginManager.loadedPlugins.first { $0.manifest.id == pluginId })
+        XCTAssertEqual(registeredPlugin.manifest.version, "1.0.0")
     }
 
     @MainActor
@@ -1665,6 +1971,47 @@ final class PluginRegistryServiceTests: XCTestCase {
         )
     }
 
+    /// Two official and two community plugins with explicit and fallback hosting, plus a local memory plugin.
+    private static var discoverFilterPlugins: [RegistryPlugin] {
+        [
+            makeDiscoverFilterPlugin(id: "whisper", categories: ["transcription"], hosting: .local),
+            makeDiscoverFilterPlugin(id: "deepgram", categories: ["transcription"], hosting: .cloud),
+            makeDiscoverFilterPlugin(id: "community-llm", source: .community, categories: ["llm"]),
+            makeDiscoverFilterPlugin(id: "community-tts", source: .community, categories: ["tts"], requiresAPIKey: true),
+            makeDiscoverFilterPlugin(id: "memory", categories: ["memory", "utility"], hosting: .local),
+        ]
+    }
+
+    private static func makeDiscoverFilterPlugin(
+        id: String,
+        source: PluginDistributionSource = .official,
+        categories: [String],
+        requiresAPIKey: Bool? = nil,
+        hosting: PluginHosting? = nil
+    ) -> RegistryPlugin {
+        RegistryPlugin(
+            id: id,
+            source: source,
+            name: id,
+            version: "1.0.0",
+            minHostVersion: "1.0.0",
+            sdkCompatibilityVersion: PluginSDKCompatibility.currentVersion,
+            minOSVersion: nil,
+            supportedArchitectures: nil,
+            author: "TypeWhisper",
+            description: "Test plugin",
+            category: categories[0],
+            categories: categories,
+            size: 10,
+            downloadURL: "https://example.com/\(id).zip",
+            iconSystemName: nil,
+            requiresAPIKey: requiresAPIKey,
+            hosting: hosting,
+            descriptions: nil,
+            downloadCount: nil
+        )
+    }
+
     private static func makeLoadedPlugin(
         id: String,
         name: String,
@@ -1693,7 +2040,8 @@ final class PluginRegistryServiceTests: XCTestCase {
         pluginId: String,
         pluginName: String,
         version: String,
-        sdkCompatibilityVersion: String? = PluginSDKCompatibility.currentVersion
+        sdkCompatibilityVersion: String? = PluginSDKCompatibility.currentVersion,
+        minHostVersion: String? = nil
     ) throws {
         let contentsURL = bundleURL.appendingPathComponent("Contents", isDirectory: true)
         let resourcesURL = contentsURL.appendingPathComponent("Resources", isDirectory: true)
@@ -1717,6 +2065,7 @@ final class PluginRegistryServiceTests: XCTestCase {
             id: pluginId,
             name: pluginName,
             version: version,
+            minHostVersion: minHostVersion,
             sdkCompatibilityVersion: sdkCompatibilityVersion,
             principalClass: "RuntimeUpdatePlugin"
         )
