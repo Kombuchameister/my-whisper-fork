@@ -598,11 +598,25 @@ final class PluginRegistryService: ObservableObject {
         )
     }
 
+    /// Whether the plugin comes from the fork: its source is in the fork's
+    /// checkout, or its installed bundle was built from it. Such plugins are
+    /// built by scripts/fork/install-plugins.sh only, never taken from the catalog,
+    /// regardless of how a copy got installed or whether it currently loads.
     func isForkBuiltPlugin(_ pluginId: String) -> Bool {
-        guard let loaded = PluginManager.shared?.loadedPlugins.first(where: { $0.manifest.id == pluginId }) else {
-            return false
-        }
-        return Self.isForkBuiltPluginBundle(at: loaded.sourceURL)
+        Self.isForkPlugin(
+            pluginId,
+            forkSourceIds: AppConstants.ForkDistribution.forkPluginSourceIds,
+            installedBundleURL: PluginManager.shared?.loadedPlugins.first(where: { $0.manifest.id == pluginId })?.sourceURL
+        )
+    }
+
+    nonisolated static func isForkPlugin(
+        _ pluginId: String,
+        forkSourceIds: Set<String>,
+        installedBundleURL: URL?
+    ) -> Bool {
+        if forkSourceIds.contains(pluginId) { return true }
+        return installedBundleURL.map(isForkBuiltPluginBundle(at:)) ?? false
     }
 
     init(
@@ -809,7 +823,7 @@ final class PluginRegistryService: ObservableObject {
             return .bundled
         }
 
-        guard !Self.isForkBuiltPluginBundle(at: loaded.sourceURL),
+        guard !isForkBuiltPlugin(pluginId),
               let registryPlugin = registry.first(where: { $0.id == pluginId }) else {
             return .installed(version: loaded.manifest.version)
         }
@@ -829,7 +843,10 @@ final class PluginRegistryService: ObservableObject {
         return installBundledPlugin(plugin)
         #endif
         guard !isForkBuiltPlugin(plugin.id) else {
-            installStates[plugin.id] = .error("Built from the fork; update it with scripts/fork/install-plugins.sh")
+            installStates[plugin.id] = .error(
+                "This plugin is built from your fork. Run scripts/fork/update-mac.sh, or "
+                    + "scripts/fork/install-plugins.sh --app-support \(AppConstants.appSupportDirectoryName) --add <Name>Plugin"
+            )
             return false
         }
         guard plugin.isCompatibleWithCurrentEnvironment else {
