@@ -41,7 +41,7 @@ plus Sparkle's `SUFeedURL` in `TypeWhisper/Resources/Info.plist`.
 | Plugin catalog (Integrations → Discover) | upstream's `typewhisper.github.io/typewhisper-mac/plugins-community-v1.json` | all upstream plugins listed and installable |
 | Term packs | `kombuchameister.github.io/my-whisper-fork/termpacks.json` | published by the fork's term-pack workflow |
 | Plugin downloads (official and community) | `github.com/TypeWhisper/typewhisper-mac/releases/download/…` or `github.com/Kombuchameister/my-whisper-fork/releases/download/…` | anything else is ignored |
-| Fork-built plugins | built by `scripts/fork/install-plugins.sh`, marked with `Contents/Resources/ForkPluginBuild.txt` | never offered upstream updates, never replaced from the catalog |
+| Plugins with a source in this repo | built by `scripts/fork/install-plugins.sh`; their IDs are embedded in the app (`ForkPluginSources.txt`) and each bundle is marked (`ForkPluginBuild.txt`) | never updated, replaced, or installed from the catalog |
 
 Upstream's `SUPublicEDKey` is still in Info.plist, but it cannot validate anything the fork
 publishes. Before hosting a fork appcast, generate a fork key with Sparkle's `generate_keys`
@@ -90,8 +90,10 @@ Not synced: API keys and logins, history, usage statistics, audio, and models.
 
 First setup on a new Mac:
 
-1. Install Xcode, open it once, and sign in under Settings > Accounts with the same Apple ID.
-   That creates the Apple Development certificate the build signs with.
+1. Install Xcode, open it, sign in under Settings > Accounts with the same Apple ID, then
+   choose Manage Certificates… > + > Apple Development. Signing in alone does not always
+   create the certificate, and the build refuses to install an unsigned app (macOS cannot
+   keep microphone or Device Control permissions for one).
 2. Install the GitHub CLI and sign in: `brew install gh && gh auth login`.
 3. Clone and build:
    ```bash

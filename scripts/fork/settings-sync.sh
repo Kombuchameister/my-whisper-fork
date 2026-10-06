@@ -172,6 +172,19 @@ with open(out, "wb") as f:
     plistlib.dump(merged, f, fmt=plistlib.FMT_XML)
 ' "$backup/preferences.plist" "$data_dir/preferences.plist" "$HOME" "$backup/merged.plist"
   defaults import "$domain" "$backup/merged.plist"
+  # Read every synced key back, so a failed import cannot pass unnoticed.
+  defaults export "$domain" - | python3 -c '
+import plistlib, sys
+now = plistlib.loads(sys.stdin.buffer.read())
+with open(sys.argv[1], "rb") as f:
+    wanted = plistlib.load(f)
+with open(sys.argv[2], "rb") as f:
+    synced = plistlib.load(f)
+wrong = [k for k in synced if k in wanted and now.get(k) != wanted[k] and not isinstance(wanted[k], float)]
+if wrong:
+    sys.exit("[settings-sync] error: these settings did not apply: " + ", ".join(sorted(wrong)[:20]))
+print("[settings-sync] applied %d settings" % len([k for k in synced if k in wanted]))
+' "$backup/merged.plist" "$data_dir/preferences.plist"
   rm "$backup/merged.plist"
 
   for dump in "$data_dir"/stores/*.sql; do
@@ -181,6 +194,7 @@ with open(out, "wb") as f:
       [[ -e "$app_dir/$store.store$suffix" ]] && mv "$app_dir/$store.store$suffix" "$backup/"
     done
     sqlite3 "$app_dir/$store.store" < "$dump"
+    log "restored $store"
   done
 
   if [[ -d "$data_dir/plugin-data" ]]; then

@@ -65,6 +65,15 @@ done
 log "built $(basename "$built")"
 printf 'branch=%s\ncommit=%s\n' "$branch" "$commit" > "$built/Contents/Resources/FeatureBuildSource.txt"
 
+# Every plugin with a source in this checkout is built by install-plugins.sh;
+# the app never updates or installs these from upstream's catalog.
+{
+  echo "# plugin IDs built from $branch @ $commit"
+  for manifest in "$repo_root"/TypeWhisperPluginSDK/Plugins/*/manifest.json; do
+    python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["id"])' "$manifest"
+  done
+} > "$built/Contents/Resources/ForkPluginSources.txt"
+
 # Stage outside the checkout: files under ~/Desktop pick up Finder/iCloud
 # metadata that codesign rejects ("resource fork ... detritus not allowed").
 staging_dir="$(mktemp -d)"
@@ -85,7 +94,7 @@ elif printf '%s\n' "$identities" | grep -qF "\"$local_signing_identity\""; then
   signing_hash="$local_signing_identity"
   signing_name="$local_signing_identity"
   log "warning: no Apple Development certificate; Keychain will ask once per key after each rebuild."
-  log "         Sign in to Xcode (Settings > Accounts) to create one."
+  log "         Create one in Xcode: Settings > Accounts > Manage Certificates… > + > Apple Development."
 fi
 
 if [[ -n "$signing_hash" ]]; then
@@ -93,8 +102,10 @@ if [[ -n "$signing_hash" ]]; then
   codesign --force --deep --sign "$signing_hash" --timestamp=none "$built"
   codesign --verify --deep --strict "$built"
 else
-  log "warning: no signing identity; run scripts/fork/setup-local-signing.sh once."
-  log "         Unsigned builds make Keychain ask again after every rebuild."
+  # An unsigned app cannot hold privacy permissions: macOS asks for the
+  # microphone again and again, and Device Control switches never stick.
+  die "no code-signing identity. In Xcode: Settings > Accounts > select your Apple ID >
+       Manage Certificates… > + > Apple Development. Then run this again."
 fi
 
 if pgrep -f "$install_path/Contents/MacOS/TypeWhisper" >/dev/null; then

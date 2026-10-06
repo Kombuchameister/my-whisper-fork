@@ -120,6 +120,19 @@ final class AppFormatterServiceTests: XCTestCase {
         XCTAssertTrue(PluginRegistryService.isForkBuiltPluginBundle(at: bundleURL))
     }
 
+    func testPluginsWithForkSourcesAreProtectedEvenWithoutMarker() {
+        let catalogCopy = URL(fileURLWithPath: "/tmp/does-not-exist/OpenAIPlugin.bundle")
+        XCTAssertTrue(PluginRegistryService.isForkPlugin(
+            "com.typewhisper.openai", forkSourceIds: ["com.typewhisper.openai"], installedBundleURL: catalogCopy
+        ))
+        XCTAssertTrue(PluginRegistryService.isForkPlugin(
+            "com.typewhisper.openai", forkSourceIds: ["com.typewhisper.openai"], installedBundleURL: nil
+        ), "Not installed or not loaded must not open the catalog route either")
+        XCTAssertFalse(PluginRegistryService.isForkPlugin(
+            "com.example.community", forkSourceIds: ["com.typewhisper.openai"], installedBundleURL: catalogCopy
+        ))
+    }
+
     func testBundledPreviewReleaseUsesReleaseCandidateTagAndURL() throws {
         let release = try XCTUnwrap(AppConstants.bundledPreviewRelease(
             infoDictionary: [

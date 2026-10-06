@@ -508,8 +508,9 @@ extension AppConstants {
     /// App updates and term packs come from the fork only; Sparkle's `SUFeedURL`
     /// in Info.plist must stay under `pagesBaseURL`.
     /// The plugin catalog is upstream's, so every upstream plugin stays available.
-    /// Plugins built from this fork carry `forkPluginBuildMarker` and are never
-    /// updated or replaced from the catalog (see `PluginRegistryService`).
+    /// Plugins whose source is in the fork (`forkPluginSourceIds`) and bundles
+    /// carrying `forkPluginBuildMarker` are never updated, replaced, or installed
+    /// from the catalog (see `PluginRegistryService`).
     /// See FORK.md for how these feeds are published.
     enum ForkDistribution {
         static let repositoryPath = "Kombuchameister/my-whisper-fork"
@@ -523,5 +524,15 @@ extension AppConstants {
         static let upstreamReleaseDownloadPathPrefix = "/\(upstreamRepositoryPath)/releases/download/"
         /// Written into each plugin bundle by scripts/fork/install-plugins.sh.
         static let forkPluginBuildMarker = "Contents/Resources/ForkPluginBuild.txt"
+        /// IDs of every plugin whose source is in the fork, embedded by
+        /// scripts/fork/build-main-app.sh. Empty in builds made any other way.
+        static let forkPluginSourceIds: Set<String> = {
+            guard let url = Bundle.main.url(forResource: "ForkPluginSources", withExtension: "txt"),
+                  let text = try? String(contentsOf: url, encoding: .utf8) else {
+                return []
+            }
+            return Set(text.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty && !$0.hasPrefix("#") })
+        }()
     }
 }
