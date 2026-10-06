@@ -95,7 +95,7 @@ scripts/fork/snapshot-app-state.sh --message "before trying X"
 Upstream's release and registry workflows are disabled in the fork's Actions settings
 (not in the workflow files, so upstream merges stay conflict-free): Build and Release,
 Build and Release Plugin, Update Plugin Download Counts, Redeploy Website on Release Edit,
-PR Guard, Community Plugin Registry, Fetch Notarization Log, CodeQL.
+PR Guard, Community Plugin Registry, Fetch Notarization Log, CodeQL, Mac App Store Upload.
 
 Enabled: Build DMG (build and tests on push), Update Term Packs (publishes `termpacks.json`
 to the fork's Pages), Feature App (isolated developer app artifacts).
