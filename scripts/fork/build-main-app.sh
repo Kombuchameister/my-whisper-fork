@@ -13,7 +13,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 slug="main"
 bundle_id="com.typewhisper.mac.dev.main"
 install_path="$HOME/Applications/TypeWhsiper-main.app"
-signing_identity="TypeWhisper Fork Local Signing"
+local_signing_identity="TypeWhisper Fork Local Signing"
 derived="$repo_root/.build/DerivedData-MainApp"
 archive_dir="$HOME/TypeWhisper-archives/apps"
 
@@ -56,12 +56,28 @@ trap 'rm -rf "$staging_dir"' EXIT
 ditto --noextattr --norsrc "$built" "$staging_dir/TypeWhisper.app"
 built="$staging_dir/TypeWhisper.app"
 
-if security find-identity -v -p codesigning | grep -qF "\"$signing_identity\""; then
-  log "signing with \"$signing_identity\""
-  codesign --force --deep --sign "$signing_identity" --timestamp=none "$built"
+# Prefer an Apple Development certificate: its Team ID gives Keychain items a
+# stable partition ("teamid:…"), so rebuilds never prompt again. The local
+# self-signed identity has no Team ID; Keychain then pins each build's code
+# hash and asks once per key after every rebuild. Sign by SHA-1 so a renewed
+# certificate next to an expiring one is not ambiguous (newest listed last).
+identities="$(security find-identity -v -p codesigning)"
+signing_hash="$(printf '%s\n' "$identities" | awk '/"Apple Development: /{h=$2} END{print h}')"
+if [[ -n "$signing_hash" ]]; then
+  signing_name="$(printf '%s\n' "$identities" | awk -v h="$signing_hash" '$2==h{sub(/^[^"]*"/,""); sub(/"$/,""); print}')"
+elif printf '%s\n' "$identities" | grep -qF "\"$local_signing_identity\""; then
+  signing_hash="$local_signing_identity"
+  signing_name="$local_signing_identity"
+  log "warning: no Apple Development certificate; Keychain will ask once per key after each rebuild."
+  log "         Sign in to Xcode (Settings > Accounts) to create one."
+fi
+
+if [[ -n "$signing_hash" ]]; then
+  log "signing with \"$signing_name\""
+  codesign --force --deep --sign "$signing_hash" --timestamp=none "$built"
   codesign --verify --deep --strict "$built"
 else
-  log "warning: \"$signing_identity\" not found; run scripts/fork/setup-local-signing.sh once."
+  log "warning: no signing identity; run scripts/fork/setup-local-signing.sh once."
   log "         Unsigned builds make Keychain ask again after every rebuild."
 fi
 

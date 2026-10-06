@@ -50,14 +50,19 @@ and replace it.
 ## Building the main app
 
 ```bash
-scripts/fork/setup-local-signing.sh   # once: creates a local code-signing identity (asks for your password)
+scripts/fork/setup-local-signing.sh   # optional fallback: local identity when no Apple Development certificate exists
 scripts/fork/build-main-app.sh        # every rebuild from main
 ```
 
 `build-main-app.sh` builds the checkout with the main app's isolated identity
-(`com.typewhisper.mac.dev.main`, `TypeWhisper-Dev-main`), signs it with the local identity so
-Keychain approvals survive rebuilds, archives the previous app under `~/TypeWhisper-archives/apps/`,
+(`com.typewhisper.mac.dev.main`, `TypeWhisper-Dev-main`), signs it with your Apple Development
+certificate (falling back to the local identity), archives the previous app under `~/TypeWhisper-archives/apps/`,
 and installs to `~/Applications/TypeWhsiper-main.app`. Settings are never touched.
+
+Keychain approvals: macOS ties each Keychain item to the signer's Team ID. An Apple Development
+certificate has one, so "Always Allow" holds across rebuilds. The local self-signed identity has
+none, so Keychain pins every build's code hash and asks once per key after each rebuild. After
+switching identities, each key asks once more; answer "Always Allow".
 
 ## Plugins
 
