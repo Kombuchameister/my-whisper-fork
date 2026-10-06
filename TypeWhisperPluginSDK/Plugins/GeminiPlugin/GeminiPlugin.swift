@@ -1293,8 +1293,13 @@ actor GeminiLiveTranscriptionSession: LiveTranscriptionSession {
     // boundary. Leave near-send events uncredited and use the bounded fallback.
     // This conservative VAD/network allowance is not a server ordering guarantee.
     private static let completionAttributionDelay: Duration = .seconds(1)
+    // Text that is still arriving after release extends the wait by this much,
+    // up to maximumFinishTime, so a slow final transcript is not cut off.
+    private static let transcriptIdleExtension: Duration = .seconds(1)
     private let finishTimeout: Duration
+    private let maximumFinishTime: Duration
     private let completionSettleTime: Duration
+    private let speechResumeGrace: Duration
     private let now: @Sendable () -> ContinuousClock.Instant
     private let connectionOpenedAt: ContinuousClock.Instant
     private let socket: any GeminiLiveWebSocket
@@ -1315,22 +1320,44 @@ actor GeminiLiveTranscriptionSession: LiveTranscriptionSession {
     private var completionAudioRevision: Int?
     private var completionReceivedAt: ContinuousClock.Instant?
     private var lastTranscriptAt: ContinuousClock.Instant?
+    // Gemini's server VAD reports ACTIVITY_START and ACTIVITY_END. A final
+    // transcript and a completion after the latest start, followed by an end,
+    // cover everything the server heard as speech, even when the microphone
+    // keeps sending room noise.
+    private var serverSpeechEnded = false
+    private var serverTurnCompletedAt: ContinuousClock.Instant?
+    private var serverTurnHasFinalTranscript = false
+    // Transcripts and completions carry no turn reference. Once a new turn
+    // starts before the previous one delivered its final transcript and its
+    // completion, later events cannot be assigned to a turn, so the dictation
+    // falls back to the bounded wait instead of settling early.
+    private var serverTurnStarted = false
+    private var serverTurnAttributionAmbiguous = false
+    // An interrupted turn ends with interrupted, then turnComplete, and a
+    // generationComplete may be followed by a delayed turnComplete. Either
+    // turnComplete belongs to the earlier turn, not to resumed speech.
+    private var interruptedTurnCompletesAwaited = 0
+    private var turnCompletesAwaitedAfterGeneration = 0
     private var latestError: String?
     private var socketClosed = false
     private var serverClosing = false
     private var cancelled = false
-    private var endSignalSent = false
+    private var endSignalSentAt: ContinuousClock.Instant?
 
     private init(
         socket: any GeminiLiveWebSocket,
         finishTimeout: Duration,
+        maximumFinishTime: Duration,
         completionSettleTime: Duration,
+        speechResumeGrace: Duration,
         now: @Sendable @escaping () -> ContinuousClock.Instant,
         onProgress: (@Sendable (String) -> Bool)?
     ) {
         self.socket = socket
         self.finishTimeout = finishTimeout
+        self.maximumFinishTime = max(finishTimeout, maximumFinishTime)
         self.completionSettleTime = completionSettleTime
+        self.speechResumeGrace = speechResumeGrace
         self.now = now
         self.connectionOpenedAt = now()
         self.onProgress = onProgress
@@ -1344,7 +1371,9 @@ actor GeminiLiveTranscriptionSession: LiveTranscriptionSession {
         customVocabulary: [String],
         socket suppliedSocket: (any GeminiLiveWebSocket)? = nil,
         finishTimeout: Duration = .seconds(3),
+        maximumFinishTime: Duration = .seconds(5),
         completionSettleTime: Duration = .milliseconds(200),
+        speechResumeGrace: Duration = .milliseconds(800),
         now: @Sendable @escaping () -> ContinuousClock.Instant = { .now },
         onProgress: (@Sendable (String) -> Bool)? = nil
     ) async throws -> GeminiLiveTranscriptionSession {
@@ -1360,7 +1389,9 @@ actor GeminiLiveTranscriptionSession: LiveTranscriptionSession {
         let session = GeminiLiveTranscriptionSession(
             socket: suppliedSocket ?? GeminiURLSessionWebSocket(url: url),
             finishTimeout: finishTimeout,
+            maximumFinishTime: maximumFinishTime,
             completionSettleTime: completionSettleTime,
+            speechResumeGrace: speechResumeGrace,
             now: now,
             onProgress: onProgress
         )
@@ -1440,7 +1471,7 @@ actor GeminiLiveTranscriptionSession: LiveTranscriptionSession {
 
     private var latestSafeClaimTime: ContinuousClock.Instant {
         connectionOpenedAt.advanced(
-            by: .seconds(Self.connectionLifetimeSeconds) - Self.minimumRecordingLifetime - finishTimeout
+            by: .seconds(Self.connectionLifetimeSeconds) - Self.minimumRecordingLifetime - maximumFinishTime
         )
     }
 
@@ -1524,12 +1555,14 @@ actor GeminiLiveTranscriptionSession: LiveTranscriptionSession {
     }
 
     private func performFinish() async throws -> PluginTranscriptionResult {
+        let finishStartedAt = now()
         // Include a stalled audioStreamEnd send in the total release budget.
-        let deadline = now().advanced(by: finishTimeout)
+        let deadline = finishStartedAt.advanced(by: finishTimeout)
+        let limit = finishStartedAt.advanced(by: maximumFinishTime)
         let endSignal = Task {
             do {
                 try await socket.send(.string(Self.audioStreamEndMessage))
-                endSignalSent = true
+                endSignalSentAt = now()
             } catch {
                 if !socketClosed { latestError = error.localizedDescription }
             }
@@ -1538,9 +1571,10 @@ actor GeminiLiveTranscriptionSession: LiveTranscriptionSession {
             endSignal.cancel()
             closeSocket(code: .normalClosure)
         }
-        while latestError == nil, !socketClosed, now() < deadline {
+        while latestError == nil, !socketClosed,
+              now() < finishDeadline(base: deadline, limit: limit, finishStartedAt: finishStartedAt) {
             try Task.checkCancellation()
-            if endSignalSent, hasSettledCompletion { break }
+            if endSignalSentAt != nil, hasSettledCompletion { break }
             try await Task.sleep(for: .milliseconds(25))
         }
         try Task.checkCancellation()
@@ -1556,12 +1590,45 @@ actor GeminiLiveTranscriptionSession: LiveTranscriptionSession {
         return result
     }
 
+    /// Waits past the base budget only while Gemini still delivers text for the
+    /// released audio, and never past the hard limit.
+    private func finishDeadline(
+        base: ContinuousClock.Instant,
+        limit: ContinuousClock.Instant,
+        finishStartedAt: ContinuousClock.Instant
+    ) -> ContinuousClock.Instant {
+        guard let lastTranscriptAt, lastTranscriptAt > finishStartedAt else { return base }
+        return min(limit, max(base, lastTranscriptAt.advanced(by: Self.transcriptIdleExtension)))
+    }
+
     var hasSettledCompletion: Bool {
-        guard completionAudioRevision == lastNonSilentAudioRevision,
-              let completionReceivedAt,
+        guard !serverTurnAttributionAmbiguous,
               !collector.hasUncommittedInterimText, !collector.resultText.isEmpty else { return false }
+        return hasSettledAttributedCompletion || hasSettledServerTurn
+    }
+
+    private var hasSettledAttributedCompletion: Bool {
+        guard completionAudioRevision == lastNonSilentAudioRevision,
+              let completionReceivedAt else { return false }
+        return isSettled(after: completionReceivedAt)
+    }
+
+    // A real microphone keeps sending room noise after a completed turn, which
+    // the audio revision check above never credits. Gemini's VAD still reports
+    // that no speech followed. The grace after audioStreamEnd lets speech that
+    // resumed just before release report ACTIVITY_START first. Gemini's flush
+    // after audioStreamEnd arrived 0.22-0.47 s after release in live tests, so
+    // the default leaves margin for a late start.
+    private var hasSettledServerTurn: Bool {
+        guard serverSpeechEnded, serverTurnHasFinalTranscript,
+              let serverTurnCompletedAt, let endSignalSentAt,
+              now() >= endSignalSentAt.advanced(by: speechResumeGrace) else { return false }
+        return isSettled(after: serverTurnCompletedAt)
+    }
+
+    private func isSettled(after completionAt: ContinuousClock.Instant) -> Bool {
         // Input transcription and generation completion have no guaranteed order.
-        let lastUpdate = max(completionReceivedAt, lastTranscriptAt ?? completionReceivedAt)
+        let lastUpdate = max(completionAt, lastTranscriptAt ?? completionAt)
         return now() >= lastUpdate.advanced(by: completionSettleTime)
     }
 
@@ -1620,6 +1687,20 @@ actor GeminiLiveTranscriptionSession: LiveTranscriptionSession {
                 return
             }
         }
+        switch response.voiceActivity?.type {
+        case "ACTIVITY_START":
+            if serverTurnStarted, !serverTurnHasFinalTranscript || serverTurnCompletedAt == nil {
+                serverTurnAttributionAmbiguous = true
+            }
+            serverTurnStarted = true
+            serverSpeechEnded = false
+            serverTurnCompletedAt = nil
+            serverTurnHasFinalTranscript = false
+        case "ACTIVITY_END":
+            serverSpeechEnded = true
+        default:
+            break
+        }
         guard let content = response.serverContent else { return }
         let preview = collector.apply(
             interimText: content.interimInputTranscription?.text,
@@ -1631,7 +1712,27 @@ actor GeminiLiveTranscriptionSession: LiveTranscriptionSession {
             && (lastNonSilentAudioSentAt.map {
                 receivedAt >= $0.advanced(by: Self.completionAttributionDelay)
             } ?? true)
-        if (content.generationComplete == true || content.turnComplete == true), canAttributeCompletion {
+        if content.inputTranscription?.text?.contains(where: { !$0.isWhitespace }) == true {
+            serverTurnHasFinalTranscript = true
+        }
+        if content.interrupted == true { interruptedTurnCompletesAwaited += 1 }
+        var isCompletion = content.generationComplete == true
+        // A combined generationComplete + turnComplete completes its own turn
+        // and leaves earlier pending turnCompletes untouched.
+        if content.turnComplete == true, content.generationComplete != true {
+            if interruptedTurnCompletesAwaited > 0 {
+                interruptedTurnCompletesAwaited -= 1
+            } else if turnCompletesAwaitedAfterGeneration > 0 {
+                turnCompletesAwaitedAfterGeneration -= 1
+            } else {
+                isCompletion = true
+            }
+        }
+        if content.generationComplete == true, content.turnComplete != true {
+            turnCompletesAwaitedAfterGeneration += 1
+        }
+        if isCompletion { serverTurnCompletedAt = receivedAt }
+        if isCompletion, canAttributeCompletion {
             completionAudioRevision = lastNonSilentAudioRevision
             completionReceivedAt = receivedAt
         }
@@ -1779,14 +1880,32 @@ private struct GeminiLiveResponse: Decodable, Sendable {
     let setupComplete: EmptyObject?
     let goAway: EmptyObject?
     let serverContent: ServerContent?
+    let voiceActivity: VoiceActivity?
     let error: APIError?
 
     struct EmptyObject: Decodable, Sendable {}
+
+    struct VoiceActivity: Decodable, Sendable {
+        let type: String?
+
+        // Live responses use type; the published SDK types name it voiceActivityType.
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            type = try container.decodeIfPresent(String.self, forKey: .type)
+                ?? container.decodeIfPresent(String.self, forKey: .voiceActivityType)
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case type
+            case voiceActivityType
+        }
+    }
 
     struct ServerContent: Decodable, Sendable {
         let interimInputTranscription: Transcription?
         let inputTranscription: Transcription?
         let turnComplete: Bool?
+        let interrupted: Bool?
         let generationComplete: Bool?
     }
 
