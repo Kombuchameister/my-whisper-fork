@@ -108,6 +108,22 @@ final class GroqPlugin: NSObject, TranscriptionEnginePlugin, DictionaryTermsCapa
     }
 
     func transcribe(audio: AudioData, language: String?, translate: Bool, prompt: String?) async throws -> PluginTranscriptionResult {
+        try await transcribeInChunks(
+            audio: audio,
+            language: language,
+            translate: translate,
+            prompt: prompt,
+            onSourceProgress: { _ in true }
+        )
+    }
+
+    func transcribeInChunks(
+        audio: AudioData,
+        language: String?,
+        translate: Bool,
+        prompt: String?,
+        onSourceProgress: @Sendable @escaping (PluginTranscriptionSourceProgress) -> Bool
+    ) async throws -> PluginTranscriptionResult {
         guard let apiKey = _apiKey, !apiKey.isEmpty else {
             throw PluginTranscriptionError.notConfigured
         }
@@ -115,15 +131,17 @@ final class GroqPlugin: NSObject, TranscriptionEnginePlugin, DictionaryTermsCapa
             throw PluginTranscriptionError.noModelSelected
         }
 
-        return try await transcriptionHelper.transcribeCompressedAudioWithWavFallback(
-            audio: audio,
-            apiKey: apiKey,
-            modelName: modelId,
-            language: language,
-            translate: translate,
-            prompt: prompt,
-            requestTimeout: Self.transcriptionRequestTimeout
-        )
+        return try await GroqChunkedTranscription.transcribe(audio: audio, onSourceProgress: onSourceProgress) { chunk in
+            try await transcriptionHelper.transcribeCompressedAudioWithWavFallback(
+                audio: chunk,
+                apiKey: apiKey,
+                modelName: modelId,
+                language: language,
+                translate: translate,
+                prompt: prompt,
+                requestTimeout: Self.transcriptionRequestTimeout
+            )
+        }
     }
 
     // MARK: - LLMProviderPlugin
