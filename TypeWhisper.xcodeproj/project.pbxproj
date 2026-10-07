@@ -315,6 +315,7 @@
 		AA00000000000000000133 /* TypeWhisperPluginSDK in Frameworks */ = {isa = PBXBuildFile; productRef = PP00000000000000000006 /* TypeWhisperPluginSDK */; };
 		AA00000000000000000134 /* TypeWhisperPluginSDK in Embed Frameworks */ = {isa = PBXBuildFile; productRef = PP00000000000000000005 /* TypeWhisperPluginSDK */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		AA00000000000000000135 /* GroqPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB00000000000000000136 /* GroqPlugin.swift */; };
+		F0C4000000000000000000A1 /* GroqChunkedTranscription.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0C4000000000000000000B1 /* GroqChunkedTranscription.swift */; };
 		AA00000000000000000136 /* manifest.json in Resources */ = {isa = PBXBuildFile; fileRef = BB00000000000000000137 /* manifest.json */; };
 		AA00000000000000000137 /* TypeWhisperPluginSDK in Frameworks */ = {isa = PBXBuildFile; productRef = PP00000000000000000007 /* TypeWhisperPluginSDK */; };
 		AA00000000000000000138 /* OpenAIPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB00000000000000000139 /* OpenAIPlugin.swift */; };
@@ -947,6 +948,7 @@
 		BB00000000000000000134 /* GroqPlugin.bundle */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = GroqPlugin.bundle; sourceTree = BUILT_PRODUCTS_DIR; };
 		BB00000000000000000135 /* OpenAIPlugin.bundle */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = OpenAIPlugin.bundle; sourceTree = BUILT_PRODUCTS_DIR; };
 		BB00000000000000000136 /* GroqPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroqPlugin.swift; sourceTree = "<group>"; };
+		F0C4000000000000000000B1 /* GroqChunkedTranscription.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroqChunkedTranscription.swift; sourceTree = "<group>"; };
 		BB00000000000000000137 /* manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = manifest.json; sourceTree = "<group>"; };
 		BB00000000000000000139 /* OpenAIPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAIPlugin.swift; sourceTree = "<group>"; };
 		BB00000000000000000140 /* manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = manifest.json; sourceTree = "<group>"; };
@@ -2236,6 +2238,7 @@
 			isa = PBXGroup;
 			children = (
 				BB00000000000000000136 /* GroqPlugin.swift */,
+				F0C4000000000000000000B1 /* GroqChunkedTranscription.swift */,
 				BB00000000000000000137 /* manifest.json */,
 				BB00000000000000000163 /* Localizable.xcstrings */,
 			);
@@ -5241,6 +5244,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				AA00000000000000000135 /* GroqPlugin.swift in Sources */,
+				F0C4000000000000000000A1 /* GroqChunkedTranscription.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
